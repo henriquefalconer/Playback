@@ -4,3 +4,4 @@ dev_data/
 dev_logs/
 dist/
 dev_config.json
+claude_logs/
