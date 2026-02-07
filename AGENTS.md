@@ -12,6 +12,10 @@ Key operational learnings from Phase 2 development (2026-02-07):
 - **Keyboard shortcuts:** Use `NSEvent.addLocalMonitorForEvents` with keyCode comparison for timeline-local shortcuts
 - **DatePicker binding:** Requires separate `@State var selectedTime` binding to avoid mutating published state directly
 - **Git authentication in containers:** When running in Linux/Docker environments, git push may fail due to authentication issues - commits/tags are created locally but require manual push from macOS host
+- **Settings UI organization:** All settings tabs are defined in single file `src/Playback/Playback/Settings/SettingsView.swift` - each tab is separate struct (PrivacySettingsTab, StorageSettingsTab, etc.)
+- **Permission checking:** Screen Recording via Python/Quartz `CGWindowListCopyWindowInfo`, Accessibility via `AXIsProcessTrustedWithOptions`
+- **Byte formatting:** Use Foundation's `ByteCountFormatter` for proper GB/MB/KB formatting with automatic unit selection
+- **Shell command integration:** Use `Process` with `Pipe` for stdout/stderr, wrap in `async withCheckedContinuation` for SwiftUI async integration
 
 ## Specifications
 
