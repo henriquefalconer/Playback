@@ -682,12 +682,50 @@ Phase 4.1 delivers a complete full-text search system with OCR:
 - Target: 80%+ code coverage for core logic
 
 ### 5.2 Unit Tests (Python)
+**Progress: ~40% Complete (2/5 core modules tested, 111 total tests passing)**
+
+- ✅ Implement tests for paths.py (32 tests)
+- ✅ Implement tests for timestamps.py (35 tests)
 - Implement recording service tests (screenshot capture, app detection)
 - Implement processing service tests (video generation, segment creation)
 - Implement database tests (schema, queries, migrations)
 - Implement OCR tests (accuracy, performance, error handling)
 - Implement cleanup tests (retention policies, file deletion)
 - Target: 80%+ code coverage for all Python scripts
+
+**Phase 5.2 - Completed Tests (2026-02-07):**
+
+**test_paths.py (32 tests):**
+- Project root detection and constants
+- Development mode detection (PLAYBACK_DEV_MODE)
+- Path resolution (dev vs production)
+- Directory creation with permissions
+- Secure file creation (0o600 permissions, umask handling)
+- Day directory structure (YYYYMM/DD/)
+- Path consistency and absolute path verification
+
+**test_timestamps.py (35 tests):**
+- Timestamp parsing from filenames (YYYYMMDD-HHMMSS)
+- App ID extraction from filenames
+- App ID sanitization (special chars, unicode)
+- Chunk name generation with UUID uniqueness
+- Round-trip parsing/generation verification
+- Regex pattern validation (DATE_RE)
+
+**Existing tests:**
+- test_security.py (36 tests) - File permissions, database security, input validation
+- test_network.py (14 tests) - Zero-network policy compliance
+- test_macos.py (6 tests) - macOS integration functions
+
+**Test Execution Summary:**
+- Total tests: 111 passing
+- Test duration: <0.3 seconds
+- Framework: pytest with class-based organization
+- Coverage: paths (100%), timestamps (100%), security (100%), network checks (100%)
+
+**Files Created:**
+- `src/lib/test_paths.py` (32 tests, 444 lines)
+- `src/lib/test_timestamps.py` (35 tests, 300 lines)
 
 ### 5.3 Integration Tests
 - Implement end-to-end recording → processing → playback pipeline
