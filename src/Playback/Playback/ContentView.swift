@@ -108,14 +108,33 @@ struct ContentView: View {
                 playbackController.update(for: latest, store: timelineStore)
             }
 
-            // Monitor de teclado para fechar a janela ao pressionar ESC.
-            keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-                // keyCode 53 = ESC no macOS
-                if event.keyCode == 53 {
+            // Monitor de teclado para atalhos globais
+            keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [self] event in
+                // keyCode 53 = ESC, 49 = Space, 123 = Left Arrow, 124 = Right Arrow
+                switch event.keyCode {
+                case 53:  // ESC - Close window
                     NSApp.keyWindow?.close()
                     return nil
+
+                case 49:  // Space - Play/Pause
+                    self.togglePlayPause()
+                    return nil
+
+                case 123:  // Left Arrow - Seek backward 5 seconds
+                    let newTime = max(playbackController.currentTime - 5, timelineStore.timelineStart ?? 0)
+                    playbackController.scrub(to: newTime)
+                    centerTime = newTime
+                    return nil
+
+                case 124:  // Right Arrow - Seek forward 5 seconds
+                    let newTime = min(playbackController.currentTime + 5, timelineStore.timelineEnd ?? playbackController.currentTime)
+                    playbackController.scrub(to: newTime)
+                    centerTime = newTime
+                    return nil
+
+                default:
+                    return event
                 }
-                return event
             }
             // Monitor global de scroll para controlar o tempo do vídeo sem bloquear cliques
             // na timeline. Diferente do ScrollCaptureView anterior (que usava uma NSView
@@ -250,6 +269,10 @@ struct ContentView: View {
                     pinchBaseVisibleWindowSeconds = nil
                 }
         )
+    }
+
+    private func togglePlayPause() {
+        playbackController.togglePlayPause()
     }
 }
 

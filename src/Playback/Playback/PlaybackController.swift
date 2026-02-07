@@ -8,6 +8,7 @@ final class PlaybackController: ObservableObject {
 
     @Published private(set) var currentSegment: Segment?
     @Published var currentTime: TimeInterval = 0
+    @Published var isPlaying: Bool = false
     /// Último frame "congelado" usado como fallback visual enquanto um novo
     /// segmento é carregado ou quando navegamos para fora da faixa gravada.
     @Published var frozenFrame: NSImage?
@@ -191,6 +192,26 @@ final class PlaybackController: ObservableObject {
         }
         scrubEndWorkItem = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: work)
+    }
+
+    func togglePlayPause() {
+        if isPlaying {
+            player.pause()
+            isPlaying = false
+        } else {
+            player.play()
+            isPlaying = true
+        }
+    }
+
+    func play() {
+        player.play()
+        isPlaying = true
+    }
+
+    func pause() {
+        player.pause()
+        isPlaying = false
     }
 
     private func seek(to segment: Segment, offset: TimeInterval, isScrub: Bool) {
