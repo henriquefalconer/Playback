@@ -23,7 +23,7 @@ from typing import List, Optional, Tuple
 logger = logging.getLogger(__name__)
 
 
-SCHEMA_VERSION = "1.0"
+SCHEMA_VERSION = "1.1"
 
 
 @dataclass
@@ -49,6 +49,19 @@ class AppSegmentRecord:
     date: str
     start_ts: float
     end_ts: float
+
+
+@dataclass
+class OCRTextRecord:
+    """Represents an OCR text extraction record from the database."""
+    id: int
+    frame_path: str
+    segment_id: Optional[str]
+    timestamp: float
+    text_content: str
+    confidence: float
+    language: str
+    created_at: str
 
 
 class DatabaseManager:
@@ -189,6 +202,41 @@ class DatabaseManager:
             cursor.execute("""
                 CREATE INDEX IF NOT EXISTS idx_appsegments_end_ts
                 ON appsegments(end_ts)
+            """)
+
+            # Create ocr_text table (Phase 4.1: Text Search with OCR)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS ocr_text (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    frame_path TEXT NOT NULL,
+                    segment_id TEXT,
+                    timestamp REAL NOT NULL,
+                    text_content TEXT NOT NULL,
+                    confidence REAL,
+                    language TEXT DEFAULT 'en',
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (segment_id) REFERENCES segments(id) ON DELETE CASCADE
+                )
+            """)
+
+            # Create indexes for ocr_text table
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_ocr_timestamp
+                ON ocr_text(timestamp)
+            """)
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_ocr_segment
+                ON ocr_text(segment_id)
+            """)
+
+            # Create FTS5 full-text search virtual table
+            cursor.execute("""
+                CREATE VIRTUAL TABLE IF NOT EXISTS ocr_search USING fts5(
+                    text_content,
+                    segment_id UNINDEXED,
+                    timestamp UNINDEXED,
+                    tokenize = 'porter unicode61'
+                )
             """)
 
             conn.commit()
@@ -555,6 +603,225 @@ class DatabaseManager:
             conn.commit()
             logger.debug(f"Deleted appsegment {appsegment_id}")
 
+    def insert_ocr_text(
+        self,
+        frame_path: str,
+        timestamp: float,
+        text_content: str,
+        confidence: float,
+        segment_id: Optional[str] = None,
+        language: str = "en",
+    ) -> int:
+        """
+        Insert OCR text extraction result.
+
+        Args:
+            frame_path: Path to the screenshot frame
+            timestamp: Unix timestamp of the frame
+            text_content: Extracted text from OCR
+            confidence: OCR confidence score (0.0 to 1.0)
+            segment_id: Associated video segment ID (optional)
+            language: Detected language code (default: 'en')
+
+        Returns:
+            int: ID of inserted OCR record
+
+        Raises:
+            sqlite3.Error: If insertion fails
+        """
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO ocr_text
+                (frame_path, segment_id, timestamp, text_content, confidence, language)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (frame_path, segment_id, timestamp, text_content, confidence, language))
+
+            # Also insert into FTS5 index for full-text search
+            ocr_id = cursor.lastrowid
+            cursor.execute("""
+                INSERT INTO ocr_search (rowid, text_content, segment_id, timestamp)
+                VALUES (?, ?, ?, ?)
+            """, (ocr_id, text_content, segment_id, timestamp))
+
+            conn.commit()
+            logger.debug(f"Inserted OCR text {ocr_id} [{len(text_content)} chars, confidence: {confidence:.2f}]")
+            return ocr_id
+
+    def insert_ocr_batch(
+        self,
+        ocr_records: List[Tuple[str, float, str, float, Optional[str], str]]
+    ) -> int:
+        """
+        Insert multiple OCR records in a single transaction for performance.
+
+        Args:
+            ocr_records: List of tuples (frame_path, timestamp, text_content,
+                        confidence, segment_id, language)
+
+        Returns:
+            int: Number of records inserted
+
+        Example:
+            records = [
+                ("/path/frame1.png", 1234567890.0, "Hello", 0.95, "abc123", "en"),
+                ("/path/frame2.png", 1234567892.0, "World", 0.92, "abc123", "en"),
+            ]
+            count = db.insert_ocr_batch(records)
+        """
+        if not ocr_records:
+            return 0
+
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+
+            # Insert into ocr_text table
+            cursor.executemany("""
+                INSERT INTO ocr_text
+                (frame_path, timestamp, text_content, confidence, segment_id, language)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, ocr_records)
+
+            # Get the IDs of inserted records
+            first_id = cursor.lastrowid - len(ocr_records) + 1
+
+            # Insert into FTS5 index
+            fts_records = [
+                (first_id + i, rec[2], rec[4], rec[1])
+                for i, rec in enumerate(ocr_records)
+            ]
+            cursor.executemany("""
+                INSERT INTO ocr_search (rowid, text_content, segment_id, timestamp)
+                VALUES (?, ?, ?, ?)
+            """, fts_records)
+
+            conn.commit()
+            logger.info(f"Batch inserted {len(ocr_records)} OCR records")
+            return len(ocr_records)
+
+    def search_ocr_text(
+        self,
+        query: str,
+        limit: int = 100,
+        min_confidence: float = 0.0
+    ) -> List[Tuple[int, str, float, str, float]]:
+        """
+        Search OCR text using FTS5 full-text search.
+
+        Args:
+            query: Search query (supports FTS5 syntax: phrases, prefix, boolean)
+            limit: Maximum number of results to return
+            min_confidence: Minimum OCR confidence threshold (0.0 to 1.0)
+
+        Returns:
+            List[Tuple]: List of (id, text_content, timestamp, segment_id, confidence)
+                        sorted by relevance (BM25 ranking)
+
+        Example:
+            results = db.search_ocr_text("important meeting")
+            for id, text, ts, seg_id, conf in results:
+                print(f"{ts}: {text} (confidence: {conf:.2f})")
+        """
+        with self._get_connection(read_only=True) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT
+                    o.id,
+                    o.text_content,
+                    o.timestamp,
+                    o.segment_id,
+                    o.confidence,
+                    s.rank
+                FROM ocr_text o
+                JOIN ocr_search s ON o.id = s.rowid
+                WHERE s.text_content MATCH ?
+                AND o.confidence >= ?
+                ORDER BY s.rank
+                LIMIT ?
+            """, (query, min_confidence, limit))
+
+            results = []
+            for row in cursor.fetchall():
+                results.append((
+                    row[0],  # id
+                    row[1],  # text_content
+                    row[2],  # timestamp
+                    row[3],  # segment_id
+                    row[4],  # confidence
+                ))
+
+            logger.debug(f"Search query '{query}' returned {len(results)} results")
+            return results
+
+    def get_ocr_by_segment(self, segment_id: str) -> List[OCRTextRecord]:
+        """
+        Get all OCR text records for a specific segment.
+
+        Args:
+            segment_id: Segment identifier
+
+        Returns:
+            List[OCRTextRecord]: List of OCR records for the segment
+        """
+        with self._get_connection(read_only=True) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT id, frame_path, segment_id, timestamp, text_content,
+                       confidence, language, created_at
+                FROM ocr_text
+                WHERE segment_id = ?
+                ORDER BY timestamp ASC
+            """, (segment_id,))
+            return [OCRTextRecord(**dict(row)) for row in cursor.fetchall()]
+
+    def get_ocr_by_timestamp_range(
+        self,
+        start_ts: float,
+        end_ts: float
+    ) -> List[OCRTextRecord]:
+        """
+        Get OCR text records within a timestamp range.
+
+        Args:
+            start_ts: Start timestamp
+            end_ts: End timestamp
+
+        Returns:
+            List[OCRTextRecord]: List of OCR records within the range
+        """
+        with self._get_connection(read_only=True) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT id, frame_path, segment_id, timestamp, text_content,
+                       confidence, language, created_at
+                FROM ocr_text
+                WHERE timestamp >= ? AND timestamp <= ?
+                ORDER BY timestamp ASC
+            """, (start_ts, end_ts))
+            return [OCRTextRecord(**dict(row)) for row in cursor.fetchall()]
+
+    def delete_ocr_by_segment(self, segment_id: str) -> int:
+        """
+        Delete all OCR records for a specific segment.
+
+        Args:
+            segment_id: Segment identifier
+
+        Returns:
+            int: Number of records deleted
+
+        Note:
+            This is automatically handled by CASCADE when segment is deleted,
+            but can be called explicitly if needed.
+        """
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM ocr_text WHERE segment_id = ?", (segment_id,))
+            deleted = cursor.rowcount
+            conn.commit()
+            logger.debug(f"Deleted {deleted} OCR records for segment {segment_id}")
+            return deleted
+
     def get_database_stats(self) -> dict:
         """
         Get database statistics for diagnostics.
@@ -591,12 +858,31 @@ class DatabaseManager:
             """)
             appsegment_stats = dict(cursor.fetchone())
 
+            # OCR statistics (if table exists)
+            try:
+                cursor.execute("""
+                    SELECT
+                        COUNT(*) as ocr_count,
+                        AVG(confidence) as avg_confidence,
+                        SUM(LENGTH(text_content)) as total_text_chars
+                    FROM ocr_text
+                """)
+                ocr_stats = dict(cursor.fetchone())
+            except sqlite3.OperationalError:
+                # Table doesn't exist (schema < 1.1)
+                ocr_stats = {
+                    "ocr_count": 0,
+                    "avg_confidence": 0.0,
+                    "total_text_chars": 0
+                }
+
             # Database file size
             db_size = self.db_path.stat().st_size if self.db_path.exists() else 0
 
             return {
                 **segment_stats,
                 **appsegment_stats,
+                **ocr_stats,
                 "database_size_bytes": db_size,
                 "schema_version": self.get_schema_version(),
             }

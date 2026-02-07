@@ -33,6 +33,14 @@ from lib.timestamps import parse_timestamp_from_name, parse_app_from_name
 from lib.video import get_image_size, create_video_from_images
 from lib.config import load_config_with_defaults
 
+# Import OCR processor for text extraction (Phase 4.1)
+try:
+    from ocr_processor import perform_ocr_batch, test_ocr_availability
+    OCR_AVAILABLE = test_ocr_availability()
+except ImportError:
+    OCR_AVAILABLE = False
+    print("[build_chunks] AVISO: OCR não disponível (PyObjC não instalado)")
+
 
 @dataclass
 class FrameInfo:
@@ -176,6 +184,78 @@ def build_appsegments_for_day(frames: List[FrameInfo]) -> List[Tuple[Optional[st
     return segments
 
 
+def process_ocr_for_frames(
+    frames: List[FrameInfo],
+    segment_id: str,
+    db,
+    num_workers: int = 4
+) -> int:
+    """
+    Extrai texto via OCR dos frames e insere no banco de dados.
+
+    Args:
+        frames: Lista de frames a processar
+        segment_id: ID do segmento de vídeo associado
+        db: DatabaseManager instance
+        num_workers: Número de workers paralelos para OCR
+
+    Returns:
+        int: Número de registros OCR inseridos com sucesso
+    """
+    if not OCR_AVAILABLE:
+        return 0
+
+    if not frames:
+        return 0
+
+    print(f"[build_chunks]   Executando OCR em {len(frames)} frames...")
+
+    # Batch OCR processing with parallel workers
+    frame_paths = [str(f.path) for f in frames]
+
+    try:
+        from ocr_processor import perform_ocr_batch
+        ocr_results = perform_ocr_batch(frame_paths, num_workers=num_workers, timeout=5.0)
+    except Exception as e:
+        print(f"[build_chunks]   ERRO: OCR falhou: {e}")
+        return 0
+
+    # Prepare batch insert records
+    ocr_records = []
+    success_count = 0
+    for frame, result in zip(frames, ocr_results):
+        if not result.success:
+            continue
+
+        # Skip empty results (no text found)
+        if not result.text.strip():
+            continue
+
+        # Build tuple for batch insert: (frame_path, timestamp, text_content, confidence, segment_id, language)
+        ocr_records.append((
+            str(frame.path),
+            frame.ts,
+            result.text,
+            result.confidence,
+            segment_id,
+            result.language
+        ))
+        success_count += 1
+
+    # Batch insert into database
+    if ocr_records:
+        try:
+            inserted = db.insert_ocr_batch(ocr_records)
+            print(f"[build_chunks]   OCR: {success_count}/{len(frames)} frames com texto ({inserted} inseridos)")
+            return inserted
+        except Exception as e:
+            print(f"[build_chunks]   ERRO ao inserir OCR: {e}")
+            return 0
+    else:
+        print(f"[build_chunks]   OCR: Nenhum texto encontrado nos frames")
+        return 0
+
+
 def cleanup_temp_files(frames: List[FrameInfo], day: str) -> None:
     """
     Remove os arquivos temporários (screenshots) após processamento bem-sucedido.
@@ -300,6 +380,10 @@ def process_day(
             width=width,
             height=height,
         )
+
+        # Phase 4.1: Extract text via OCR from frames (if available)
+        if OCR_AVAILABLE:
+            process_ocr_for_frames(seg_frames, segment_id, db, num_workers=4)
 
     # Persiste todos os appsegments calculados para o dia.
     for app_id, start_ts, end_ts in appsegments:
