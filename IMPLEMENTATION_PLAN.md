@@ -165,14 +165,56 @@ All tasks completed. See "Phase 1 - Completed Tasks" below.
 ## Phase 2: User Interface
 
 ### 2.1 Menu Bar Component
-- Implement MenuBarExtra in SwiftUI
-- Implement status icon states (Recording/Paused/Error)
-- Implement menu structure (Toggle Recording, Open Timeline, Settings, Quit)
-- Implement status display (recording time, storage used)
-- Implement click handlers for all menu items
-- Implement menu updates based on state changes
-- Implement tooltips and keyboard shortcuts
-- Implement "Processing..." status during video generation
+
+**Architecture: Single-App with MenuBarExtra (Option A - Recommended for MVP)**
+
+**Status: ✅ PARTIALLY COMPLETE**
+
+**Completed:**
+- ✅ MenuBarExtra integration in PlaybackApp.swift with status icon
+- ✅ MenuBarViewModel for state management with recording status monitoring
+- ✅ MenuBarView with full menu structure:
+  - Record Screen toggle (connects to LaunchAgentManager)
+  - Open Timeline (activates timeline window)
+  - Settings (opens settings window)
+  - Diagnostics (with error badge placeholder)
+  - About Playback
+  - Quit Playback (with confirmation dialog)
+- ✅ Status icon states: recording (red filled circle), paused (gray circle), error (exclamation)
+- ✅ Status monitoring every 5 seconds via Timer
+- ✅ Settings window with 6 tabs (General, Recording, Processing, Storage, Privacy, Advanced)
+- ✅ Settings tabs implemented:
+  - GeneralTab: Notifications preferences, global shortcut display
+  - ProcessingTab: Interval picker, video encoding display
+  - StorageTab: Retention policy pickers
+  - PrivacyTab: App exclusion mode, excluded apps list with add/remove
+  - RecordingTab, AdvancedTab: Placeholders for future implementation
+- ✅ Full integration with ConfigManager for live config updates
+- ✅ Window management for timeline and settings
+
+**Files Created:**
+- `src/Playback/Playback/MenuBar/MenuBarViewModel.swift` (150 lines)
+- `src/Playback/Playback/MenuBar/MenuBarView.swift` (105 lines)
+- `src/Playback/Playback/Settings/SettingsView.swift` (285 lines)
+
+**Files Modified:**
+- `src/Playback/Playback/PlaybackApp.swift` (added MenuBarExtra scene and Window scenes)
+
+**Not Yet Implemented:**
+- Command+, shortcut for settings (requires app-level key event handling)
+- Option+Shift+Space global hotkey (requires Carbon-based hotkey registration)
+- Real error count badge (requires diagnostics system integration)
+- Recording status display in menu (storage used, recording time)
+- Processing status indicator
+- Diagnostics window
+- About panel customization
+
+**Next Steps:**
+Continue with remaining Phase 2 tasks:
+1. Timeline viewer enhancements (app colors, frozen frame handling improvements)
+2. Date/Time picker implementation
+3. Global hotkey system
+4. First-run setup wizard
 
 ### 2.2 Timeline Viewer
 - Implement TimelineView in SwiftUI
@@ -544,28 +586,115 @@ Playback/
 
 ---
 
-## Current Status
+## Current Status (Updated 2026-02-07)
 
-### Phase 1: COMPLETE ✅
-- **Recording Service:** Screenshot capture, frontmost app detection, timeline pause detection, app exclusion logic, config hot-reloading
+### Phase 1: COMPLETE ✅ (100%)
+- **Recording Service:** Screenshot capture, frontmost app detection, timeline pause detection, app exclusion logic (skip mode), config hot-reloading
 - **Processing Service:** Video generation, segment metadata extraction, database insertion, temp cleanup, auto mode for batch processing, error recovery
 - **Shared Utilities:** All Python libs (paths, database, video, macos, timestamps, config) and Swift utilities (Paths, SignalFileManager) fully implemented
 - **Configuration System:** ConfigManager with hot-reloading, validation, migration, and automatic backup system
 - **LaunchAgent Management:** Full service control with plist templates, load/unload/start/stop/restart, status verification, dev/prod separation
 - **Development Mode:** Complete dev/prod separation via PLAYBACK_DEV_MODE environment variable
 
-### Phase 2: Next Up 📋
-- Menu bar implementation (MenuBarExtra with status icon and controls)
-- Timeline viewer foundation (TimelineView with video playback)
-- Settings window (all configuration tabs)
+**All Phase 1 tasks completed. Backend infrastructure operational.**
+
+---
+
+### Phase 2: User Interface - NEXT PRIORITY 📋
+
+#### Architecture Decision Required
+
+The specifications in `specs/` describe a **dual-app architecture** with separate apps:
+- **PlaybackMenuBar.app** - LaunchAgent, always-running menu bar agent
+- **Playback.app** - Standalone timeline viewer in /Applications/
+
+However, current implementation is **single-app** (Playback.app only).
+
+**Two Options:**
+
+**Option A: Single-App Architecture (Recommended for MVP)**
+- Convert existing Playback.app to include both MenuBarExtra and Timeline viewer
+- MenuBarExtra shows/hides timeline window within same app
+- Simpler deployment: One .app bundle, one installation step
+- Simpler lifecycle: Single process, no IPC needed
+- Launch behavior: Menu bar always visible, timeline shows/hides on demand
+- Distribution: Easier code signing and notarization (one bundle)
+- Trade-offs: Timeline viewer cannot be quit independently while keeping menu bar running
+
+**Option B: Dual-App Architecture (Per Specs)**
+- Separate PlaybackMenuBar.app (LaunchAgent, hidden from dock, always running)
+- Separate Playback.app (Timeline viewer, visible in /Applications/, launched on demand)
+- Cleaner separation of concerns (control vs. viewing)
+- Timeline viewer can be quit independently while recording continues
+- More complex deployment: Two .app bundles, two installation steps
+- More complex IPC: Apps communicate via launchctl, config files, database
+- Trade-offs: More complexity in distribution, installation, and lifecycle management
+
+**Recommendation: Start with Option A for MVP, refactor to Option B later if needed.**
+
+**Rationale:**
+- Faster to implement and test
+- Simpler for users to install and understand
+- Easier to debug and maintain initially
+- Can migrate to dual-app architecture in Phase 6 if user feedback requires it
+- Most users won't need to quit timeline independently
+
+---
+
+#### Phase 2.1 Menu Bar Component - IMMEDIATE NEXT TASKS
+
+1. **Add MenuBarExtra to PlaybackApp.swift**
+   - Replace current `WindowGroup` scene with `MenuBarExtra` scene
+   - Configure with system icon and label
+   - Set up scene hierarchy
+
+2. **Create MenuBar/ directory structure**
+   - `src/Playback/Playback/MenuBar/MenuBarView.swift` - Main menu UI
+   - `src/Playback/Playback/MenuBar/MenuBarViewModel.swift` - State and logic
+   - `src/Playback/Playback/MenuBar/StatusIcon.swift` - Dynamic icon states
+
+3. **Implement status icon states**
+   - Recording (red circle)
+   - Paused (gray circle)
+   - Processing (yellow circle with animation)
+   - Error (red exclamation)
+   - Icon updates based on LaunchAgent status
+
+4. **Implement menu structure**
+   - Toggle Recording (checkbox, keyboard shortcut: Command+R)
+   - Open Timeline (keyboard shortcut: Option+Shift+Space)
+   - Separator
+   - Settings... (opens settings window)
+   - Separator
+   - Quit Playback (confirmation dialog if recording active)
+
+5. **Add settings window structure**
+   - Create Settings/ directory
+   - SettingsView with TabView for multiple tabs
+   - GeneralTab with basic recording controls
+   - Wire up to ConfigManager for persistence
+
+6. **Connect to existing backend**
+   - Use LaunchAgentManager for service control
+   - Use ConfigManager for settings state
+   - Use Paths utility for environment-aware paths
+   - Status polling to update menu bar icon
+
+---
+
+### Phase 2.2-2.5: Remaining UI Components (After Menu Bar Complete)
+- Timeline viewer implementation (TimelineView with video playback)
+- Complete settings window (all configuration tabs)
 - Date/time picker (calendar navigation for timeline)
 - First-run setup wizard (onboarding with permissions)
+
+---
 
 ### Future Phases 📋
 - Phase 3: Data & Storage (database optimization, file management, cleanup service)
 - Phase 4: Advanced Features (OCR text search, privacy enhancements, diagnostics)
 - Phase 5: Testing & Quality (comprehensive test coverage, performance benchmarks)
-- Phase 6: Distribution & Deployment (build scripts, notarization, Arc-style .zip distribution)
+- Phase 6: Distribution & Deployment (build scripts, notarization, Arc-style .zip distribution, possible migration to dual-app architecture)
 
 ---
 

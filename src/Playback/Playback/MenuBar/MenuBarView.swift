@@ -1,0 +1,107 @@
+// Copyright (c) 2025 Henrique Falconer. All rights reserved.
+// SPDX-License-Identifier: Proprietary
+
+import SwiftUI
+
+struct MenuBarView: View {
+    @ObservedObject var viewModel: MenuBarViewModel
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Toggle("Record Screen", isOn: $viewModel.isRecordingEnabled)
+                .toggleStyle(.switch)
+                .onChange(of: viewModel.isRecordingEnabled) { _, _ in
+                    viewModel.toggleRecording()
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+
+            Divider()
+
+            Button(action: viewModel.openTimeline) {
+                HStack {
+                    Image(systemName: "clock.arrow.circlepath")
+                    Text("Open Timeline")
+                    Spacer()
+                    Text("⌥⇧Space")
+                        .foregroundColor(.secondary)
+                        .font(.caption)
+                }
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+
+            Divider()
+
+            Button(action: viewModel.openSettings) {
+                HStack {
+                    Image(systemName: "gearshape")
+                    Text("Settings...")
+                    Spacer()
+                    Text("⌘,")
+                        .foregroundColor(.secondary)
+                        .font(.caption)
+                }
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+
+            Button(action: viewModel.openDiagnostics) {
+                HStack {
+                    Image(systemName: "stethoscope")
+                    Text("Diagnostics")
+                    Spacer()
+                    if viewModel.errorCount > 0 {
+                        ZStack {
+                            Circle()
+                                .fill(Color.red)
+                                .frame(width: 16, height: 16)
+                            Text("\(viewModel.errorCount)")
+                                .font(.caption2)
+                                .foregroundColor(.white)
+                        }
+                    }
+                }
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+
+            Divider()
+
+            Button(action: {
+                NSApp.orderFrontStandardAboutPanel()
+            }) {
+                HStack {
+                    Text("About Playback")
+                    Spacer()
+                }
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+
+            Divider()
+
+            Button(action: viewModel.quitPlayback) {
+                HStack {
+                    Text("Quit Playback")
+                    Spacer()
+                    Text("⌘Q")
+                        .foregroundColor(.secondary)
+                        .font(.caption)
+                }
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+        }
+        .frame(minWidth: 220)
+    }
+}
+
+#Preview {
+    MenuBarView(viewModel: MenuBarViewModel())
+}

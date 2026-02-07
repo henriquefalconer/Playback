@@ -5,9 +5,19 @@ struct PlaybackApp: App {
     @StateObject private var timelineStore = TimelineStore()
     @StateObject private var playbackController = PlaybackController()
     @StateObject private var signalManager = SignalFileManagerWrapper()
+    @StateObject private var configManager = ConfigManager.shared
+    @StateObject private var menuBarViewModel = MenuBarViewModel()
 
     var body: some Scene {
-        WindowGroup {
+        MenuBarExtra {
+            MenuBarView(viewModel: menuBarViewModel)
+                .environmentObject(configManager)
+        } label: {
+            Image(systemName: menuBarViewModel.recordingState.iconName)
+                .foregroundColor(menuBarViewModel.recordingState == .recording ? .red : .primary)
+        }
+
+        WindowGroup(id: "timeline") {
             ContentView()
                 .environmentObject(timelineStore)
                 .environmentObject(playbackController)
@@ -17,6 +27,13 @@ struct PlaybackApp: App {
                 }
         }
         .windowStyle(.hiddenTitleBar)
+
+        Window("Settings", id: "settings") {
+            SettingsView()
+                .environmentObject(configManager)
+        }
+        .windowResizability(.contentSize)
+        .defaultPosition(.center)
     }
 }
 
