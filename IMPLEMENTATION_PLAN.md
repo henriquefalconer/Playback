@@ -652,93 +652,52 @@ Playback/
 
 ---
 
-### Phase 2: User Interface - NEXT PRIORITY 📋
+### Phase 2: User Interface - IN PROGRESS 📋 (75% Complete)
 
-#### Architecture Decision Required
+**Completed:**
+- ✅ **2.1 Menu Bar Component (COMPLETE)**
+  - MenuBarExtra with status icon (recording/paused/error states)
+  - Full menu structure (Record toggle, Open Timeline, Settings, Diagnostics, About, Quit)
+  - Settings window with 6 tabs (General, Recording, Processing, Storage, Privacy, Advanced)
+  - Real-time config updates via ConfigManager
+  - Status monitoring (5-second polling)
 
-The specifications in `specs/` describe a **dual-app architecture** with separate apps:
-- **PlaybackMenuBar.app** - LaunchAgent, always-running menu bar agent
-- **Playback.app** - Standalone timeline viewer in /Applications/
+- ✅ **2.2 Timeline Viewer Enhancements (MOSTLY COMPLETE)**
+  - Global hotkey system (Option+Shift+Space with Carbon API)
+  - Time labels and ticks with dynamic spacing
+  - Auto-refresh for new segments (5-second polling)
+  - Core timeline functionality (playback, scrubbing, zoom, gestures)
 
-However, current implementation is **single-app** (Playback.app only).
+- ✅ **2.3 Date/Time Picker (COMPLETE)**
+  - Calendar view with month/year navigation
+  - Time list with 15-minute intervals
+  - Database queries for available dates/times
+  - Clickable time bubble
+  - Arc-style frosted glass design
 
-**Two Options:**
+**Remaining:**
+- 2.5 First-Run Setup (onboarding wizard with permissions, dependencies, initial config)
+- Polish items:
+  - Keyboard shortcuts (Space for play/pause, arrows for seek)
+  - Loading screen for processing
+  - Error handling UI (empty states, error dialogs)
+  - Segment preloading (reduce transition latency)
 
-**Option A: Single-App Architecture (Recommended for MVP)**
-- Convert existing Playback.app to include both MenuBarExtra and Timeline viewer
-- MenuBarExtra shows/hides timeline window within same app
-- Simpler deployment: One .app bundle, one installation step
-- Simpler lifecycle: Single process, no IPC needed
-- Launch behavior: Menu bar always visible, timeline shows/hides on demand
-- Distribution: Easier code signing and notarization (one bundle)
-- Trade-offs: Timeline viewer cannot be quit independently while keeping menu bar running
+**Files Created in Phase 2 (13 files):**
+- MenuBar/MenuBarViewModel.swift (150 lines)
+- MenuBar/MenuBarView.swift (105 lines)
+- Settings/SettingsView.swift (285 lines)
+- Settings/GeneralTab.swift
+- Settings/RecordingTab.swift
+- Settings/ProcessingTab.swift
+- Settings/StorageTab.swift
+- Settings/PrivacyTab.swift
+- Settings/AdvancedTab.swift
+- Services/GlobalHotkeyManager.swift (120 lines)
+- Timeline/DateTimePickerView.swift (330+ lines)
+- Modifications to PlaybackApp.swift, TimelineView.swift, TimelineStore.swift, ContentView.swift
 
-**Option B: Dual-App Architecture (Per Specs)**
-- Separate PlaybackMenuBar.app (LaunchAgent, hidden from dock, always running)
-- Separate Playback.app (Timeline viewer, visible in /Applications/, launched on demand)
-- Cleaner separation of concerns (control vs. viewing)
-- Timeline viewer can be quit independently while recording continues
-- More complex deployment: Two .app bundles, two installation steps
-- More complex IPC: Apps communicate via launchctl, config files, database
-- Trade-offs: More complexity in distribution, installation, and lifecycle management
-
-**Recommendation: Start with Option A for MVP, refactor to Option B later if needed.**
-
-**Rationale:**
-- Faster to implement and test
-- Simpler for users to install and understand
-- Easier to debug and maintain initially
-- Can migrate to dual-app architecture in Phase 6 if user feedback requires it
-- Most users won't need to quit timeline independently
-
----
-
-#### Phase 2.1 Menu Bar Component - IMMEDIATE NEXT TASKS
-
-1. **Add MenuBarExtra to PlaybackApp.swift**
-   - Replace current `WindowGroup` scene with `MenuBarExtra` scene
-   - Configure with system icon and label
-   - Set up scene hierarchy
-
-2. **Create MenuBar/ directory structure**
-   - `src/Playback/Playback/MenuBar/MenuBarView.swift` - Main menu UI
-   - `src/Playback/Playback/MenuBar/MenuBarViewModel.swift` - State and logic
-   - `src/Playback/Playback/MenuBar/StatusIcon.swift` - Dynamic icon states
-
-3. **Implement status icon states**
-   - Recording (red circle)
-   - Paused (gray circle)
-   - Processing (yellow circle with animation)
-   - Error (red exclamation)
-   - Icon updates based on LaunchAgent status
-
-4. **Implement menu structure**
-   - Toggle Recording (checkbox, keyboard shortcut: Command+R)
-   - Open Timeline (keyboard shortcut: Option+Shift+Space)
-   - Separator
-   - Settings... (opens settings window)
-   - Separator
-   - Quit Playback (confirmation dialog if recording active)
-
-5. **Add settings window structure**
-   - Create Settings/ directory
-   - SettingsView with TabView for multiple tabs
-   - GeneralTab with basic recording controls
-   - Wire up to ConfigManager for persistence
-
-6. **Connect to existing backend**
-   - Use LaunchAgentManager for service control
-   - Use ConfigManager for settings state
-   - Use Paths utility for environment-aware paths
-   - Status polling to update menu bar icon
-
----
-
-### Phase 2.2-2.5: Remaining UI Components (After Menu Bar Complete)
-- Timeline viewer implementation (TimelineView with video playback)
-- Complete settings window (all configuration tabs)
-- Date/time picker (calendar navigation for timeline)
-- First-run setup wizard (onboarding with permissions)
+**Next Priority:** First-Run Setup wizard for permissions and initial configuration, then polish items.
 
 ---
 
