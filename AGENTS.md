@@ -23,6 +23,14 @@ Key operational learnings from Phase 2 development (2026-02-07):
 - **Service logging migration pattern:** Import logging_config functions at top, setup logger in main() with component name, replace all print() with log_*() calls, add resource metrics collection with psutil (optional), log state changes and errors with context. Successfully applied to record_screen.py (21 print statements) and build_chunks_from_temp.py (21 print statements). Pattern includes: structured metadata in all logs, exception context in error logs, resource metrics at regular intervals (not every operation), graceful psutil degradation
 - **psutil integration:** Add psutil>=6.1.1 to requirements.txt, graceful degradation if not available (PSUTIL_AVAILABLE flag), collect metrics every N operations to avoid overhead
 - **Phase 4.3 service migrations complete:** All 3 Python background services (record_screen, build_chunks_from_temp, cleanup_old_chunks) now use structured JSON logging with 80 total print statements migrated. Resource metrics collection operational across all services. Phase 4.3 complete (70%) - service migrations done, UI integration remains
+- **DiagnosticsView integration:** Window scenes in PlaybackApp must have unique IDs and use .defaultPosition(.center) for proper window management
+- **Log JSON parsing:** Use ISO8601DateFormatter with both .withFractionalSeconds and fallback without for timestamp parsing (Python's isoformat includes fractional seconds)
+- **AnyCodable pattern:** Custom Codable wrapper needed to decode arbitrary JSON metadata values (strings, numbers, bools, arrays, dicts)
+- **Debounced search:** Use Combine's .debounce(for: .milliseconds(300), scheduler: DispatchQueue.main) on @Published searchText for efficient filtering
+- **Auto-refresh timers:** Use Timer.scheduledTimer in ObservableObject, invalidate in deinit to prevent memory leaks
+- **Log file parsing:** Read log files line-by-line treating each line as separate JSON (newline-delimited JSON format from logging_config.py)
+- **Health status calculation:** Threshold-based (errors > 10 = unhealthy, errors > 0 or warnings > 20 = degraded, else healthy)
+- **Phase 4.3 diagnostics UI complete:** All 7 originally planned items now implemented (log viewer, filtering, search, health monitoring, crash notifications via error badges, report generation)
 
 ## Specifications
 
