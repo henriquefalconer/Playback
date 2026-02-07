@@ -9,12 +9,22 @@ Based on comprehensive technical specifications in `specs/`.
 
 ---
 
+## Architecture Overview
+
+Playback consists of separate components:
+- **Menu Bar Agent** (PlaybackMenuBar.app): LaunchAgent, always running, controls all services
+- **Timeline Viewer** (Playback.app): Standalone app in `/Applications/`, launched on demand
+- **Recording Service**: Python LaunchAgent, continues running even when timeline viewer quit
+- **Processing Service**: Python LaunchAgent, scheduled execution
+
 ## Phase 1: Core Recording & Processing
 
-### 1.1 Recording Service (Python)
+### 1.1 Recording Service (Python LaunchAgent)
 - ✅ Implement screenshot capture using ScreenCaptureKit
 - ✅ Implement 2-second capture interval loop
 - ✅ Implement frontmost app detection via AppleScript
+- [ ] Implement timeline viewer detection (check for `.timeline_open` file)
+- [ ] Implement automatic pause when timeline viewer open
 - ✅ Implement screen unavailability detection (screensaver, display off)
 - Implement app exclusion logic (skip mode)
 - Implement file naming convention (YYYYMMDD-HHMMSS-uuid-app_id)

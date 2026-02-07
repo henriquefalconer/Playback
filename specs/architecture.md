@@ -9,19 +9,31 @@
 ### Project Structure Setup
 - [ ] Create Xcode project structure
   - Location: `src/Playback/Playback.xcodeproj`
-  - Target: Playback (unified app with menu bar + timeline)
+  - Targets:
+    - **PlaybackMenuBar** (menu bar agent, LaunchAgent, always running)
+    - **Playback** (timeline viewer app, in Applications folder, launched on demand)
   - Minimum deployment: macOS 26.0 (Tahoe)
   - Architecture: Apple Silicon only (arm64)
-  - Bundle ID: `com.playback.Playback`
+  - Bundle IDs:
+    - Menu Bar Agent: `com.playback.MenuBarAgent`
+    - Timeline Viewer: `com.playback.Playback`
   - SwiftUI lifecycle with App protocol
 
 - [ ] Set up Swift source directory structure
-  - `src/Playback/Playback/MenuBar/` - Menu bar component
-  - `src/Playback/Playback/Timeline/` - Timeline viewer component
-  - `src/Playback/Playback/Settings/` - Settings window component
-  - `src/Playback/Playback/Services/` - LaunchAgent management
-  - `src/Playback/Playback/Config/` - Configuration management
-  - `src/Playback/Playback/Database/` - SQLite database access
+  - `src/Playback/PlaybackMenuBar/` - Menu bar agent target
+    - `MenuBarAgent/` - Menu bar UI and controls
+    - `Settings/` - Settings window component
+    - `Diagnostics/` - Diagnostics window component
+    - `Services/` - LaunchAgent management
+    - `Config/` - Configuration management
+    - `Notifications/` - Notification system
+  - `src/Playback/Playback/` - Timeline viewer target
+    - `Timeline/` - Timeline viewer component
+    - `Database/` - SQLite database access (read-only)
+    - `Models/` - Shared data models
+  - `src/Playback/Shared/` - Shared utilities
+    - `Config/` - Configuration file I/O
+    - `Database/` - Database schema and access
 
 - [ ] Set up Python scripts directory
   - `src/scripts/record_screen.py` - Recording service (captures screenshots)
@@ -38,39 +50,73 @@
   - `dev_data/chunks/` - Development videos
   - `dev_data/meta.sqlite3` - Development database
 
-### Application Entry Point
-- [ ] Implement main app structure
-  - Source: `src/Playback/Playback/PlaybackApp.swift`
-  - Components: MenuBarExtra, Window (Timeline), Settings
+### Application Entry Points
+- [ ] Implement menu bar agent
+  - Source: `src/Playback/PlaybackMenuBar/MenuBarAgentApp.swift`
+  - LaunchAgent: Always running background agent
+  - Components: MenuBarExtra, Settings Window, Diagnostics Window
   - MenuBarExtra: Always visible system tray icon
-  - Timeline Window: On-demand viewer for recorded content
-  - Settings Window: Configuration panel for recording preferences
+  - Responsibilities:
+    - Display menu bar icon with status
+    - Control recording/processing services
+    - Launch timeline viewer on demand
+    - Provide settings and diagnostics UI
+    - Handle "Quit Playback" (stops all services including itself)
+
+- [ ] Implement timeline viewer app
+  - Source: `src/Playback/Playback/PlaybackApp.swift`
+  - Regular app: Lives in Applications folder
+  - Components: Fullscreen Timeline Window
+  - Launch triggers: Menu bar "Open Timeline", Option+Shift+Space, app icon click
+  - Lifecycle: Can be quit independently without stopping recording
+  - On open: Signals recording service to pause
+  - On quit: Signals recording service to resume
 
 ### Component Communication
 - [ ] Implement shared state management
-  - Source: `src/Playback/Playback/Config/ConfigManager.swift`
-  - Uses: SwiftUI @EnvironmentObject for state sharing
+  - Source: `src/Playback/Shared/Config/ConfigManager.swift`
+  - Uses: File-based configuration (no IPC between processes)
   - Config persists to: `~/Library/Application Support/Playback/config.json`
   - Shared state includes: recording enabled, interval, retention days
-  - Updates propagate to all UI components automatically
+  - Menu bar agent writes, timeline viewer reads
 
-- [ ] Set up LaunchAgent control
-  - Source: `src/Playback/Playback/Services/LaunchAgentManager.swift`
+- [ ] Set up LaunchAgent control (Menu Bar Agent)
+  - Source: `src/Playback/PlaybackMenuBar/Services/LaunchAgentManager.swift`
   - Methods: load/unload recording and processing agents
-  - Controls: `com.playback.record` and `com.playback.process` LaunchAgents
+  - Controls:
+    - `com.playback.recording` (Python recording service)
+    - `com.playback.processing` (Python processing service)
   - Uses `launchctl` commands: load, unload, start, stop
   - Verifies agent status before state changes
+
+- [ ] Implement timeline viewer launcher (Menu Bar Agent)
+  - Source: `src/Playback/PlaybackMenuBar/Services/TimelineLauncher.swift`
+  - Method: `launchTimelineViewer()`
+  - Uses: `NSWorkspace.shared.open()` to launch Playback.app
+  - Brings window to front if already running
+  - Triggered by: Menu item, global hotkey (Option+Shift+Space)
+
+- [ ] Implement process communication (file-based signals)
+  - No direct IPC between processes
+  - Timeline viewer signals recording service via filesystem:
+    - Create: `~/Library/Application Support/Playback/.timeline_open` (pause recording)
+    - Delete: Remove file (resume recording)
+  - Recording service polls for file existence every iteration
 
 ### File System Organization
 - [ ] Configure production paths
   - Data: `~/Library/Application Support/Playback/data/`
     - Subdirectories: `temp/`, `chunks/`
     - Database: `meta.sqlite3`
+    - Signal files: `.timeline_open` (timeline viewer active)
   - Config: `~/Library/Application Support/Playback/config.json`
   - Logs: `~/Library/Logs/Playback/`
-    - Separate logs: `recording.log`, `processing.log`, `cleanup.log`
+    - Separate logs: `recording.log`, `processing.log`, `menubar.log`
   - LaunchAgents: `~/Library/LaunchAgents/com.playback.*.plist`
-    - Three agents: record, process, cleanup
+    - `com.playback.menubar.plist` - Menu bar agent (always running)
+    - `com.playback.recording.plist` - Recording service
+    - `com.playback.processing.plist` - Processing service
+  - Applications: `/Applications/Playback.app` - Timeline viewer (only visible app)
 
 - [ ] Configure development paths
   - Data: `<project>/dev_data/`
@@ -111,21 +157,30 @@
 ### Component Communication Patterns
 
 **Filesystem-based Communication:**
-- Swift app writes configuration to `config.json`
+- Menu bar agent writes configuration to `config.json`
 - Python services read configuration on startup
+- Timeline viewer reads configuration (read-only)
 - No direct IPC between processes (simpler, more reliable)
 - Configuration changes require service restart via LaunchAgent control
 
-**LaunchAgent Control:**
-- Swift app uses `launchctl` to manage Python services
+**LaunchAgent Control (Menu Bar Agent):**
+- Menu bar agent uses `launchctl` to manage all services
 - Commands: `load`, `unload`, `start`, `stop`
 - Plist files define service behavior (intervals, restart policies)
 - Status verification before state changes (check if loaded before unloading)
+- "Quit Playback" stops all services including menu bar agent itself
+
+**Timeline Viewer Communication:**
+- Menu bar agent launches timeline viewer via `NSWorkspace.open()`
+- Timeline viewer signals recording pause via `.timeline_open` file
+- Recording service detects file presence and pauses
+- Timeline viewer removes file on quit, recording resumes
+- No direct process communication needed
 
 **SQLite Database Access:**
 - Python scripts write recording metadata to `meta.sqlite3`
-- Swift app reads metadata for timeline display
-- Read-only access from Swift (Python owns writes)
+- Timeline viewer reads metadata for timeline display (read-only)
+- Menu bar agent reads for diagnostics display (read-only)
 - WAL mode for concurrent read access during writes
 
 ### Data Flow Overview
@@ -158,13 +213,18 @@
 ├── data/
 │   ├── temp/              # Temporary screenshots (deleted after processing)
 │   ├── chunks/            # Processed video files (retained per retention policy)
-│   └── meta.sqlite3       # Metadata database
+│   ├── meta.sqlite3       # Metadata database
+│   └── .timeline_open     # Signal file (exists when timeline viewer open)
 ├── config.json            # User configuration (intervals, retention, etc.)
-└── logs/                  # Service logs (recording.log, processing.log)
+└── logs/                  # Service logs (recording.log, processing.log, menubar.log)
 
 ~/Library/LaunchAgents/
-├── com.playback.record.plist    # Recording service definition
-└── com.playback.process.plist   # Processing service definition
+├── com.playback.menubar.plist     # Menu bar agent (always running)
+├── com.playback.recording.plist   # Recording service definition
+└── com.playback.processing.plist  # Processing service definition
+
+/Applications/
+└── Playback.app                   # Timeline viewer (only user-visible app)
 ```
 
 **Development Environment (when PLAYBACK_DEV_MODE=1):**

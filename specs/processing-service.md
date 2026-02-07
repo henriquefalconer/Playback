@@ -1,6 +1,12 @@
 # Processing Service Implementation Plan
 
-**Component:** Processing Service (Python)
+**Component:** Processing Service (Python LaunchAgent)
+
+**Architecture Note:** The processing service is an independent Python script managed by a LaunchAgent:
+- Runs independently of timeline viewer (Playback.app) and menu bar agent
+- Scheduled execution every 5 minutes (configurable via settings)
+- Controlled by menu bar agent via launchctl
+- Only stopped when user clicks "Quit Playback" in menu bar
 
 ## Implementation Checklist
 

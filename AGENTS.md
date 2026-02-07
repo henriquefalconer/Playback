@@ -209,19 +209,27 @@ PRAGMA integrity_check;
 ## Architecture
 
 ### Project Structure
-Swift app with Python background services. Key components:
+Separate Swift apps with Python background services. Key components:
 
-- **Playback.app:** Single unified SwiftUI app with menu bar + timeline viewer
-  - `src/Playback/Playback/MenuBar/` - Menu bar interface and controls
+- **PlaybackMenuBar.app (Menu Bar Agent):** LaunchAgent, always running
+  - Lives: `~/Library/LaunchAgents/` (not visible in Applications folder)
+  - `src/Playback/PlaybackMenuBar/MenuBarAgent/` - Menu bar interface and controls
+  - `src/Playback/PlaybackMenuBar/Settings/` - Settings window with all configuration tabs
+  - `src/Playback/PlaybackMenuBar/Diagnostics/` - Diagnostics window
+  - `src/Playback/PlaybackMenuBar/Services/` - LaunchAgent management and service control
+  - `src/Playback/PlaybackMenuBar/Notifications/` - Notification system
+  - Responsibilities: Control all services, launch timeline viewer, always-visible menu bar icon
+
+- **Playback.app (Timeline Viewer):** Standalone app in `/Applications/`
+  - Lives: `/Applications/Playback.app` (only user-visible Playback app)
   - `src/Playback/Playback/Timeline/` - Timeline viewer with video playback
-  - `src/Playback/Playback/Settings/` - Settings window with all configuration tabs
-  - `src/Playback/Playback/Config/` - Configuration management (ConfigManager, Environment, Paths)
-  - `src/Playback/Playback/Database/` - SQLite database access layer
-  - `src/Playback/Playback/Services/` - LaunchAgent management and service control
-  - `src/Playback/Playback/Search/` - OCR and text search functionality
+  - `src/Playback/Playback/Database/` - SQLite database access (read-only)
+  - `src/Playback/Playback/Models/` - Shared data models
+  - Launch triggers: Menu bar, global hotkey, app icon
+  - Lifecycle: Can be quit independently, recording continues
 
-- **Python Scripts:** Background services for recording and processing
-  - `src/scripts/record_screen.py` - Screenshot capture (runs every 2 seconds)
+- **Python Services:** Background LaunchAgents for recording and processing
+  - `src/scripts/record_screen.py` - Screenshot capture (runs every 2 seconds, pauses when timeline open)
   - `src/scripts/build_chunks_from_temp.py` - Video segment generation (runs every 5 minutes)
   - `src/scripts/cleanup_old_chunks.py` - Retention policy enforcement
 
@@ -235,12 +243,14 @@ Swift app with Python background services. Key components:
 - **Data Storage:**
   - Development: `dev_data/temp/`, `dev_data/chunks/`, `dev_data/meta.sqlite3`
   - Production: `~/Library/Application Support/Playback/data/`
+  - Signal files: `.timeline_open` (timeline viewer active)
   - Database: SQLite with WAL mode for concurrent access
 
 ### Communication Patterns
-- **Filesystem-based:** App writes `config.json`, Python scripts read on startup
-- **LaunchAgent control:** App uses `launchctl` to manage Python services
-- **Database:** Python writes segments, Swift reads for timeline display (read-only)
+- **Filesystem-based:** Menu bar agent writes `config.json`, Python scripts and timeline viewer read
+- **LaunchAgent control:** Menu bar agent uses `launchctl` to manage all services (recording, processing, itself)
+- **Timeline communication:** Timeline viewer creates `.timeline_open` file, recording service detects and pauses
+- **Database:** Python writes segments, Swift apps read for timeline/diagnostics (read-only)
 - **No IPC:** Services don't communicate directly, only through filesystem and database
 
 ## SwiftUI Guidelines

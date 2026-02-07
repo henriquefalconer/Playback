@@ -10,6 +10,32 @@ Design documentation and implementation plans for Playback, a macOS screen recor
 
 Playback continuously captures screenshots, processes them into video segments, and provides a timeline-based viewer for browsing screen history. The system operates as a fully automated background service with a menu bar interface for control and monitoring.
 
+## Architecture
+
+Playback consists of separate independent components:
+
+1. **Menu Bar Agent** (`PlaybackMenuBar.app`): LaunchAgent that runs in the background
+   - Always visible menu bar icon (survives timeline viewer quit)
+   - Controls recording and processing services
+   - Provides settings and diagnostics UI
+   - Launches timeline viewer on demand
+   - "Quit Playback" stops all services including itself
+
+2. **Timeline Viewer** (`Playback.app`): Standalone app in `/Applications/` folder
+   - Only user-visible Playback app
+   - Can be quit independently (Cmd+Q or ESC) without stopping recording
+   - Signals recording service to pause while open
+   - Launched from menu bar, global hotkey, or app icon
+
+3. **Recording Service**: Python script managed by LaunchAgent
+   - Captures screenshots every 2 seconds
+   - Continues running even if timeline viewer crashes or is quit
+   - Pauses automatically when timeline viewer open
+
+4. **Processing Service**: Python script managed by LaunchAgent
+   - Converts screenshots to video segments every 5 minutes
+   - Runs independently of other components
+
 ## Core Architecture
 
 | Spec | Code | Purpose |
@@ -160,29 +186,57 @@ Example task format:
 
 ```
 src/
-├── Playback/                  # Swift app
-│   ├── Playback.xcodeproj     # Xcode project
-│   ├── Playback/              # Single unified app source
-│   │   ├── PlaybackApp.swift  # Main entry point
-│   │   ├── MenuBar/           # Menu bar component
-│   │   ├── Timeline/          # Timeline viewer component
-│   │   ├── Settings/          # Settings window
-│   │   ├── Services/          # LaunchAgent management
-│   │   ├── Config/            # Configuration system
-│   │   ├── Database/          # SQLite access
+├── Playback/                          # Swift apps
+│   ├── Playback.xcodeproj              # Xcode project
+│   ├── PlaybackMenuBar/                # Menu bar agent (LaunchAgent)
+│   │   ├── MenuBarAgentApp.swift       # Main entry point
+│   │   ├── MenuBarAgent/               # Menu bar UI and controls
+│   │   ├── Settings/                   # Settings window
+│   │   ├── Diagnostics/                # Diagnostics window
+│   │   ├── Services/                   # LaunchAgent management
+│   │   ├── Notifications/              # Notification system
 │   │   └── Resources/
-│   ├── PlaybackTests/         # Unit tests
-│   └── PlaybackUITests/       # UI tests
-├── scripts/                   # Python services
-│   ├── record_screen.py       # Recording service
-│   ├── build_chunks_from_temp.py  # Processing service
-│   └── tests/                 # Python tests
-└── lib/                       # Shared Python utilities (planned)
+│   ├── Playback/                       # Timeline viewer app
+│   │   ├── PlaybackApp.swift           # Main entry point
+│   │   ├── Timeline/                   # Timeline viewer
+│   │   ├── Database/                   # SQLite access (read-only)
+│   │   ├── Models/                     # Data models
+│   │   └── Resources/
+│   ├── Shared/                         # Shared code
+│   │   ├── Config/                     # Configuration file I/O
+│   │   └── Database/                   # Database schema
+│   ├── PlaybackTests/                  # Unit tests
+│   └── PlaybackUITests/                # UI tests
+├── scripts/                            # Python services (LaunchAgents)
+│   ├── record_screen.py                # Recording service
+│   ├── build_chunks_from_temp.py       # Processing service
+│   └── tests/                          # Python tests
+└── lib/                                # Shared Python utilities
 
-dev_data/                      # Development data (gitignored)
+dev_data/                               # Development data (gitignored)
 ├── temp/
 ├── chunks/
-└── meta.sqlite3
+├── meta.sqlite3
+└── .timeline_open                      # Signal file (timeline viewer open)
+```
+
+**Installation Layout:**
+```
+/Applications/
+└── Playback.app                        # Timeline viewer (only user-visible app)
+
+~/Library/LaunchAgents/
+├── com.playback.menubar.plist          # Menu bar agent
+├── com.playback.recording.plist        # Recording service
+└── com.playback.processing.plist       # Processing service
+
+~/Library/Application Support/Playback/
+├── data/
+│   ├── temp/                           # Screenshots
+│   ├── chunks/                         # Videos
+│   ├── meta.sqlite3                    # Database
+│   └── .timeline_open                  # Signal file
+└── config.json                         # Configuration
 ```
 
 ## Contributing

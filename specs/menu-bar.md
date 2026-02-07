@@ -1,25 +1,33 @@
-# Menu Bar Component Implementation Plan
+# Menu Bar Agent Implementation Plan
 
-**Component:** Menu Bar (Playback.app component)
+**Component:** Menu Bar Agent (LaunchAgent, always running)
 **Last Updated:** 2026-02-07
+
+**Architecture Note:** The menu bar is a separate LaunchAgent process (`PlaybackMenuBar.app`) that runs independently of the timeline viewer (`Playback.app`). The menu bar agent:
+- Always runs in the background (survives timeline viewer quit)
+- Controls recording and processing services
+- Launches timeline viewer on demand
+- When user clicks "Quit Playback", stops all services including itself
 
 ## Implementation Checklist
 
 ### Menu Bar Icon Component
 - [ ] Implement menu bar icon with status states
-  - Source: `src/Playback/Playback/MenuBar/MenuBarView.swift`
+  - Source: `src/Playback/PlaybackMenuBar/MenuBarAgent/MenuBarView.swift`
   - States: Recording active (red filled circle), Recording paused (gray outlined circle), Error state (exclamation mark)
   - SF Symbols: `record.circle.fill`, `record.circle`, `exclamationmark.circle.fill`
   - Icon size: 16×16 points (standard menu bar icon size)
   - Color: System red (#FF3B30) for recording, system gray for paused, system red for error
   - Location: macOS menu bar (right side)
   - Animation: Smooth 0.2s fade transition between states
+  - Persistence: Icon remains visible even when timeline viewer (Playback.app) is quit
 
 - [ ] Implement icon state management
-  - Source: `src/Playback/Playback/MenuBar/MenuBarController.swift`
+  - Source: `src/Playback/PlaybackMenuBar/MenuBarAgent/MenuBarController.swift`
   - Property: `@Published var iconState: IconState`
   - Enum values: `.recording`, `.paused`, `.error`
   - Auto-update based on recording service status
+  - Poll service status every 5 seconds
 
 - [ ] Implement tooltip behavior
   - Dynamic tooltips: "Playback: Recording", "Playback: Paused", "Playback: Error (click for details)"
@@ -45,10 +53,12 @@
 
 - [ ] Implement "Open Timeline" menu item
   - Shortcut hint: Option+Shift+Space (⌥⇧Space) displayed on right side in gray
-  - Action: Show timeline window
+  - Action: Launch Playback.app (timeline viewer)
+  - Method: `NSWorkspace.shared.open(URL(fileURLWithPath: "/Applications/Playback.app"))`
+  - Behavior: Brings window to front if already running
   - Disabled state: When no recordings exist (grayed out with reduced opacity)
-  - Integration: Uses shared window management
   - Icon: Optional timeline icon on left (SF Symbol: `clock.arrow.circlepath`)
+  - Note: Timeline viewer is a separate app, can be quit independently
 
 - [ ] Implement "Settings" menu item
   - Shortcut: Command+Comma (⌘,) displayed on right side in gray
@@ -69,15 +79,20 @@
 
 - [ ] Implement "Quit Playback" menu item
   - Shortcut: Command+Q (⌘Q) displayed on right side in gray
-  - Confirmation dialog: Modal alert with title "Stop recording and quit?"
+  - Confirmation dialog: Modal alert with title "Stop recording and quit Playback?"
   - Dialog buttons: "Cancel" (default), "Quit" (destructive style in red)
-  - Dialog message: "Recording will be stopped and the app will close. Unprocessed screenshots will remain for later processing."
-  - Action: Stop all services via launchctl unload, then quit entire app
+  - Dialog message: "This will stop all Playback services:\n• Recording service will stop\n• Processing service will stop\n• Timeline viewer will close\n• Menu bar icon will disappear\n\nUnprocessed screenshots will remain for later processing."
+  - Action sequence:
+    1. Unload recording LaunchAgent: `launchctl unload ~/Library/LaunchAgents/com.playback.recording.plist`
+    2. Unload processing LaunchAgent: `launchctl unload ~/Library/LaunchAgents/com.playback.processing.plist`
+    3. Close timeline viewer if open: Send quit signal to Playback.app
+    4. Unload menu bar agent (self): `launchctl unload ~/Library/LaunchAgents/com.playback.menubar.plist`
   - No confirmation if recording is already stopped
+  - Note: This is the only way to completely quit Playback (quitting timeline viewer alone keeps recording active)
 
 ### Settings Window - General Tab
 - [ ] Create settings window shell
-  - Source: `src/Playback/Playback/Settings/SettingsWindow.swift`
+  - Source: `src/Playback/PlaybackMenuBar/Settings/SettingsWindow.swift`
   - Title: "Playback Settings"
   - Size: 600×500 points (fixed, non-resizable)
   - Sidebar navigation: 150px width, light gray background (#F5F5F5)
@@ -86,9 +101,10 @@
   - Selected item: Blue highlight with white text
   - Window style: Standard macOS settings window with toolbar
   - Minimum macOS: 12.0 (Monterey)
+  - Note: Settings window is part of menu bar agent (always accessible)
 
 - [ ] Implement General tab layout
-  - Source: `src/Playback/Playback/Settings/GeneralSettingsView.swift`
+  - Source: `src/Playback/PlaybackMenuBar/Settings/GeneralSettingsView.swift`
   - Icon: SF Symbol `gearshape` in sidebar
   - Sections: Launch at Login, Global Shortcuts, Notifications, Permissions
   - Section headers: Bold 13pt San Francisco, 20px top margin

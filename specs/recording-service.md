@@ -1,8 +1,15 @@
 # Recording Service Implementation Plan
 
-**Component:** Recording Service (Python)
+**Component:** Recording Service (Python LaunchAgent)
 **Version:** 1.0
 **Last Updated:** 2026-02-07
+
+**Architecture Note:** The recording service is an independent Python script managed by a LaunchAgent:
+- Runs independently of timeline viewer (Playback.app)
+- Continues running even if timeline viewer crashes or is quit
+- Pauses automatically when timeline viewer is open (detects `.timeline_open` file)
+- Controlled by menu bar agent via launchctl
+- Only stopped when user clicks "Quit Playback" in menu bar
 
 ## Implementation Checklist
 
@@ -11,7 +18,10 @@
   - Source: `src/scripts/record_screen.py`
   - Fixed interval: 2 seconds (not configurable)
   - Check recording enabled status each iteration
-  - Loop structure: `while True: check_config() → check_screen_availability() → capture() → sleep(2)`
+  - Check timeline viewer status: Pause if `.timeline_open` file exists
+  - Loop structure: `while True: check_config() → check_timeline_open() → check_screen_availability() → capture() → sleep(2)`
+  - Timeline detection: Check for `~/Library/Application Support/Playback/data/.timeline_open`
+  - Pause behavior: Skip screenshot capture but continue polling
   - Exit on clean shutdown signal or critical errors only
 
 - [ ] Implement configuration reading

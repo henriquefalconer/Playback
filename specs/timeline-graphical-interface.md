@@ -1,7 +1,14 @@
 # Timeline Graphical Interface Implementation Plan
 
-**Component:** Playback (Swift/SwiftUI)
+**Component:** Timeline Viewer (Playback.app - standalone app in Applications folder)
 **Last Updated:** 2026-02-07
+
+**Architecture Note:** The timeline viewer is a standalone app (`Playback.app`) that:
+- Lives in `/Applications/` folder (only user-visible Playback app)
+- Can be launched from menu bar, global hotkey, or app icon
+- Can be quit independently (Cmd+Q or ESC) without stopping recording
+- Signals recording service to pause while open, resume when closed
+- Read-only access to database and configuration
 
 ## Implementation Checklist
 
@@ -25,21 +32,24 @@
 - [ ] Design and implement app icon
   - Style: Play button (rounded triangle)
   - Colors: Vibrant blue/purple gradient
-  - Sizes: Multiple resolutions for menu bar and Dock
+  - Sizes: Multiple resolutions for Dock and Finder
+  - Location: `/Applications/Playback.app` (only user-visible app)
 
-- [ ] Implement dual launch triggers
-  - Trigger 1: Global hotkey (Option+Shift+Space)
-  - Trigger 2: Click app icon in Applications/Dock
-  - Both: Check for running processing service, show loading screen if needed
+- [ ] Implement launch triggers
+  - Trigger 1: Global hotkey (Option+Shift+Space) - handled by menu bar agent
+  - Trigger 2: Menu bar "Open Timeline" - launched by menu bar agent via NSWorkspace
+  - Trigger 3: Click app icon in Applications/Dock - standard macOS launch
+  - All triggers: Check for running processing service, show loading screen if needed
 
 - [ ] Implement launch sequence
+  - Create signal file: `~/Library/Application Support/Playback/data/.timeline_open`
   - Check if `build_chunks_from_temp.py` is running
   - Show loading screen if processing
-  - Load database and segments
+  - Load database and segments (read-only)
   - Enter fullscreen mode
   - Position timeline at most recent timestamp
   - Begin video playback
-  - Signal recording service to pause
+  - Recording service detects signal file and pauses automatically
 
 ### Loading Screen
 - [ ] Implement loading screen UI
@@ -71,9 +81,11 @@
 
 - [ ] Implement ESC key handler
   - Exit fullscreen mode
-  - Close window
-  - Signal recording service to resume
+  - Delete signal file: `~/Library/Application Support/Playback/data/.timeline_open`
+  - Close window and quit app
+  - Recording service detects missing file and resumes automatically
   - Clean shutdown
+  - Note: Cmd+Q has same behavior as ESC
 
 ### Video Playback System
 - [ ] Implement video player integration (AVPlayer)
