@@ -93,6 +93,7 @@ final class TimelineStore: ObservableObject {
 
     private let dbPath: String
     private let baseDir: URL
+    private var refreshTimer: Timer?
 
     init() {
         // Use environment-aware paths from Paths utility
@@ -107,6 +108,25 @@ final class TimelineStore: ObservableObject {
         }
 
         loadSegments()
+        startAutoRefresh()
+    }
+
+    private func startAutoRefresh() {
+        refreshTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in
+            self?.refreshIfNeeded()
+        }
+    }
+
+    private func refreshIfNeeded() {
+        let previousCount = segments.count
+        loadSegments()
+        if segments.count != previousCount {
+            print("[TimelineStore] Auto-refreshed: \(segments.count) segments (was \(previousCount))")
+        }
+    }
+
+    deinit {
+        refreshTimer?.invalidate()
     }
 
     private func loadSegments() {

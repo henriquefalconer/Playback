@@ -217,20 +217,46 @@ Continue with remaining Phase 2 tasks:
 4. First-run setup wizard
 
 ### 2.2 Timeline Viewer
-- Implement TimelineView in SwiftUI
-- Implement AVPlayer integration for video playback
-- Implement segment selection algorithm with video offset calculation
-- Implement scroll gesture handling with momentum physics
-- Implement pinch-to-zoom (60s to 3600s range)
-- Implement time bubble display with current timestamp
-- Implement app color generation (HSL from bundle ID hash)
-- Implement app segment visual representation
-- Implement frozen frame handling (gap detection)
-- Implement playback controls (play/pause, seek)
-- Implement keyboard shortcuts (Space, Left/Right arrows)
-- Implement timeline scrubbing with precise positioning
-- Implement auto-scroll on playback
-- Implement performance optimization (viewport culling)
+
+**Status: ✅ PARTIALLY COMPLETE**
+
+**Completed:**
+- ✅ TimelineView in SwiftUI with complete UI structure
+- ✅ AVPlayer integration for video playback
+- ✅ Segment selection algorithm with video offset calculation
+- ✅ Scroll gesture handling with momentum physics
+- ✅ Pinch-to-zoom (60s to 3600s range)
+- ✅ Time bubble display with current timestamp
+- ✅ App segment visual representation
+- ✅ Playback controls (play/pause, seek)
+- ✅ Keyboard shortcuts (Space, Left/Right arrows)
+- ✅ Timeline scrubbing with precise positioning
+- ✅ Auto-scroll on playback
+- ✅ Performance optimization (viewport culling)
+- ✅ Global hotkey system (Option+Shift+Space) with Carbon API
+- ✅ Time labels and ticks on timeline with dynamic tick spacing
+- ✅ Auto-refresh for new segments (5-second polling)
+
+**Files Created:**
+- `src/Playback/Playback/Services/GlobalHotkeyManager.swift` (120 lines)
+
+**Files Modified:**
+- `src/Playback/Playback/PlaybackApp.swift` (added GlobalHotkeyManagerWrapper)
+- `src/Playback/Playback/TimelineView.swift` (added TimeTicksView, integrated ticks)
+- `src/Playback/Playback/TimelineStore.swift` (added auto-refresh timer)
+
+**Features Implemented:**
+- Carbon-based global hotkey registration with Accessibility permission check
+- Permission alert dialog with System Settings link
+- Dynamic tick interval based on zoom level (10s to 10min)
+- Major/minor ticks with time labels
+- Auto-refresh timer polling database every 5 seconds
+- Segment count change detection and logging
+
+**Not Yet Implemented:**
+- App color generation (HSL from bundle ID hash) - currently using fixed colors per app
+- Frozen frame handling (gap detection) - gaps shown but not specially marked
+- Further performance optimizations for very large datasets (90+ days)
 
 ### 2.3 Date/Time Picker
 - Implement DateTimePickerView in SwiftUI

@@ -212,6 +212,15 @@ struct TimelineView: View {
             let currentTime = playbackController.currentTime
 
             ZStack {
+                // Time ticks and labels
+                TimeTicksView(
+                    windowStart: windowStart,
+                    windowEnd: span.end,
+                    visibleWindowSeconds: visibleWindowSeconds,
+                    width: width,
+                    barY: barY
+                )
+
                 // Appsegments, com tamanho proporcional à duração absoluta e
                 // "janela" de tempo (clipping) aplicada pela barra.
                 ZStack {
@@ -304,6 +313,78 @@ struct TimelineView: View {
                     .position(x: geo.size.width / 2, y: barY - 32)
             }
         }
+    }
+}
+
+struct TimeTicksView: View {
+    let windowStart: TimeInterval
+    let windowEnd: TimeInterval
+    let visibleWindowSeconds: TimeInterval
+    let width: CGFloat
+    let barY: CGFloat
+
+    private var tickInterval: TimeInterval {
+        if visibleWindowSeconds <= 120 {
+            return 10
+        } else if visibleWindowSeconds <= 300 {
+            return 30
+        } else if visibleWindowSeconds <= 900 {
+            return 60
+        } else if visibleWindowSeconds <= 1800 {
+            return 300
+        } else {
+            return 600
+        }
+    }
+
+    private var ticks: [TimeInterval] {
+        let start = (windowStart / tickInterval).rounded(.down) * tickInterval
+        var result: [TimeInterval] = []
+        var current = start
+
+        while current <= windowEnd {
+            if current >= windowStart {
+                result.append(current)
+            }
+            current += tickInterval
+        }
+
+        return result
+    }
+
+    var body: some View {
+        ZStack {
+            ForEach(ticks, id: \.self) { tick in
+                let offset = tick - windowStart
+                let x = (offset / visibleWindowSeconds) * width
+
+                VStack(spacing: 2) {
+                    Rectangle()
+                        .fill(Color.white.opacity(0.3))
+                        .frame(width: 1, height: isMajorTick(tick) ? 12 : 6)
+
+                    if isMajorTick(tick) {
+                        Text(formatTime(tick))
+                            .font(.system(size: 10, weight: .regular))
+                            .foregroundColor(.white.opacity(0.6))
+                    }
+                }
+                .position(x: x, y: barY + 60)
+            }
+        }
+        .frame(width: width)
+    }
+
+    private func isMajorTick(_ time: TimeInterval) -> Bool {
+        let majorInterval = tickInterval * 5
+        return (time / majorInterval).truncatingRemainder(dividingBy: 1) == 0
+    }
+
+    private func formatTime(_ time: TimeInterval) -> String {
+        let date = Date(timeIntervalSince1970: time)
+        let formatter = DateFormatter()
+        formatter.dateFormat = tickInterval < 300 ? "h:mm a" : "h a"
+        return formatter.string(from: date)
     }
 }
 
