@@ -217,14 +217,83 @@ struct ProcessingSettingsTab: View {
 struct StorageSettingsTab: View {
     @EnvironmentObject var configManager: ConfigManager
 
+    @State private var tempBytes: UInt64 = 0
+    @State private var chunksBytes: UInt64 = 0
+    @State private var databaseBytes: UInt64 = 0
+    @State private var totalBytes: UInt64 = 0
+    @State private var availableSpace: UInt64 = 0
+    @State private var isLoadingUsage = false
+
+    @State private var showCleanupConfirmation = false
+    @State private var cleanupPreviewMessage = ""
+    @State private var showCleanupResult = false
+    @State private var cleanupResultMessage = ""
+
     var body: some View {
         Form {
+            Section("Storage Usage") {
+                if isLoadingUsage {
+                    HStack {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("Calculating...")
+                            .foregroundColor(.secondary)
+                    }
+                } else {
+                    HStack {
+                        Text("Temp Files:")
+                        Spacer()
+                        Text(formatBytes(tempBytes))
+                            .foregroundColor(.secondary)
+                    }
+
+                    HStack {
+                        Text("Recordings:")
+                        Spacer()
+                        Text(formatBytes(chunksBytes))
+                            .foregroundColor(.secondary)
+                    }
+
+                    HStack {
+                        Text("Database:")
+                        Spacer()
+                        Text(formatBytes(databaseBytes))
+                            .foregroundColor(.secondary)
+                    }
+
+                    HStack {
+                        Text("Total:")
+                        Spacer()
+                        Text(formatBytes(totalBytes))
+                            .fontWeight(.semibold)
+                    }
+
+                    HStack {
+                        Text("Available Space:")
+                        Spacer()
+                        Text(formatBytes(availableSpace))
+                            .foregroundColor(availableSpace < 5_000_000_000 ? .orange : .secondary)
+                    }
+
+                    Button("Refresh Usage") {
+                        Task {
+                            await loadStorageUsage()
+                        }
+                    }
+                    .buttonStyle(.borderless)
+                    .controlSize(.small)
+                }
+            }
+
             Section("Retention Policies") {
                 Picker("Temp files:", selection: binding(\.tempRetentionPolicy)) {
                     Text("Never delete").tag("never")
                     Text("1 day").tag("1_day")
                     Text("1 week").tag("1_week")
                     Text("1 month").tag("1_month")
+                    Text("3 months").tag("3_months")
+                    Text("6 months").tag("6_months")
+                    Text("1 year").tag("1_year")
                 }
 
                 Picker("Recordings:", selection: binding(\.recordingRetentionPolicy)) {
@@ -232,11 +301,64 @@ struct StorageSettingsTab: View {
                     Text("1 day").tag("1_day")
                     Text("1 week").tag("1_week")
                     Text("1 month").tag("1_month")
+                    Text("3 months").tag("3_months")
+                    Text("6 months").tag("6_months")
+                    Text("1 year").tag("1_year")
                 }
+
+                HStack(spacing: 4) {
+                    Image(systemName: "info.circle")
+                        .foregroundColor(.secondary)
+                        .font(.caption)
+                    Text("Retention policies are applied automatically during processing. Use manual cleanup to apply immediately.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                .padding(.top, 4)
+            }
+
+            Section("Manual Cleanup") {
+                Button("Clean Up Now") {
+                    Task {
+                        await previewCleanup()
+                    }
+                }
+                .buttonStyle(.borderless)
+
+                Text("Applies retention policies immediately and removes old files")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
             }
         }
         .formStyle(.grouped)
         .padding()
+        .task {
+            await loadStorageUsage()
+        }
+        .onReceive(Timer.publish(every: 30, on: .main, in: .common).autoconnect()) { _ in
+            Task {
+                await loadStorageUsage()
+            }
+        }
+        .alert("Confirm Cleanup", isPresented: $showCleanupConfirmation) {
+            Button("Cancel", role: .cancel) { }
+            Button("Delete", role: .destructive) {
+                Task {
+                    await performCleanup()
+                }
+            }
+        } message: {
+            Text(cleanupPreviewMessage)
+        }
+        .alert("Cleanup Complete", isPresented: $showCleanupResult) {
+            Button("OK") {
+                Task {
+                    await loadStorageUsage()
+                }
+            }
+        } message: {
+            Text(cleanupResultMessage)
+        }
     }
 
     private func binding<T>(_ keyPath: WritableKeyPath<Config, T>) -> Binding<T> {
@@ -249,15 +371,289 @@ struct StorageSettingsTab: View {
             }
         )
     }
+
+    private func loadStorageUsage() async {
+        await MainActor.run {
+            isLoadingUsage = true
+        }
+
+        let baseDir = Paths.baseDataDirectory.path
+        let tempDir = "\(baseDir)/temp"
+        let chunksDir = "\(baseDir)/chunks"
+        let dbPath = Paths.databasePath.path
+
+        let tempSize = await calculateDirectorySize(tempDir)
+        let chunksSize = await calculateDirectorySize(chunksDir)
+        let dbSize = await getFileSize(dbPath)
+        let available = await getAvailableSpace(baseDir)
+
+        await MainActor.run {
+            tempBytes = tempSize
+            chunksBytes = chunksSize
+            databaseBytes = dbSize
+            totalBytes = tempSize + chunksSize + dbSize
+            availableSpace = available
+            isLoadingUsage = false
+        }
+    }
+
+    private func calculateDirectorySize(_ path: String) async -> UInt64 {
+        let command = "du -sk '\(path)' 2>/dev/null | awk '{print $1}'"
+        let result = await runShellCommand(command)
+        if let kilobytes = UInt64(result.trimmingCharacters(in: .whitespacesAndNewlines)) {
+            return kilobytes * 1024
+        }
+        return 0
+    }
+
+    private func getFileSize(_ path: String) async -> UInt64 {
+        let command = "stat -f%z '\(path)' 2>/dev/null"
+        let result = await runShellCommand(command)
+        return UInt64(result.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0
+    }
+
+    private func getAvailableSpace(_ path: String) async -> UInt64 {
+        let command = "df -k '\(path)' | tail -n 1 | awk '{print $4}'"
+        let result = await runShellCommand(command)
+        if let kilobytes = UInt64(result.trimmingCharacters(in: .whitespacesAndNewlines)) {
+            return kilobytes * 1024
+        }
+        return 0
+    }
+
+    private func previewCleanup() async {
+        let scriptPath = findProjectRoot().appendingPathComponent("src/scripts/cleanup_old_chunks.py").path
+        let command = "python3 '\(scriptPath)' --dry-run 2>&1"
+        let result = await runShellCommand(command)
+
+        await MainActor.run {
+            if result.contains("Would delete") || result.contains("files to delete") {
+                cleanupPreviewMessage = parseCleanupPreview(result)
+            } else {
+                cleanupPreviewMessage = "No files to clean up based on current retention policies."
+            }
+            showCleanupConfirmation = true
+        }
+    }
+
+    private func performCleanup() async {
+        let scriptPath = findProjectRoot().appendingPathComponent("src/scripts/cleanup_old_chunks.py").path
+        let command = "python3 '\(scriptPath)' 2>&1"
+        let result = await runShellCommand(command)
+
+        await MainActor.run {
+            if result.contains("Cleanup complete") || result.contains("successfully") {
+                cleanupResultMessage = "Cleanup completed successfully.\n\n" + parseCleanupResult(result)
+            } else {
+                cleanupResultMessage = "Cleanup encountered issues. Check logs for details."
+            }
+            showCleanupResult = true
+        }
+    }
+
+    private func parseCleanupPreview(_ output: String) -> String {
+        var message = "This will:\n\n"
+        let lines = output.components(separatedBy: .newlines)
+
+        var tempCount = 0
+        var tempSize: UInt64 = 0
+        var chunkCount = 0
+        var chunkSize: UInt64 = 0
+
+        for line in lines {
+            if line.contains("temp files") {
+                if let count = extractNumber(from: line) {
+                    tempCount = count
+                }
+            }
+            if line.contains("segment files") || line.contains("recordings") {
+                if let count = extractNumber(from: line) {
+                    chunkCount = count
+                }
+            }
+        }
+
+        if tempCount > 0 {
+            message += "• Delete \(tempCount) temp file(s)\n"
+        }
+        if chunkCount > 0 {
+            message += "• Delete \(chunkCount) recording(s)\n"
+        }
+
+        if tempCount == 0 && chunkCount == 0 {
+            message += "• No files to delete\n"
+        }
+
+        message += "\nProceed with cleanup?"
+        return message
+    }
+
+    private func parseCleanupResult(_ output: String) -> String {
+        let lines = output.components(separatedBy: .newlines)
+        var message = ""
+
+        for line in lines {
+            if line.contains("Deleted") || line.contains("Cleaned") || line.contains("space freed") {
+                message += line + "\n"
+            }
+        }
+
+        return message.isEmpty ? "Cleanup completed." : message
+    }
+
+    private func extractNumber(from text: String) -> Int? {
+        let pattern = "\\d+"
+        if let regex = try? NSRegularExpression(pattern: pattern),
+           let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) {
+            if let range = Range(match.range, in: text) {
+                return Int(text[range])
+            }
+        }
+        return nil
+    }
+
+    private func findProjectRoot() -> URL {
+        if Paths.isDevelopment {
+            return Bundle.main.bundleURL
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+        } else {
+            return FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+                .appendingPathComponent("Playback")
+        }
+    }
+
+    private func runShellCommand(_ command: String) async -> String {
+        await withCheckedContinuation { continuation in
+            let process = Process()
+            let pipe = Pipe()
+
+            process.executableURL = URL(fileURLWithPath: "/bin/bash")
+            process.arguments = ["-c", command]
+            process.standardOutput = pipe
+            process.standardError = pipe
+
+            do {
+                try process.run()
+                process.waitUntilExit()
+
+                let data = pipe.fileHandleForReading.readDataToEndOfFile()
+                let output = String(data: data, encoding: .utf8)?
+                    .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+
+                continuation.resume(returning: output)
+            } catch {
+                continuation.resume(returning: "")
+            }
+        }
+    }
+
+    private func formatBytes(_ bytes: UInt64) -> String {
+        let formatter = ByteCountFormatter()
+        formatter.countStyle = .file
+        formatter.allowedUnits = [.useGB, .useMB, .useKB]
+        return formatter.string(fromByteCount: Int64(bytes))
+    }
 }
 
 struct PrivacySettingsTab: View {
     @EnvironmentObject var configManager: ConfigManager
 
     @State private var newAppId = ""
+    @State private var screenRecordingGranted = false
+    @State private var accessibilityGranted = false
+    @State private var showExportDialog = false
+    @State private var exportResult = ""
+
+    private let recommendedExclusions: [(bundleId: String, name: String)] = [
+        ("com.apple.keychainaccess", "Keychain Access"),
+        ("com.1password.1password", "1Password 8"),
+        ("com.agilebits.onepassword7", "1Password 7"),
+        ("com.lastpass.LastPass", "LastPass"),
+        ("com.dashlane.Dashlane", "Dashlane"),
+        ("com.keepassxc.keepassxc", "KeePassXC"),
+        ("com.bitwarden.desktop", "Bitwarden"),
+        ("org.keepassx.keepassxc", "KeePassX")
+    ]
 
     var body: some View {
         Form {
+            Section("Permissions") {
+                HStack {
+                    Circle()
+                        .fill(screenRecordingGranted ? Color.green : Color.red)
+                        .frame(width: 8, height: 8)
+                    Text("Screen Recording:")
+                    Spacer()
+                    Text(screenRecordingGranted ? "Granted" : "Denied")
+                        .foregroundColor(.secondary)
+                    if !screenRecordingGranted {
+                        Button("Open Settings") {
+                            openScreenRecordingSettings()
+                        }
+                        .buttonStyle(.borderless)
+                        .controlSize(.small)
+                    }
+                }
+
+                HStack {
+                    Circle()
+                        .fill(accessibilityGranted ? Color.green : Color.yellow)
+                        .frame(width: 8, height: 8)
+                    Text("Accessibility:")
+                    Spacer()
+                    Text(accessibilityGranted ? "Granted" : "Optional")
+                        .foregroundColor(.secondary)
+                    if !accessibilityGranted {
+                        Button("Open Settings") {
+                            openAccessibilitySettings()
+                        }
+                        .buttonStyle(.borderless)
+                        .controlSize(.small)
+                    }
+                }
+
+                HStack(spacing: 4) {
+                    Image(systemName: "info.circle")
+                        .foregroundColor(.secondary)
+                        .font(.caption)
+                    Text("Accessibility permission enables global hotkey (Option+Shift+Space) for timeline viewer.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                .padding(.top, 4)
+            }
+
+            Section("Recommended Exclusions") {
+                Text("Password managers and sensitive apps")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+
+                ForEach(recommendedExclusions, id: \.bundleId) { app in
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(app.name)
+                            Text(app.bundleId)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                        Spacer()
+                        if configManager.config.excludedApps.contains(app.bundleId) {
+                            Text("Added")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        } else {
+                            Button("Add") {
+                                addRecommendedApp(app.bundleId)
+                            }
+                            .buttonStyle(.borderless)
+                            .controlSize(.small)
+                        }
+                    }
+                }
+            }
+
             Section("App Exclusion") {
                 Picker("Mode:", selection: binding(\.exclusionMode)) {
                     Text("Skip screenshots").tag("skip")
@@ -265,16 +661,23 @@ struct PrivacySettingsTab: View {
                 }
 
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Excluded Apps:")
+                    Text("Custom Excluded Apps:")
                         .font(.headline)
 
-                    List {
-                        ForEach(configManager.config.excludedApps, id: \.self) { appId in
-                            Text(appId)
+                    if configManager.config.excludedApps.isEmpty {
+                        Text("No apps excluded")
+                            .foregroundColor(.secondary)
+                            .font(.caption)
+                            .padding(.vertical, 8)
+                    } else {
+                        List {
+                            ForEach(configManager.config.excludedApps, id: \.self) { appId in
+                                Text(appId)
+                            }
+                            .onDelete(perform: deleteApps)
                         }
-                        .onDelete(perform: deleteApps)
+                        .frame(height: 150)
                     }
-                    .frame(height: 150)
 
                     HStack {
                         TextField("com.example.app", text: $newAppId)
@@ -285,9 +688,48 @@ struct PrivacySettingsTab: View {
                     }
                 }
             }
+
+            Section("Data Management") {
+                HStack {
+                    Text("Data Location:")
+                    Spacer()
+                    Text(Paths.baseDataDirectory.path)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Button("Reveal") {
+                        revealDataDirectory()
+                    }
+                    .buttonStyle(.borderless)
+                    .controlSize(.small)
+                }
+
+                Button("Export All Data") {
+                    exportAllData()
+                }
+                .buttonStyle(.borderless)
+
+                Text("Creates a ZIP archive with all recordings, database, and configuration")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
         }
         .formStyle(.grouped)
         .padding()
+        .task {
+            await checkPermissions()
+        }
+        .onReceive(Timer.publish(every: 10, on: .main, in: .common).autoconnect()) { _ in
+            Task {
+                await checkPermissions()
+            }
+        }
+        .alert("Export Complete", isPresented: $showExportDialog) {
+            Button("OK") { }
+        } message: {
+            Text(exportResult)
+        }
     }
 
     private func binding<T>(_ keyPath: WritableKeyPath<Config, T>) -> Binding<T> {
@@ -299,6 +741,140 @@ struct PrivacySettingsTab: View {
                 configManager.updateConfig(updatedConfig)
             }
         )
+    }
+
+    private func checkPermissions() async {
+        screenRecordingGranted = await checkScreenRecordingPermission()
+        accessibilityGranted = checkAccessibilityPermission()
+    }
+
+    private func checkScreenRecordingPermission() async -> Bool {
+        await withCheckedContinuation { continuation in
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
+            process.arguments = ["-c", """
+            import Quartz
+            try:
+                session = Quartz.CGWindowListCopyWindowInfo(Quartz.kCGWindowListOptionAll, Quartz.kCGNullWindowID)
+                print("granted" if session and len(session) > 0 else "denied")
+            except:
+                print("denied")
+            """]
+
+            let pipe = Pipe()
+            process.standardOutput = pipe
+            process.standardError = pipe
+
+            do {
+                try process.run()
+                process.waitUntilExit()
+                let data = pipe.fileHandleForReading.readDataToEndOfFile()
+                let output = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "denied"
+                continuation.resume(returning: output == "granted")
+            } catch {
+                continuation.resume(returning: false)
+            }
+        }
+    }
+
+    private func checkAccessibilityPermission() -> Bool {
+        let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: false] as CFDictionary
+        return AXIsProcessTrustedWithOptions(options)
+    }
+
+    private func openScreenRecordingSettings() {
+        NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")!)
+    }
+
+    private func openAccessibilitySettings() {
+        NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!)
+    }
+
+    private func revealDataDirectory() {
+        NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: Paths.baseDataDirectory.path)
+    }
+
+    private func exportAllData() {
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = "playback-export-\(formatExportDate(Date())).zip"
+        panel.allowedContentTypes = [.zip]
+        panel.canCreateDirectories = true
+
+        panel.begin { response in
+            if response == .OK, let url = panel.url {
+                Task {
+                    await performExport(to: url)
+                }
+            }
+        }
+    }
+
+    private func performExport(to destination: URL) async {
+        let scriptPath = findProjectRoot().appendingPathComponent("src/scripts/export_data.py").path
+        let outputPath = destination.path
+
+        let command = "python3 '\(scriptPath)' '\(outputPath)' 2>&1"
+        let result = await runShellCommand(command)
+
+        await MainActor.run {
+            if result.contains("Export complete") || result.contains("successfully") {
+                exportResult = "Data exported successfully to \(destination.lastPathComponent)"
+            } else {
+                exportResult = "Export failed. Check logs for details."
+            }
+            showExportDialog = true
+        }
+    }
+
+    private func findProjectRoot() -> URL {
+        if Paths.isDevelopment {
+            return Bundle.main.bundleURL
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+        } else {
+            return FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+                .appendingPathComponent("Playback")
+        }
+    }
+
+    private func runShellCommand(_ command: String) async -> String {
+        await withCheckedContinuation { continuation in
+            let process = Process()
+            let pipe = Pipe()
+
+            process.executableURL = URL(fileURLWithPath: "/bin/bash")
+            process.arguments = ["-c", command]
+            process.standardOutput = pipe
+            process.standardError = pipe
+
+            do {
+                try process.run()
+                process.waitUntilExit()
+
+                let data = pipe.fileHandleForReading.readDataToEndOfFile()
+                let output = String(data: data, encoding: .utf8)?
+                    .trimmingCharacters(in: .whitespacesAndNewlines) ?? "Error"
+
+                continuation.resume(returning: output)
+            } catch {
+                continuation.resume(returning: "Error: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    private func formatExportDate(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyyMMdd-HHmmss"
+        return formatter.string(from: date)
+    }
+
+    private func addRecommendedApp(_ bundleId: String) {
+        var updatedConfig = configManager.config
+        if !updatedConfig.excludedApps.contains(bundleId) {
+            updatedConfig.excludedApps.append(bundleId)
+            configManager.updateConfig(updatedConfig)
+        }
     }
 
     private func addApp() {
