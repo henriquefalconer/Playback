@@ -538,55 +538,68 @@ app.log
 
 ### Storage Estimates
 
+> **Note:** Screenshot storage estimates are pending real-world usage data and will be updated after 1 month of production use. Estimates below focus on processed video segments.
+
 #### Per-Day Storage
 **Screenshots (temp/):**
-- Capture rate: 1 per second
-- Seconds per day: 86,400
-- File size: ~250 KB average (PNG, 10 quality)
-- Daily total: 86,400 × 250 KB = **~21.6 GB/day**
+- *Storage estimates pending - will be updated after 1 month of usage data*
+- Temporary storage only (deleted after processing)
+- Expected to be significantly less than video segment storage
 
 **Video Segments (chunks/):**
-- Segment duration: 5 minutes
-- Segments per day: 288 (24 hours × 60 min / 5)
-- File size: ~500-750 MB average (H.264)
-- Daily total: 288 × 625 MB = **~180 GB/day**
+- Segment duration: 5 seconds video (represents 5 minutes real-time)
+- File size: **~7.5 MB per segment** (H.264, CRF 28, 30fps)
+- Recording pattern: Varies by user activity (4-5 hours typical usage)
+- Typical segments per day: 48-60 segments (4-5 hours of recording)
+- Daily total: 48-60 × 7.5 MB = **~360-450 MB/day**
 
 **Combined Daily:**
-- Screenshots: 21.6 GB
-- Videos: 180 GB
-- **Total: ~201.6 GB/day**
+- Screenshots: *TBD after usage data collection*
+- Videos: 360-450 MB
+- **Total: ~360-450 MB/day** (videos only, screenshots TBD)
 
 #### Long-Term Storage
 **30 Days (1 month):**
-- Total: 30 × 201.6 GB = **~6.05 TB**
+- Videos: 30 × 405 MB = **~12.2 GB/month**
+- Expected range: **10-14 GB/month** (based on typical usage patterns)
+- Screenshots: *TBD*
 
 **90 Days (3 months):**
-- Total: 90 × 201.6 GB = **~18.14 TB**
+- Videos: 90 × 405 MB = **~36.5 GB**
+- Expected range: 30-42 GB
 
 **365 Days (1 year):**
-- Total: 365 × 201.6 GB = **~73.6 TB**
+- Videos: 365 × 405 MB = **~148 GB**
+- Expected range: 120-170 GB (depending on usage patterns)
 
 **Recommended Minimum:**
-- System drive: 500 GB free for production use
-- External drive: 2-4 TB for extended retention
-- Cloud backup: Optional, ~200 GB/day upload
+- System drive: 100 GB free for 6 months of recordings
+- External drive: 500 GB for extended retention (2+ years)
+- Cloud backup: Optional, ~12 GB/month upload
+
+**Usage Pattern Notes:**
+- Estimates assume 4-5 hours of active recording per day
+- Actual usage varies significantly by user:
+  - Light users (2-3 hours/day): ~6-8 GB/month
+  - Typical users (4-5 hours/day): ~10-14 GB/month
+  - Heavy users (8+ hours/day): ~20-28 GB/month
+- Recording pauses during screen lock, screensaver, and excluded apps
 
 #### Database Growth
 **Records Per Day:**
-- Screenshots: 86,400 records
-- Chunks: 288 records
-- OCR results: ~86,400 records (one per screenshot)
+- Segments: 48-60 records (per typical usage)
+- OCR results: Varies by screenshot count (TBD)
 
 **Database Size:**
-- Per day: ~500 MB (with indexes)
-- Per month: ~15 GB
-- Per year: ~180 GB
+- Per day: ~5-10 MB (with indexes and metadata)
+- Per month: ~150-300 MB
+- Per year: ~1.8-3.6 GB
 
-**Total Storage (1 Year):**
-- Data files: 73.6 TB
-- Database: 180 GB
-- Logs: ~5 GB
-- **Total: ~73.8 TB**
+**Total Storage (1 Year, Typical Usage):**
+- Video segments: ~148 GB
+- Database: ~2.5 GB
+- Logs: ~2 GB
+- **Total: ~152.5 GB**
 
 ### Path Resolution Examples
 
@@ -1336,7 +1349,7 @@ func performBackup(destination: URL) {
 
 ### Performance Tests
 - [ ] Test with large datasets
-  - 30 days: Verify performance with ~600GB data
-  - 90 days: Test with ~1.8TB data
+  - 30 days: Verify performance with ~12GB data
+  - 90 days: Test with ~37GB data
   - Directory traversal: Fast access to date-based structure
-  - Database: Query performance with millions of records
+  - Database: Query performance with thousands of segment records

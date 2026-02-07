@@ -215,11 +215,11 @@
 - Main app: <100MB base, +50MB per hour of timeline loaded
 
 **Disk I/O:**
-- Screenshot capture: ~500KB per frame (PNG compression)
-- Video encoding: ~1.5MB per minute of video (H.264)
-- Temp storage: ~15MB per 10-minute segment (before processing)
-- Chunk storage: ~15MB per 10-minute segment (after processing)
-- Daily accumulation: ~2GB per day (assuming 2-second intervals, 12 hours active)
+- Screenshot capture: *Storage TBD after 1 month of usage data* (PNG compression, temporary only)
+- Video encoding: ~7.5MB per segment (5s video, represents 5min real-time, H.264)
+- Chunk storage: ~7.5MB per 5-minute segment (after processing)
+- Daily accumulation: ~360-450 MB/day (typical 4-5 hours active recording)
+- Monthly accumulation: ~10-14 GB/month (typical usage)
 
 **Retention and Cleanup:**
 - Default retention: 30 days
