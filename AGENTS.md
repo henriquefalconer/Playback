@@ -31,6 +31,11 @@ Key operational learnings from Phase 2 development (2026-02-07):
 - **Log file parsing:** Read log files line-by-line treating each line as separate JSON (newline-delimited JSON format from logging_config.py)
 - **Health status calculation:** Threshold-based (errors > 10 = unhealthy, errors > 0 or warnings > 20 = degraded, else healthy)
 - **Phase 4.3 diagnostics UI complete:** All 7 originally planned items now implemented (log viewer, filtering, search, health monitoring, crash notifications via error badges, report generation)
+- **PerformanceTab metrics extraction:** Extract metrics from log metadata by filtering entries containing "Resource metrics" or "metrics", then accessing metadata dictionary for cpu_percent/memory_mb/disk_free_gb keys
+- **Metrics aggregation:** Use filter + prefix to get recent entries, then reduce for averages (cpuSum / count, etc.)
+- **SimpleBarChart pattern:** Fixed-height (70px) with dynamic bar heights calculated as (value / max) * 60, showing min/avg/max stats below
+- **ServiceStats calculation:** Dictionary keyed by component name, accumulating per-service error/warning counts and CPU/memory averages
+- **Phase 4 complete:** All 4 subphases (OCR search, privacy & security, diagnostics UI, performance monitoring) now 100% implemented
 
 ## Specifications
 
