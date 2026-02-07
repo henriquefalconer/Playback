@@ -28,6 +28,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from lib.paths import get_temp_directory, ensure_directory_exists, get_timeline_open_signal_path
 from lib.macos import is_screen_unavailable, get_active_display_index, get_frontmost_app_bundle_id
 from lib.timestamps import generate_chunk_name
+from lib.config import load_config_with_defaults
 
 
 def ensure_chunk_dir(now: datetime) -> Path:
@@ -91,18 +92,32 @@ def main(
     Loop principal:
     - A cada `interval_seconds`, tira um screenshot e salva no diretório de temp.
     - Pausa automaticamente quando o timeline viewer está aberto.
+    - Pula apps excluídos conforme configuração.
     """
     temp_root = get_temp_directory()
     signal_path = get_timeline_open_signal_path()
+    config = load_config_with_defaults()
+
     print(f"[Playback] Iniciando gravação de tela com intervalo de {interval_seconds}s...")
     print(f"[Playback] Salvando em: {temp_root}")
     print(f"[Playback] Monitorando sinal de pause em: {signal_path}")
 
+    if config.excluded_apps:
+        print(f"[Playback] Apps excluídos (modo {config.exclusion_mode}): {', '.join(config.excluded_apps)}")
+    else:
+        print(f"[Playback] Nenhum app excluído")
+
     timeline_was_open = False
+    last_config_check = time.time()
 
     while True:
         now = datetime.now()
         print(f"[Playback] DEBUG: Iniciando ciclo de captura às {now.strftime('%H:%M:%S')}")
+
+        # Reload config every 30 seconds to pick up changes
+        if time.time() - last_config_check > 30:
+            config = load_config_with_defaults()
+            last_config_check = time.time()
 
         # Verifica se o timeline viewer está aberto
         timeline_open = is_timeline_viewer_open()
@@ -132,10 +147,20 @@ def main(
             continue
 
         print(f"[Playback] DEBUG: Tela disponível, prosseguindo com captura...")
-        day_dir = ensure_chunk_dir(now)
 
         # Get frontmost app bundle ID
         app_id = get_frontmost_app_bundle_id()
+
+        # Check if app is excluded
+        if config.is_app_excluded(app_id):
+            if config.exclusion_mode == "skip":
+                print(f"[Playback] Pulando captura (app excluído: {app_id}), aguardando {interval_seconds}s...")
+                time.sleep(interval_seconds)
+                continue
+            # If exclusion_mode is "invisible", we still capture but could blur or black out the content
+            # For now, we just continue with normal capture (implement blurring in future if needed)
+
+        day_dir = ensure_chunk_dir(now)
 
         # Generate chunk name with timestamp and app ID
         chunk_name = generate_chunk_name(now, app_id)

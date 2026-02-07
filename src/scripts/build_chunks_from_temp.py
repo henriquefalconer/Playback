@@ -20,6 +20,7 @@ Requisitos:
 import argparse
 import sys
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import List, Optional, Tuple
 
@@ -30,6 +31,7 @@ from lib.database import init_database, generate_segment_id
 from lib.paths import get_temp_directory, get_chunks_directory, get_database_path
 from lib.timestamps import parse_timestamp_from_name, parse_app_from_name
 from lib.video import get_image_size, create_video_from_images
+from lib.config import load_config_with_defaults
 
 
 @dataclass
@@ -322,8 +324,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--day",
         type=str,
-        required=True,
         help="Dia no formato YYYYMMDD (ex.: 20251222)",
+    )
+    parser.add_argument(
+        "--auto",
+        action="store_true",
+        help="Processa automaticamente todos os dias pendentes (últimos 7 dias)",
     )
     parser.add_argument(
         "--no-cleanup",
@@ -333,8 +339,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--fps",
         type=float,
-        default=30.0,
-        help="FPS do vídeo de saída (default: 30.0)",
+        default=None,
+        help="FPS do vídeo de saída (default: carrega do config)",
     )
     parser.add_argument(
         "--segment-duration",
@@ -345,8 +351,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--crf",
         type=int,
-        default=28,
-        help="CRF do libx265 (quanto maior, mais compressão; default: 28)",
+        default=None,
+        help="CRF do libx265 (default: carrega do config)",
     )
     parser.add_argument(
         "--preset",
@@ -357,16 +363,77 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def find_pending_days() -> List[str]:
+    """
+    Encontra dias com screenshots na pasta temp que ainda não foram processados.
+    Retorna lista de strings no formato YYYYMMDD para os últimos 7 dias.
+    """
+    temp_dir = get_temp_directory()
+    pending_days = []
+
+    # Check last 7 days
+    today = datetime.now()
+    for i in range(7):
+        check_date = today - timedelta(days=i)
+        day_str = check_date.strftime("%Y%m%d")
+        year_month = day_str[:6]
+        day_only = day_str[6:]
+
+        day_dir = temp_dir / year_month / day_only
+        if day_dir.exists():
+            # Check if there are any files in this directory
+            files = list(day_dir.glob("*"))
+            if files:
+                pending_days.append(day_str)
+
+    return pending_days
+
+
 def main() -> None:
     args = parse_args()
-    process_day(
-        day=args.day,
-        fps=args.fps,
-        segment_duration=args.segment_duration,
-        crf=args.crf,
-        preset=args.preset,
-        cleanup=not args.no_cleanup,
-    )
+
+    # Load config for defaults
+    config = load_config_with_defaults()
+
+    # Use config values if not specified
+    fps = args.fps if args.fps is not None else config.video_fps
+    crf = args.crf if args.crf is not None else config.ffmpeg_crf
+
+    if args.auto:
+        # Auto mode: process all pending days
+        pending_days = find_pending_days()
+        if not pending_days:
+            print("[Playback] Nenhum dia pendente para processar")
+            return
+
+        print(f"[Playback] Modo automático: processando {len(pending_days)} dia(s)")
+        for day in pending_days:
+            print(f"[Playback] Processando dia: {day}")
+            try:
+                process_day(
+                    day=day,
+                    fps=fps,
+                    segment_duration=args.segment_duration,
+                    crf=crf,
+                    preset=args.preset,
+                    cleanup=not args.no_cleanup,
+                )
+            except Exception as e:
+                print(f"[Playback] ERRO ao processar {day}: {e}")
+                # Continue with next day even if one fails
+    elif args.day:
+        # Manual mode: process specific day
+        process_day(
+            day=args.day,
+            fps=fps,
+            segment_duration=args.segment_duration,
+            crf=crf,
+            preset=args.preset,
+            cleanup=not args.no_cleanup,
+        )
+    else:
+        print("[Playback] ERRO: Especifique --day ou --auto")
+        sys.exit(1)
 
 
 if __name__ == "__main__":
