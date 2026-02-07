@@ -1,1027 +1,752 @@
-# Timeline Graphical Interface Specification
+# Timeline Graphical Interface Implementation Plan
 
 **Component:** Playback (Swift/SwiftUI)
-**Version:** 1.0
 **Last Updated:** 2026-02-07
 
-## Overview
+## Implementation Checklist
 
-The Timeline Graphical Interface is a fullscreen timeline viewer that allows users to browse their screen recording history. Designed with simplicity and polish inspired by Arc browser, it provides intuitive navigation through date/time selection and text search. It provides smooth video playback synchronized with an interactive timeline, supporting scrubbing via trackpad/mouse gestures and timeline zoom via pinch gestures.
+### Global Hotkey Registration
+- [ ] Implement Carbon-based global hotkey manager
+  - Source: `Playback/Services/GlobalHotkeyManager.swift`
+  - Shortcut: Option+Shift+Space (key code 49)
+  - Handler: Activates app and shows timeline window
 
-## Responsibilities
+- [ ] Request and verify Accessibility permissions
+  - Show permission prompt on first launch
+  - Graceful fallback if permission denied
+  - Provide "Open System Preferences" button
 
-1. Register and respond to global keyboard shortcut (Option+Shift+Space)
-2. Launch directly when app icon is clicked
-3. Load video segments and metadata from database
-4. Display fullscreen timeline interface with video playback
-5. Provide smooth scrubbing via trackpad/mouse scroll
-6. Support pinch-to-zoom for timeline scale adjustment
-7. Show loading screen while processing is in progress
-8. Provide date/time navigation with calendar picker
-9. Support text search via OCR (search recorded screen content)
-10. Pause recording service while visible
-11. Auto-refresh to show newly processed segments
-12. Disable three-finger swipe between desktops while active
+- [ ] Register hotkey on app launch
+  - Initialize in `PlaybackApp.swift` applicationDidFinishLaunching
+  - Unregister on app termination
+  - Handle hotkey conflicts gracefully
 
-## Design Philosophy
+### App Icon and Launch Behavior
+- [ ] Design and implement app icon
+  - Style: Play button (rounded triangle)
+  - Colors: Vibrant blue/purple gradient
+  - Sizes: Multiple resolutions for menu bar and Dock
 
-**Inspiration:** Arc browser by The Browser Company
+- [ ] Implement dual launch triggers
+  - Trigger 1: Global hotkey (Option+Shift+Space)
+  - Trigger 2: Click app icon in Applications/Dock
+  - Both: Check for running processing service, show loading screen if needed
 
-**Key Principles:**
-- Minimal, clean interface (no clutter)
-- Smooth, polished animations
-- Intuitive gestures and interactions
-- Focus on content (chrome fades into background)
-- Delightful micro-interactions
-- Fast, responsive performance
-
-## User Interface
-
-### App Icon
-
-**Design:** Play button inspired by Arc's icon style
-
-**Characteristics:**
-- Simple, geometric shape
-- Rounded triangle (play symbol)
-- Gradient or solid color (vibrant but not overwhelming)
-- Clean, modern aesthetic
-- Recognizable at small sizes
-
-**Colors:**
-- Primary: Vibrant blue/purple gradient (similar to Arc)
-- Alternative: Single accent color (user preference in future)
-
-**Reference Style:**
-- Arc's icon: Simple, bold, geometric
-- Minimal detail, maximum recognition
-- Works well in both light and dark menu bar
-
-### Launch Behavior
-
-**Trigger 1:** Global keyboard shortcut `Option+Shift+Space`
-**Trigger 2:** Click Playback.app icon in Applications or Dock
-
-**Process:**
-1. Check if `build_chunks_from_temp.py` is currently running
-2. If running: Show loading screen, wait for completion
-3. Load database and segments
-4. Enter fullscreen mode
-5. Position timeline at most recent timestamp
-6. Begin video playback
-7. Signal recording service to pause
+- [ ] Implement launch sequence
+  - Check if `build_chunks_from_temp.py` is running
+  - Show loading screen if processing
+  - Load database and segments
+  - Enter fullscreen mode
+  - Position timeline at most recent timestamp
+  - Begin video playback
+  - Signal recording service to pause
 
 ### Loading Screen
+- [ ] Implement loading screen UI
+  - Source: `Playback/Timeline/LoadingScreenView.swift`
+  - Design: Centered modal with app name, spinner, status text
+  - Semi-transparent black background
 
-**Displayed when:** Processing service is running at launch time
+- [ ] Implement process detection
+  - Poll for `build_chunks_from_temp.py` process every 500ms
+  - Use `pgrep` or `ps` to check process status
+  - Show estimated time remaining (if available from logs)
 
-**Design:**
-```
-┌────────────────────────────────────────────┐
-│                                            │
-│                                            │
-│              Playback                  │
-│                                            │
-│           ⏳ Processing...                │
-│                                            │
-│    Preparing your screen recordings        │
-│                                            │
-│        [Animated spinner]                  │
-│                                            │
-│                                            │
-└────────────────────────────────────────────┘
-```
+- [ ] Handle user cancellation
+  - ESC key dismisses loading screen and closes app
+  - Clean exit without starting timeline
 
-**Elements:**
-- App name/logo
-- Status text: "Processing..." or "Loading segments..."
-- Animated spinner (macOS standard)
-- Semi-transparent black background
-- Centered on screen
+### Fullscreen Timeline Window
+- [ ] Implement fullscreen window configuration
+  - Source: `Playback/Timeline/TimelineWindow.swift`
+  - No title bar, no window chrome
+  - Black letterboxing for non-matching aspect ratios
+  - Disable three-finger swipe gestures
 
-**Behavior:**
-- Polls for process completion every 500ms
-- Shows estimated time remaining (if available from logs)
-- Dismisses automatically when processing completes
-- User can cancel with ESC key (closes app)
+- [ ] Configure presentation options
+  - Disable Mission Control gestures
+  - Auto-hide menu bar and Dock
+  - Disable process switching (Cmd+Tab)
+  - Restore normal behavior on exit
 
-### Main Interface
+- [ ] Implement ESC key handler
+  - Exit fullscreen mode
+  - Close window
+  - Signal recording service to resume
+  - Clean shutdown
 
-**Fullscreen Mode:**
-- No title bar, no window chrome
-- Black letterboxing for non-matching aspect ratios
-- Video fills screen (scaled to fit)
-- Timeline overlaid at bottom
-- Gradient overlay for timeline visibility
+### Video Playback System
+- [ ] Implement video player integration (AVPlayer)
+  - Source: `Playback/Timeline/VideoPlayer.swift` (EXISTING)
+  - Use AVPlayerLayer for discrete playback (no Control Center integration)
+  - Hardware-accelerated decode via VideoToolbox
+  - Smooth segment transitions
+  - Configuration: Preload next segment in background for seamless transitions
+  - Use KVO on AVPlayer.status and AVPlayerItem.status for state management
 
-### Video Playback Area
+- [ ] Implement frozen frame system
+  - Source: `Playback/Timeline/PlaybackController.swift` (EXISTING)
+  - Capture last frame before segment transition using AVAssetImageGenerator
+  - Display frozen frame as overlay image during loading
+  - Hide when new segment ready and playing
+  - Freeze frame also used when scrubbing through gaps
+  - Smooth crossfade transition (200ms) from frozen to live video
 
-**Layout:**
-- Full screen (ignoring safe area)
-- AVPlayer with VideoBackgroundView
-- Letterboxed if video aspect ratio doesn't match screen
-- Smooth transitions between segments
+- [ ] Enhance PlaybackController
+  - Source: `Playback/Timeline/PlaybackController.swift` (EXISTING)
+  - Methods: `update(for:store:)`, `scrub(to:store:)`, `scheduleUpdate(for:store:)`
+  - State: currentSegment, currentTime, frozenFrame, showFrozenFrame
+  - Time observer for synchronization
 
-**Frozen Frame:**
-- Shown when navigating between segments or to gaps
-- Last known frame displayed as static image
-- Black background behind image
-- Prevents jarring "black screen" transitions
+- [ ] Implement segment selection logic
+  - Source: `Playback/Timeline/TimelineStore.swift`
+  - Function: `segment(for:direction:) -> (Segment, TimeInterval)?`
+  - Algorithm: Binary search for efficient lookup in sorted segments array
+  - Handle gaps between segments (use direction: forward = next segment, backward = previous segment)
+  - Handle before first segment: return nil or first segment depending on direction
+  - Handle after last segment: return nil or last segment depending on direction
+  - Return tuple: (segment, video offset) for immediate playback positioning
 
-**Implementation:**
-```swift
-ZStack {
-    // Video player (background)
-    VideoBackgroundView(player: playbackController.player)
-        .ignoresSafeArea()
+### Timeline Rendering
+- [ ] Implement timeline view component
+  - Source: `Playback/Timeline/TimelineView.swift` (EXISTING)
+  - Position: Bottom of screen, 120px height, 40px margin
+  - Gradient overlay for visibility
 
-    // Frozen frame (overlay when needed)
-    if playbackController.showFrozenFrame, let image = playbackController.frozenFrame {
-        ZStack {
-            Color.black.ignoresSafeArea()
-            Image(nsImage: image)
-                .resizable()
-                .scaledToFit()
-                .ignoresSafeArea()
-        }
-    }
+- [ ] Implement segments bar rendering
+  - Horizontal bar with all video segments
+  - Rounded rectangles with app-specific colors
+  - Gaps show transparent background
+  - Height: 20px
 
-    // Timeline UI (overlay at bottom)
-    // ...
-}
-```
+- [ ] Implement playhead indicator
+  - Vertical line at current time position
+  - Red color (#FF0000)
+  - Extends above and below timeline
+  - Capped with small circle (5px radius)
 
-### Timeline View
+- [ ] Implement time labels and ticks
+  - Major ticks every N hours (zoom-dependent)
+  - Minor ticks every N/5 hours
+  - Format: "10:00 AM" or "2:30 PM"
+  - White text with shadow for readability
 
-**Position:** Bottom of screen, 120px height, 40px margin from bottom edge
+- [ ] Implement time bubble
+  - Shows current timestamp
+  - Format: "1:23:45 PM" (with seconds) or relative ("5 minutes ago")
+  - Semi-transparent rounded rectangle background
+  - Positioned above playhead
+  - Clickable: Opens date/time picker
 
-**Design:**
-```
-┌──────────────────────────────────────────────────────────┐
-│                                                          │
-│                                                          │
-│                                                          │
-│  [Video content fills this area]                        │
-│                                                          │
-│                                                          │
-│                                                          │
-│  ┌─────────────────────────────────────────────────┐   │
-│  │ Subtle gradient overlay                          │   │
-│  │                                                   │   │
-│  │  [Timeline with app segments]                    │   │
-│  │             ▼ Playhead                           │   │
-│  │  ─────█████─────██████████─────█████─────        │   │
-│  │  10:00 AM         12:00 PM         2:00 PM      │   │
-│  │                                                   │   │
-│  │  Time bubble: 1:23:45 PM                         │   │
-│  └─────────────────────────────────────────────────┘   │
-└──────────────────────────────────────────────────────────┘
-```
+- [ ] Implement app color generation
+  - Deterministic colors from app bundle ID using hash function
+  - Algorithm: Hash bundle ID string → convert to HSL → map to color space
+  - Extract average color from app icon using NSWorkspace.icon(forFile:)
+  - Boost saturation (+20%) and brightness (+15%) for vibrancy
+  - Fallback: Use bundle ID hash if icon extraction fails
+  - Cache colors in dictionary for performance (key: bundle ID, value: NSColor)
+  - Pre-warm cache on app launch with active app bundle IDs
 
-**Components:**
+### Trackpad/Mouse Gestures
+- [ ] Implement horizontal scroll for scrubbing
+  - Source: `Playback/Timeline/ContentView.swift`
+  - Natural scrolling inverted (right = future, left = past)
+  - Dynamic speed based on visible window size
+  - Formula: `secondsPerPoint = visibleWindowSeconds / 1000.0`
+  - Physics: Apply velocity multiplier for fling-style gestures
+  - Deceleration curve: Natural logarithmic decay for smooth stop
+  - Video paused during scrubbing, resumes after 500ms of no scroll events
+  - Update playhead position in real-time during scrub
 
-1. **Gradient Overlay**
-   - Linear gradient from transparent (top) to translucent blue-gray (bottom)
-   - Height: 140px
-   - Ensures timeline visibility over any video content
+- [ ] Implement pinch gesture for zoom
+  - Pinch OUT = zoom IN (less time visible)
+  - Pinch IN = zoom OUT (more time visible)
+  - Exponential sensitivity: `pow(magnification, 3.0)` for natural feel
+  - Limits: 60s (min) to 3600s (max) visible window
+  - Spring animation: response 0.35s, damping 0.8 for smooth zoom transitions
+  - Anchor point: Keep timestamp under cursor stationary during zoom
+  - Update time labels and tick spacing dynamically based on zoom level
 
-2. **Segments Bar**
-   - Horizontal bar showing all video segments
-   - Each segment: Rounded rectangle with app-specific color
-   - Gaps between segments: Transparent (shows background)
-   - Height: 20px
+- [ ] Implement click-to-seek on timeline
+  - Click on timeline bar to jump to timestamp
+  - Calculate position based on visible window
+  - Update playhead and video immediately
 
-3. **Playhead**
-   - Vertical line indicating current time
-   - Red color (#FF0000)
-   - Extends 30px above and below timeline bar
-   - Capped with small circle (5px radius)
-
-4. **Time Labels**
-   - Major ticks every N hours (depends on zoom level)
-   - Minor ticks every N/5 hours
-   - Label format: "10:00 AM" or "2:30 PM"
-   - Color: White with slight shadow for readability
-
-5. **Time Bubble (clickable)**
-   - Follows playhead position
-   - Shows current timestamp in larger text
-   - Format: "1:23:45 PM" (with seconds)
-   - Background: Semi-transparent rounded rectangle
-   - Positioned above playhead
-   - **Clickable:** Opens date/time picker popup
-
-**App Segment Colors:**
-
-Generated deterministically from bundle ID hash:
-```swift
-func colorForApp(_ bundleId: String?) -> Color {
-    guard let bundleId = bundleId else {
-        return Color.gray.opacity(0.5)
-    }
-
-    let hash = bundleId.hashValue
-    let hue = Double(abs(hash) % 360) / 360.0
-    return Color(hue: hue, saturation: 0.6, brightness: 0.8)
-}
-```
+- [ ] Implement scroll event monitoring
+  - Source: `Playback/Timeline/VideoBackgroundView.swift` (EXISTING)
+  - Use NSEvent.addLocalMonitorForEvents for scroll events
+  - Consume events to prevent system handling
+  - Pass to PlaybackController for scrubbing
 
 ### Date/Time Picker
+- [ ] Implement date/time picker popup
+  - Source: `Playback/Timeline/DateTimePicker.swift`
+  - Trigger: Click on time bubble
+  - Arc-inspired design (frosted glass, minimal)
+  - Centered on screen, 600x400px
 
-**Trigger:** Click on time bubble at bottom of screen
+- [ ] Implement calendar view
+  - Source: `Playback/Timeline/DateTimePicker.swift`
+  - Left panel: Calendar grid
+  - Month/year header with navigation arrows
+  - "Today" button
+  - Dates with recordings: Bold, clickable
+  - Dates without recordings: Greyed out, disabled
 
-**Design Philosophy:**
-- Inspired by Arc's Command Bar and date pickers
-- Clean, minimal design with smooth animations
-- Keyboard-navigable
-- Responsive and fast
+- [ ] Implement time list view
+  - Source: `Playback/Timeline/DateTimePicker.swift`
+  - Right panel: Scrollable time list
+  - 15-minute intervals (09:00, 09:15, 09:30, ...)
+  - Times with recordings: Normal, clickable
+  - Times without recordings: Greyed out, disabled
+  - Currently playing time: Marked with play indicator
 
-**Popup Design:**
+- [ ] Implement date/time data loading
+  - Query database for available dates: `loadAvailableDates() -> Set<Date>`
+  - SQL: `SELECT DISTINCT DATE(start_ts, 'unixepoch', 'localtime') FROM segments ORDER BY start_ts`
+  - Query database for available times on date: `loadAvailableTimes(for:) -> [TimeInterval]`
+  - SQL: `SELECT start_ts FROM segments WHERE DATE(start_ts, 'unixepoch', 'localtime') = ? ORDER BY start_ts`
+  - Round times to nearest 15-minute interval for UI display
+  - Cache queries for performance (in-memory dictionary)
+  - Invalidate cache on new recordings (watch segments count)
+  - Background loading: Run queries on background dispatch queue
 
-```
-┌────────────────────────────────────────────────────┐
-│                                                    │
-│   ┌─────────────────────┐  ┌──────────────────┐  │
-│   │   December 2025     │  │   Times          │  │
-│   │  S  M  T  W  T  F  S│  │                  │  │
-│   │           1  2  3  4│  │  ▸ 09:00 AM      │  │
-│   │  5  6  7  8  9 10 11│  │    10:15 AM      │  │
-│   │ 12 13 14 15 16 17 18│  │    11:30 AM      │  │
-│   │ 19 20 21 22 23 24 25│  │    12:45 PM      │  │
-│   │ 26 27 28 29 30 31   │  │    02:00 PM      │  │
-│   │                      │  │  ▸ 03:15 PM      │  │
-│   │  ◀  Today    ▶      │  │    04:30 PM      │  │
-│   └─────────────────────┘  │    05:45 PM      │  │
-│                            │    ...           │  │
-│                            └──────────────────┘  │
-│                                                    │
-│   [Jump to Date/Time]                [Cancel]     │
-└────────────────────────────────────────────────────┘
-```
+- [ ] Implement date/time picker behavior
+  - Fade in/out animations (Arc-style)
+  - Calendar updates time list on date selection
+  - "Jump to Date/Time" button: Navigate and close
+  - "Cancel" or ESC: Close without navigation
+  - Click outside: Close without navigation
+  - Instant jump (no scroll animation)
+### Text Search (OCR)
+- [ ] Implement search UI
+  - Source: `Playback/Timeline/SearchView.swift`
+  - Trigger: Command+F
+  - Floating search bar (top-right corner)
+  - Arc-style minimal design
+- [ ] Implement OCR search integration
+  - Defer to separate OCR Search specification (13-search-ocr.md)
+  - Highlight matching segments in timeline
+  - Jump to next/previous match (Enter/Shift+Enter)
+  - Show match count ("3 of 15 matches")
+  - Real-time search results (debounced)
+### - [ ] Implement database connection
+  - Source: `Playback/Database/DatabaseManager.swift`
+  - File: `~/Library/Application Support/Playback/data/meta.sqlite3`
+  - Query segments: `SELECT id, start_ts, end_ts, frame_count, fps, video_path FROM segments ORDER BY start_ts ASC`
+  - Query app segments: `SELECT id, app_id, start_ts, end_ts FROM appsegments ORDER BY start_ts ASC`
+- [ ] Implement Segment model
+  - Source: `Playback/Models/Segment.swift`
+  - Properties: id, startTS, endTS, frameCount, fps, videoURL
+  - Computed: duration, videoDuration
+  - Methods: `videoOffset(forAbsoluteTime:)`, `absoluteTime(forVideoOffset:)`
+- [ ] Implement AppSegment model
+  - Source: `Playback/Models/AppSegment.swift`
+  - Properties: id, startTS, endTS, appId
+  - Computed: duration
+- [ ] Implement auto-refresh mechanism
+  - Poll database every 5 seconds for new segments
+  - Use `.onChange(of: segments.count)` to detect changes
+  - Automatically reposition to latest timestamp on new segments
+### - [ ] Implement recording service pause detection
+  - Mechanism: Recording service checks for Playback app process
+  - Use `pgrep -f "Playback.app"` to check if app running
+  - Recording service auto-pauses when app visible
+  - Recording service auto-resumes when app exits
+- [ ] Document recording service changes
+  - Update recording service code to check for Playback app
+  - Add process detection to recording loop
+  - Ensure clean pause/resume without data loss
+### Error Handling
+- [ ] Handle database not found
+  - Show empty state screen
+  - Message: "No recordings yet. Start recording from the menu bar."
+  - Button: "Open Menu Bar Settings"
+  - ESC to close
+- [ ] Handle video file missing
+  - Log warning
+  - Show frozen frame (last known good frame)
+  - Continue timeline playback
+  - Skip to next available segment
+- [ ] Handle segment loading failure
+  - Log error with details
+  - Show frozen frame
+  - Attempt to load next segment
+  - Show error message if multiple consecutive failures
+- [ ] Handle permission denied
+  - Show error dialog: "Playback needs Screen Recording permission"
+  - Button: "Open System Preferences"
+  - Cannot display videos without permission
+## Timeline Implementation Details
 
-**Dimensions:**
-- Width: 600px
-- Height: 400px
-- Positioned: Center of screen
-- Background: Blurred backdrop (Arc-style frosted glass effect)
-- Border: Subtle rounded corners (12px radius)
+### AVPlayer Integration and Segment Selection
 
-**Calendar View (Left Panel):**
+**AVPlayer Configuration:**
+- Use `AVPlayer` with `AVPlayerLayer` for hardware-accelerated video playback
+- Set `automaticallyWaitsToMinimizeStalling = false` for immediate playback
+- Configure `preferredForwardBufferDuration = 5.0` for smooth segment transitions
+- Use `AVAssetImageGenerator` for frozen frame capture with `requestedTimeToleranceAfter = .zero`
 
-**Month Header:**
-- Month and year displayed prominently
-- Previous/Next month arrows
-- "Today" button to jump to current date
-
-**Calendar Grid:**
-- 7 columns (Sun-Sat)
-- 5-6 rows (dates)
-- Date styling:
-  - **Normal:** White text, no background
-  - **Today:** Accent color border
-  - **Selected:** Accent color background
-  - **Has recordings:** Bold text
-  - **No recordings:** Greyed out (50% opacity), not clickable
-  - **Hover:** Subtle highlight (if has recordings)
-
-**Implementation:**
+**Segment Selection Algorithm:**
 ```swift
-struct CalendarDayView: View {
-    let date: Date
-    let hasRecordings: Bool
-    let isSelected: Bool
-    let isToday: Bool
-    @Binding var selectedDate: Date
+func segment(for timestamp: TimeInterval, direction: Direction) -> (Segment, TimeInterval)? {
+    // Binary search in sorted segments array
+    let index = segments.binarySearch { $0.startTS <= timestamp && timestamp < $0.endTS }
 
-    var body: some View {
-        Text("\(Calendar.current.component(.day, from: date))")
-            .fontWeight(hasRecordings ? .bold : .regular)
-            .foregroundColor(hasRecordings ? .primary : .secondary)
-            .opacity(hasRecordings ? 1.0 : 0.3)
-            .frame(width: 40, height: 40)
-            .background(isSelected ? Color.accentColor : Color.clear)
-            .cornerRadius(8)
-            .overlay(
-                RoundedRectangle(cornerRadius: 8)
-                    .stroke(isToday ? Color.accentColor : Color.clear, lineWidth: 2)
-            )
-            .onTapGesture {
-                if hasRecordings {
-                    selectedDate = date
-                }
-            }
-            .disabled(!hasRecordings)
+    if let idx = index {
+        // Time is within a segment
+        let segment = segments[idx]
+        let videoOffset = timestamp - segment.startTS
+        return (segment, videoOffset)
+    }
+
+    // Time is in a gap between segments
+    switch direction {
+    case .forward:
+        // Find next segment after timestamp
+        let nextIdx = segments.firstIndex { $0.startTS > timestamp }
+        return nextIdx.map { (segments[$0], 0.0) }
+    case .backward:
+        // Find previous segment before timestamp
+        let prevIdx = segments.lastIndex { $0.endTS < timestamp }
+        return prevIdx.map { (segments[$0], segments[$0].duration) }
     }
 }
 ```
 
-**Time List (Right Panel):**
+**Segment Preloading:**
+- Monitor `currentTime` via `addPeriodicTimeObserver(forInterval:queue:using:)`
+- When 80% through current segment, preload next segment in background
+- Use separate `AVPlayer` instance for preloading, swap when ready
 
-**Header:**
-- "Times" label
-- Scrollable list of available times
+### Scroll Gesture Physics
 
-**Time Entries:**
-- Format: "HH:MM AM/PM"
-- 15-minute intervals shown (09:00, 09:15, 09:30, ...)
-- Styling:
-  - **Has recordings:** Normal text, white
-  - **No recordings:** Greyed out (50% opacity), not clickable
-  - **Currently playing:** Marked with ▸ indicator
-  - **Selected:** Accent color background
-  - **Hover:** Subtle highlight (if has recordings)
-
-**Scrolling:**
-- Smooth scroll to selected time on open
-- Keyboard navigation (arrow keys)
-- Mouse wheel/trackpad scrolling
-
-**Implementation:**
+**Natural Scrolling Implementation:**
 ```swift
-struct TimeListView: View {
-    let date: Date
-    let availableTimes: [TimeInterval]
-    let currentTime: TimeInterval
-    @Binding var selectedTime: TimeInterval
+func handleScroll(_ event: NSEvent) {
+    // Invert scrolling: right = future, left = past
+    let delta = -event.scrollingDeltaX
 
-    var body: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(spacing: 4) {
-                    ForEach(generateTimeSlots(), id: \.self) { time in
-                        let hasRecording = availableTimes.contains(time)
-                        let isCurrent = abs(time - currentTime) < 60 // Within 1 minute
-
-                        HStack {
-                            if isCurrent {
-                                Image(systemName: "play.fill")
-                                    .font(.caption)
-                            }
-                            Text(formatTime(time))
-                                .foregroundColor(hasRecording ? .primary : .secondary)
-                                .opacity(hasRecording ? 1.0 : 0.3)
-                        }
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(selectedTime == time ? Color.accentColor : Color.clear)
-                        .cornerRadius(6)
-                        .onTapGesture {
-                            if hasRecording {
-                                selectedTime = time
-                            }
-                        }
-                        .disabled(!hasRecording)
-                        .id(time)
-                    }
-                }
-                .padding()
-            }
-            .onAppear {
-                proxy.scrollTo(currentTime, anchor: .center)
-            }
-        }
-    }
-
-    func generateTimeSlots() -> [TimeInterval] {
-        // Generate 15-minute intervals for selected day
-        // ...
-    }
-}
-```
-
-**Behavior:**
-
-1. **Opening:**
-   - Fade in animation (0.2s)
-   - Subtle scale effect (Arc-style)
-   - Calendar shows current month
-   - Time list scrolls to current time
-   - Selected date/time match current playback position
-
-2. **Navigation:**
-   - Click date: Updates time list with available times for that day
-   - Click time: Jumps to that timestamp in video (closes popup)
-   - Previous/Next month: Animates calendar transition
-   - "Today" button: Jumps to current date
-
-3. **Closing:**
-   - Click "Jump to Date/Time" button: Navigates to selected date/time, closes popup
-   - Click "Cancel" or ESC: Closes popup without navigation
-   - Click outside popup: Closes popup (same as Cancel)
-   - Fade out animation (0.15s)
-
-4. **Background Change:**
-   - When date/time selected and confirmed: Video INSTANTLY changes (no scroll animation)
-   - Playback controller updates video segment
-   - Timeline updates to show new position
-   - No smooth scroll transition (instant jump)
-
-**Data Loading:**
-
-```swift
-func loadAvailableDates() -> Set<Date> {
-    // Query database for all dates with recordings
-    let segments = timelineStore.segments
-    return Set(segments.map { segment in
-        Calendar.current.startOfDay(for: Date(timeIntervalSince1970: segment.startTS))
-    })
-}
-
-func loadAvailableTimes(for date: Date) -> [TimeInterval] {
-    // Query database for all timestamps on given date
-    let dayStart = Calendar.current.startOfDay(for: date)
-    let dayEnd = Calendar.current.date(byAdding: .day, value: 1, to: dayStart)!
-
-    return timelineStore.segments
-        .filter { $0.startTS >= dayStart.timeIntervalSince1970 && $0.startTS < dayEnd.timeIntervalSince1970 }
-        .map { $0.startTS }
-        .sorted()
-}
-```
-
-**Performance:**
-- Calendar rendered on-demand (not all months preloaded)
-- Time list uses LazyVStack for efficiency
-- Date queries cached (invalidated on new recordings)
-
-### Text Search
-
-**Trigger:** Command+F (standard search shortcut)
-
-**Design:**
-- Floating search bar (top-right corner)
-- Arc-style minimal design
-- Search as you type (debounced)
-
-**Search Bar:**
-```
-┌─────────────────────────────────┐
-│  🔍  Search screen content...   │
-└─────────────────────────────────┘
-```
-
-**Features:**
-- OCR-based text search across all recordings
-- Highlights matching segments in timeline
-- Jump to next/previous match (Enter/Shift+Enter)
-- Shows match count ("3 of 15 matches")
-- Real-time search results
-
-**Implementation:** See separate OCR Search specification (13-search-ocr.md)
-
-### Keyboard Shortcuts
-
-**ESC** - Close playback app
-- Exits fullscreen
-- Closes window
-- Signals recording service to resume
-- Preserves: Last viewed timestamp (not persisted)
-
-**Command+F** - Open text search
-- Shows search bar
-- Focuses input field
-- Initiates OCR search
-
-**All other shortcuts from prototype:**
-- Scroll: Scrub timeline
-- Pinch: Zoom timeline
-
-### Trackpad/Mouse Interactions
-
-**Horizontal Scroll (Two-Finger Swipe)**
-- Direction: Natural scrolling inverted
-  - Swipe RIGHT → Move forward in time (future)
-  - Swipe LEFT → Move backward in time (past)
-- Speed: Dynamic based on visible window size
-  - Formula: `secondsPerPoint = visibleWindowSeconds / 1000.0`
-  - Example: 1-hour window → ~3.6s per scroll point
-- Behavior:
-  - Immediate scrubbing (no debounce)
-  - Video remains PAUSED during scrubbing
-  - Updates timeline position in real-time
-  - Clamps to timeline bounds (earliest/latest timestamp)
-
-**Implementation:**
-```swift
-scrollMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { event in
-    let fingerDelta = event.isDirectionInvertedFromDevice ? -event.scrollingDeltaX : event.scrollingDeltaX
+    // Calculate speed based on visible window
     let secondsPerPoint = visibleWindowSeconds / 1000.0
-    let secondsDelta = Double(fingerDelta) * secondsPerPoint
+    let timeDelta = delta * secondsPerPoint
 
-    var newTime = playbackController.currentTime + secondsDelta
-    newTime = clamp(newTime, timelineStart, timelineEnd)
+    // Apply velocity multiplier for momentum scrolling
+    let velocity = event.isDirectionInvertedFromDevice ? -event.scrollingDeltaX : event.scrollingDeltaX
+    let momentumMultiplier = abs(velocity) > 10 ? 1.5 : 1.0
 
-    playbackController.scrub(to: newTime, store: timelineStore)
-    centerTime = playbackController.currentTime
+    // Update timeline position
+    currentTimestamp += timeDelta * momentumMultiplier
 
-    return nil  // Consume event
+    // Pause video during scrubbing
+    pauseVideoForScrubbing()
+
+    // Schedule resume after 500ms of no scroll events
+    scheduleScrubResumeTimer()
 }
 ```
 
-**Pinch Gesture (Zoom)**
-- Direction:
-  - Pinch OUT → Zoom IN (show less time, more detail)
-  - Pinch IN → Zoom OUT (show more time, less detail)
-- Sensitivity: Exponential (`pow(value, 3.0)` for aggressive zoom)
-- Limits:
-  - Minimum: 60 seconds (1 minute visible)
-  - Maximum: 3600 seconds (60 minutes visible)
-- Behavior:
-  - Applies to entire window (not just over timeline)
-  - Spring animation for smooth feel
-  - Response: 0.35s, Damping: 0.8
+**Deceleration Curve:**
+- Use `CADisplayLink` for 60fps scroll animation
+- Apply logarithmic decay: `velocity *= 0.95` per frame
+- Stop when velocity < 0.1 seconds/frame
 
-**Implementation:**
+### Pinch Zoom Sensitivity and Limits
+
+**Zoom Implementation:**
 ```swift
-.simultaneousGesture(
-    MagnificationGesture()
-        .onChanged { value in
-            guard let base = pinchBaseVisibleWindowSeconds else { return }
-            let factor = pow(Double(value), 3.0)
-            var newWindow = base / factor
-            newWindow = clamp(newWindow, minVisibleWindowSeconds, maxVisibleWindowSeconds)
-            visibleWindowSeconds = newWindow
+func handlePinch(_ gesture: NSMagnificationGestureRecognizer) {
+    let magnification = gesture.magnification
+
+    // Exponential sensitivity for natural feel
+    let zoomFactor = pow(1.0 + magnification, 3.0)
+
+    // Update visible window size
+    let newWindow = visibleWindowSeconds / zoomFactor
+
+    // Clamp to limits
+    visibleWindowSeconds = max(60.0, min(3600.0, newWindow))
+
+    // Keep timestamp under cursor stationary (anchor point)
+    let cursorX = gesture.location(in: timelineView).x
+    let cursorTimestamp = timestampAtX(cursorX)
+
+    // Adjust timeline center to maintain anchor
+    centerTimestamp = cursorTimestamp + (centerTimestamp - cursorTimestamp) / zoomFactor
+
+    // Animate with spring
+    withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+        updateTimelineLayout()
+    }
+}
+```
+
+**Dynamic Tick Spacing:**
+- 60-300s visible: Major ticks every 1 hour, minor every 15 min
+- 300-900s visible: Major ticks every 3 hours, minor every 1 hour
+- 900-1800s visible: Major ticks every 6 hours, minor every 2 hours
+- 1800-3600s visible: Major ticks every 12 hours, minor every 4 hours
+
+### Date/Time Picker UI Structure
+
+**Component Hierarchy:**
+```
+DateTimePicker (Modal)
+├── Background (frosted glass, blur(radius: 20))
+├── Container (600x400px, rounded corners)
+│   ├── Header ("Jump to Date/Time", close button)
+│   ├── ContentSplit (HStack)
+│   │   ├── CalendarView (300px wide)
+│   │   │   ├── MonthYearHeader (nav arrows, "Today" button)
+│   │   │   └── CalendarGrid (7x6 grid of date cells)
+│   │   └── TimeListView (300px wide)
+│   │       └── ScrollView (15-min interval list)
+│   └── Footer (HStack)
+│       ├── CancelButton
+│       └── JumpButton (primary action)
+```
+
+**Data Loading Strategy:**
+```swift
+class DateTimePickerViewModel: ObservableObject {
+    @Published var availableDates: Set<Date> = []
+    @Published var availableTimes: [TimeInterval] = []
+
+    func loadAvailableDates() async {
+        let dates = await database.query("""
+            SELECT DISTINCT DATE(start_ts, 'unixepoch', 'localtime')
+            FROM segments
+            ORDER BY start_ts
+        """)
+
+        await MainActor.run {
+            self.availableDates = Set(dates)
         }
-        .onEnded { _ in
-            pinchBaseVisibleWindowSeconds = nil
-        }
-)
-```
-
-**Click on Timeline**
-- Action: Seek to clicked timestamp
-- Visual feedback: Playhead jumps to position
-- Video updates immediately
-
-### Three-Finger Swipe Behavior
-
-**Requirement:** Disable three-finger swipe between desktops while playback app is active
-
-**Implementation:**
-```swift
-// On appear
-NSApplication.shared.presentationOptions.insert(.disableForceQuit)
-
-// Disable Mission Control gestures
-let options = NSApplication.PresentationOptions.fullScreen
-    .union(.autoHideMenuBar)
-    .union(.autoHideDock)
-    .union(.disableProcessSwitching)
-    .union(.disableForceQuit)
-    .union(.disableSessionTermination)
-    .union(.disableHideApplication)
-
-NSApp.presentationOptions = options
-
-// On disappear (restore normal behavior)
-NSApp.presentationOptions = []
-```
-
-**Alternative approach (if above doesn't work):**
-Monitor three-finger swipe events and consume them:
-```swift
-NSEvent.addLocalMonitorForEvents(matching: .gesture) { event in
-    // Detect three-finger swipe
-    if event.type == .swipe && event.phase == .began {
-        return nil  // Consume event
-    }
-    return event
-}
-```
-
-## Data Loading
-
-### Database Connection
-
-**File:** `~/Library/Application Support/Playback/data/meta.sqlite3`
-
-**Query:**
-```sql
-SELECT id, start_ts, end_ts, frame_count, fps, video_path
-FROM segments
-ORDER BY start_ts ASC;
-```
-
-**Segment Model:**
-```swift
-struct Segment: Identifiable {
-    let id: String
-    let startTS: TimeInterval
-    let endTS: TimeInterval
-    let frameCount: Int
-    let fps: Double?
-    let videoURL: URL
-
-    var duration: TimeInterval {
-        max(0, endTS - startTS)
     }
 
-    var videoDuration: TimeInterval? {
-        guard let fps, fps > 0, frameCount > 0 else { return nil }
-        return TimeInterval(Double(frameCount) / fps)
-    }
+    func loadAvailableTimes(for date: Date) async {
+        let times = await database.query("""
+            SELECT start_ts
+            FROM segments
+            WHERE DATE(start_ts, 'unixepoch', 'localtime') = ?
+            ORDER BY start_ts
+        """, [date])
 
-    func videoOffset(forAbsoluteTime time: TimeInterval) -> TimeInterval {
-        let clampedTime = min(max(time, startTS), endTS)
-        let timelineOffset = max(0, min(clampedTime - startTS, duration))
+        // Round to 15-minute intervals
+        let roundedTimes = times.map { roundTo15Minutes($0) }
 
-        guard let videoDuration, duration > 0 else {
-            return timelineOffset
-        }
-
-        let ratio = timelineOffset / duration
-        return videoDuration * min(1.0, ratio)
-    }
-
-    func absoluteTime(forVideoOffset offset: TimeInterval) -> TimeInterval {
-        guard let videoDuration, videoDuration > 0, duration > 0 else {
-            return startTS + min(offset, duration)
-        }
-
-        let ratio = min(max(offset / videoDuration, 0), 1)
-        let timelineOffset = ratio * duration
-        return startTS + timelineOffset
-    }
-}
-```
-
-**App Segments Query:**
-```sql
-SELECT id, app_id, start_ts, end_ts
-FROM appsegments
-ORDER BY start_ts ASC;
-```
-
-**App Segment Model:**
-```swift
-struct AppSegment: Identifiable {
-    let id: String
-    let startTS: TimeInterval
-    let endTS: TimeInterval
-    let appId: String?
-
-    var duration: TimeInterval {
-        max(0, endTS - startTS)
-    }
-}
-```
-
-### Auto-Refresh
-
-**Trigger:** New segments added to database (processing completed)
-
-**Implementation:**
-```swift
-.onChange(of: timelineStore.segments.count) { _, newCount in
-    guard newCount > 0, let latest = timelineStore.latestTS else { return }
-    print("[ContentView] segments.count changed to \(newCount); repositioning to latest")
-    centerTime = latest
-    playbackController.update(for: latest, store: timelineStore)
-}
-```
-
-**Polling (fallback if onChange not reliable):**
-```swift
-Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { _ in
-    timelineStore.reload()
-}
-```
-
-## Video Playback Control
-
-### Playback Controller
-
-**Responsibilities:**
-- Manage AVPlayer instance
-- Load appropriate video segment for current time
-- Handle segment transitions
-- Maintain frozen frame during transitions
-- Track current playback time
-- Support scrubbing
-
-**State:**
-```swift
-class PlaybackController: ObservableObject {
-    @Published var player: AVPlayer
-    @Published var currentTime: TimeInterval = 0
-    @Published var showFrozenFrame: Bool = false
-    @Published var frozenFrame: NSImage?
-
-    private var currentSegment: Segment?
-    private var timeObserver: Any?
-}
-```
-
-### Segment Selection
-
-**Function:** `segment(for time: TimeInterval, direction: TimeInterval) -> (Segment, TimeInterval)?`
-
-**Logic:**
-1. If `time` falls within a segment: Return that segment
-2. If `time` is before first segment: Return first segment at start
-3. If `time` is after last segment: Return last segment at end
-4. If `time` is in a gap between segments:
-   - If moving FORWARD: Return next segment at start
-   - If moving BACKWARD: Return previous segment at end
-   - If no direction: Return closest segment
-
-**Rationale:** Prevents unexpected jumps when scrubbing through gaps
-
-### Video Loading
-
-**Process:**
-1. Determine target segment and video offset
-2. If segment changed: Load new video file
-3. Seek to video offset
-4. Show frozen frame during loading
-5. Hide frozen frame when new video is ready
-
-**Implementation:**
-```swift
-func update(for time: TimeInterval, store: TimelineStore) {
-    guard let (segment, offset) = store.segment(for: time) else { return }
-
-    if currentSegment?.id != segment.id {
-        // Capture frozen frame from current player
-        frozenFrame = captureCurrentFrame()
-        showFrozenFrame = true
-
-        // Load new segment
-        let playerItem = AVPlayerItem(url: segment.videoURL)
-        player.replaceCurrentItem(with: playerItem)
-        currentSegment = segment
-
-        // Seek to offset
-        player.seek(to: CMTime(seconds: offset, preferredTimescale: 600)) { [weak self] _ in
-            self?.showFrozenFrame = false
-        }
-    } else {
-        // Same segment, just seek
-        player.seek(to: CMTime(seconds: offset, preferredTimescale: 600))
-    }
-
-    currentTime = time
-}
-```
-
-### Time Observer
-
-**Purpose:** Keep `currentTime` synchronized with AVPlayer's actual playback position
-
-**Implementation:**
-```swift
-func setupTimeObserver() {
-    let interval = CMTime(seconds: 0.1, preferredTimescale: 600)
-    timeObserver = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
-        guard let self = self, let segment = self.currentSegment else { return }
-
-        let videoOffset = time.seconds
-        let absoluteTime = segment.absoluteTime(forVideoOffset: videoOffset)
-
-        self.currentTime = absoluteTime
-    }
-}
-```
-
-### Scrubbing
-
-**Function:** `scrub(to time: TimeInterval, store: TimelineStore)`
-
-**Behavior:**
-- Pause playback
-- Update video position immediately
-- Keep video paused (user is actively scrubbing)
-- Resume playback only when scrubbing stops (via timer)
-
-**Implementation:**
-```swift
-func scrub(to time: TimeInterval, store: TimelineStore) {
-    player.pause()
-    update(for: time, store: store)
-
-    // Debounce: Resume playback after 500ms of no scrubbing
-    scrubDebounceTimer?.invalidate()
-    scrubDebounceTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: false) { [weak self] _ in
-        self?.player.play()
-    }
-}
-```
-
-## Recording Service Integration
-
-### Pause Recording When Visible
-
-**Mechanism:** Recording service checks for playback app process
-
-**Recording service code:**
-```python
-def is_playback_app_visible() -> bool:
-    # Check if Playback (playback) app is running and frontmost
-    script = '''
-    tell application "System Events"
-        set frontApp to name of first process whose frontmost is true
-        return frontApp
-    end tell
-    '''
-    result = subprocess.run(["osascript", "-e", script], capture_output=True, text=True)
-    return "Playback" in result.stdout
-```
-
-**Alternative (simpler):** Check for process existence
-```python
-def is_playback_app_running() -> bool:
-    result = subprocess.run(["pgrep", "-f", "Playback.app"], capture_output=True)
-    return result.returncode == 0
-```
-
-### Resume Recording When Closed
-
-**Playback app signals recording service on exit:**
-- No explicit IPC needed
-- Recording service automatically resumes when playback app process ends
-
-## Global Keyboard Shortcut
-
-### Registration
-
-**Framework:** Carbon framework (for system-wide hotkeys)
-
-**Implementation:**
-```swift
-import Carbon
-
-class GlobalHotkeyManager {
-    private var hotKeyRef: EventHotKeyRef?
-    private let signature = UTGetOSTypeFromString("SSEN" as CFString)
-    private let hotkeyID = EventHotKeyID(signature: signature, id: 1)
-
-    func register(key: UInt32, modifiers: UInt32, handler: @escaping () -> Void) {
-        var eventType = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
-
-        InstallEventHandler(GetApplicationEventTarget(), { (_, event, userData) -> OSStatus in
-            guard let userData = userData else { return noErr }
-            let handler = Unmanaged<GlobalHotkeyManager>.fromOpaque(userData).takeUnretainedValue()
-            handler.onHotkey()
-            return noErr
-        }, 1, &eventType, Unmanaged.passUnretained(self).toOpaque(), nil)
-
-        RegisterEventHotKey(key, modifiers, hotkeyID, GetApplicationEventTarget(), 0, &hotKeyRef)
-    }
-
-    private func onHotkey() {
-        // Launch playback app
-        NSApp.activate(ignoringOtherApps: true)
-    }
-}
-```
-
-**Shortcut:** Option+Shift+Space
-- Key code: 49 (Space)
-- Modifiers: optionKey + shiftKey
-
-**Alternative (using Accessibility):**
-```swift
-// In app delegate
-func applicationDidFinishLaunching(_ notification: Notification) {
-    NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { event in
-        if event.keyCode == 49 && event.modifierFlags.contains([.option, .shift]) {
-            self.showPlaybackWindow()
+        await MainActor.run {
+            self.availableTimes = Array(Set(roundedTimes)).sorted()
         }
     }
 }
 ```
 
-**Accessibility Permission:** Required for global event monitoring
+### Timeline Rendering with App Colors
 
-## Error Handling
+**Hash-Based Color Generation:**
+```swift
+func colorForApp(bundleID: String) -> NSColor {
+    // Check cache first
+    if let cached = colorCache[bundleID] {
+        return cached
+    }
 
-### Database Not Found
+    // Try to extract from app icon
+    if let appPath = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID),
+       let icon = NSWorkspace.shared.icon(forFile: appPath.path) {
+        if let averageColor = extractAverageColor(from: icon) {
+            let vibrant = boostSaturationAndBrightness(averageColor)
+            colorCache[bundleID] = vibrant
+            return vibrant
+        }
+    }
 
-**Scenario:** meta.sqlite3 doesn't exist (no recordings yet)
+    // Fallback: Hash bundle ID to HSL color
+    let hash = bundleID.hashValue
+    let hue = Double(abs(hash) % 360) / 360.0
+    let saturation = 0.7 + (Double(abs(hash >> 8) % 20) / 100.0)  // 0.7-0.9
+    let brightness = 0.6 + (Double(abs(hash >> 16) % 20) / 100.0)  // 0.6-0.8
 
-**Behavior:**
-1. Show empty state screen
-2. Message: "No recordings yet. Start recording from the menu bar."
-3. Button: "Open Menu Bar Settings"
-4. ESC to close
+    let color = NSColor(hue: hue, saturation: saturation, brightness: brightness, alpha: 1.0)
+    colorCache[bundleID] = color
+    return color
+}
 
-### Video File Missing
+func boostSaturationAndBrightness(_ color: NSColor) -> NSColor {
+    guard let hsbColor = color.usingColorSpace(.deviceRGB) else { return color }
 
-**Scenario:** Segment exists in database but video file is missing
+    let newSaturation = min(1.0, hsbColor.saturationComponent * 1.2)  // +20%
+    let newBrightness = min(1.0, hsbColor.brightnessComponent * 1.15)  // +15%
 
-**Behavior:**
-1. Log warning
-2. Show frozen frame (last known good frame)
-3. Continue timeline playback
-4. Skip to next available segment
+    return NSColor(hue: hsbColor.hueComponent,
+                   saturation: newSaturation,
+                   brightness: newBrightness,
+                   alpha: 1.0)
+}
+```
 
-### Segment Loading Failure
+**Timeline Rendering Loop:**
+```swift
+func drawTimeline(in context: CGContext, rect: CGRect) {
+    // Draw segments bar
+    for appSegment in visibleAppSegments {
+        let x = xPosition(for: appSegment.startTS)
+        let width = (xPosition(for: appSegment.endTS) - x)
+        let rect = CGRect(x: x, y: rect.height - 60, width: width, height: 20)
 
-**Scenario:** AVPlayer fails to load video file
+        context.setFillColor(colorForApp(bundleID: appSegment.appId).cgColor)
+        context.fillPath(in: rect, cornerRadius: 4)
+    }
 
-**Behavior:**
-1. Log error with details
-2. Show frozen frame
-3. Attempt to load next segment
-4. If multiple consecutive failures: Show error message
+    // Draw playhead
+    let playheadX = xPosition(for: currentTimestamp)
+    context.setStrokeColor(NSColor.red.cgColor)
+    context.setLineWidth(2)
+    context.move(to: CGPoint(x: playheadX, y: 0))
+    context.addLine(to: CGPoint(x: playheadX, y: rect.height))
+    context.strokePath()
 
-### Permission Denied
+    // Draw playhead circle
+    context.setFillColor(NSColor.red.cgColor)
+    context.fillEllipse(in: CGRect(x: playheadX - 5, y: rect.height - 70, width: 10, height: 10))
 
-**Scenario:** Screen Recording permission revoked
+    // Draw time labels and ticks
+    drawTimeLabelsAndTicks(in: context, rect: rect)
+}
+```
 
-**Behavior:**
-1. Show error dialog: "Playback needs Screen Recording permission"
-2. Button: "Open System Preferences"
-3. Cannot display videos without permission
+### Frozen Frame Handling During Transitions
 
-## Performance Characteristics
+**Frozen Frame Capture:**
+```swift
+func captureCurrentFrame() async -> NSImage? {
+    guard let currentItem = player.currentItem,
+          let asset = currentItem.asset as? AVURLAsset else {
+        return nil
+    }
 
-### Startup Time
+    let imageGenerator = AVAssetImageGenerator(asset: asset)
+    imageGenerator.appliesPreferredTrackTransform = true
+    imageGenerator.requestedTimeToleranceAfter = .zero
+    imageGenerator.requestedTimeToleranceBefore = .zero
 
-- Cold launch: 1-2 seconds
-- Database load: < 500ms (for 30 days of data)
-- First video load: < 500ms
-- Fullscreen transition: Immediate
+    let time = currentItem.currentTime()
 
-### Memory Usage
+    do {
+        let (cgImage, _) = try await imageGenerator.image(at: time)
+        return NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
+    } catch {
+        print("Failed to capture frame: \(error)")
+        return nil
+    }
+}
+```
 
-- Baseline: ~100MB (app overhead)
-- Video buffers: ~100-200MB (AVPlayer managed)
-- Timeline rendering: ~50MB (cached layers)
-- Peak: ~300-500MB
+**Transition State Machine:**
+```swift
+enum PlaybackState {
+    case playing(segment: Segment)
+    case frozen(frame: NSImage, targetTimestamp: TimeInterval)
+    case loading(targetSegment: Segment, targetOffset: TimeInterval)
+}
 
-### CPU Usage
+func transitionToSegment(_ segment: Segment, offset: TimeInterval) async {
+    // 1. Capture current frame
+    if let frame = await captureCurrentFrame() {
+        state = .frozen(frame: frame, targetTimestamp: segment.startTS + offset)
+    }
 
-- Idle (video paused): < 5%
-- Video playback: 15-30% (hardware decode)
-- Scrubbing: 20-40% (rapid seeks)
-- Timeline rendering: 10-20% (during zoom/pan)
+    // 2. Load new segment
+    state = .loading(targetSegment: segment, targetOffset: offset)
 
-### GPU Usage
+    let playerItem = AVPlayerItem(url: segment.videoURL)
+    player.replaceCurrentItem(with: playerItem)
 
-- Video decode: Hardware accelerated (VideoToolbox)
-- UI rendering: Metal backend
-- Smooth 60fps even on older Macs
+    // 3. Wait for ready to play
+    await playerItem.waitUntilReadyToPlay()
 
-## Testing
+    // 4. Seek to offset
+    await player.seek(to: CMTime(seconds: offset, preferredTimescale: 600))
+
+    // 5. Start playback with crossfade
+    state = .playing(segment: segment)
+    withAnimation(.easeInOut(duration: 0.2)) {
+        frozenFrameOpacity = 0.0
+    }
+
+    player.play()
+}
+```
+
+**Frozen Frame View:**
+```swift
+struct FrozenFrameOverlay: View {
+    let image: NSImage?
+    let opacity: Double
+
+    var body: some View {
+        if let image = image {
+            Image(nsImage: image)
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .opacity(opacity)
+                .transition(.opacity)
+                .allowsHitTesting(false)
+        }
+    }
+}
+```
+
+### Referenced Source Files
+
+- `Playback/Timeline/TimelineView.swift` - Timeline rendering and gestures
+- `Playback/Timeline/VideoBackgroundView.swift` - Video player view with scroll capture
+- `Playback/Timeline/PlaybackController.swift` - Video playback and scrubbing logic
+- `Playback/Timeline/TimelineStore.swift` - Segment data management
+- `Playback/Timeline/ContentView.swift` - Main timeline view composition
+- `Playback/Services/GlobalHotkeyManager.swift` - Global hotkey registration
+- `Playback/Timeline/DateTimePicker.swift` - Date/time picker modal
+- `Playback/Timeline/LoadingScreenView.swift` - Processing loading screen
+- `Playback/Database/DatabaseManager.swift` - SQLite database interface
+- `Playback/Models/Segment.swift` - Video segment model
+- `Playback/Models/AppSegment.swift` - App usage segment model
+
+### Related Specifications
+
+- `architecture.md` - System architecture and component communication
+- `13-search-ocr.md` - OCR-based text search implementation
+- `build-process.md` - Build configuration and code signing
+- `installation-deployment.md` - Deployment and installation procedures
+
+## Testing Checklist
 
 ### Unit Tests
-
-- Segment selection logic (gaps, boundaries)
-- Time mapping (video offset ↔ absolute time)
-- App color generation (deterministic)
-
+- [ ] Test segment selection logic
+  - Test time within segment
+  - Test time in gap between segments (forward/backward direction)
+  - Test before first segment
+  - Test after last segment
+- [ ] Test time mapping functions
+  - Test `videoOffset(forAbsoluteTime:)` for various times
+  - Test `absoluteTime(forVideoOffset:)` for various offsets
+  - Test edge cases (start, end, boundaries)
+- [ ] Test app color generation
+  - Test deterministic colors from bundle ID
+  - Test color caching
+  - Test fallback for unknown apps
 ### Integration Tests
-
-- Database loading
-- Video playback
-- Segment transitions
-- Scrubbing accuracy
-
+- [ ] Test database loading
+  - Test loading segments from database
+  - Test loading app segments from database
+  - Test empty database handling
+  - Test corrupted database handling
+- [ ] Test video playback
+  - Test initial video load
+  - Test segment transitions
+  - Test frozen frame display during transitions
+  - Test video seek accuracy
+- [ ] Test segment transitions
+  - Test smooth transition between consecutive segments
+  - Test transition across gaps
+  - Test transition with frozen frame
+  - Test transition failure recovery
+- [ ] Test scrubbing accuracy
+  - Test horizontal scroll scrubbing
+  - Test click-to-seek on timeline
+  - Test scrubbing through gaps
+  - Test scrubbing at timeline boundaries
 ### UI Tests
-
-- Global hotkey activation
-- Fullscreen mode
-- Scroll/pinch gestures
-- ESC key handling
-
+- [ ] Test global hotkey activation
+  - Test Option+Shift+Space triggers app
+  - Test hotkey works from any app
+  - Test hotkey requires Accessibility permission
+  - Test graceful fallback if permission denied
+- [ ] Test fullscreen mode
+  - Test app enters fullscreen on launch
+  - Test no title bar or window chrome
+  - Test letterboxing for non-matching aspect ratios
+  - Test three-finger swipe disabled
+- [ ] Test scroll/pinch gestures
+  - Test horizontal scroll for scrubbing
+  - Test pinch for timeline zoom
+  - Test gesture speed and sensitivity
+  - Test zoom limits (60s min, 3600s max)
+- [ ] Test ESC key handling
+  - Test ESC exits fullscreen
+  - Test ESC closes app
+  - Test ESC signals recording service to resume
+  - Test ESC works from loading screen
+- [ ] Test date/time picker
+  - Test click on time bubble opens picker
+  - Test calendar shows dates with recordings
+  - Test time list shows times with recordings
+  - Test "Jump to Date/Time" navigates correctly
+  - Test "Cancel" and ESC close picker
+  - Test click outside closes picker
 ### Manual Tests
+- [ ] Test long recording session (24+ hours)
+  - Test timeline rendering with large dataset
+  - Test scrubbing performance
+  - Test memory usage stays within limits
+  - Test auto-refresh with new segments
+- [ ] Test multiple segment transitions
+  - Test playback across many segments
+  - Test frozen frame stability
+  - Test no visual glitches or flashes
+  - Test audio/video sync maintained
+- [ ] Test scrubbing through gaps
+  - Test scrubbing forwards into gap
+  - Test scrubbing backwards into gap
+  - Test frozen frame shown in gaps
+  - Test video resumes after gap
+- [ ] Test zoom limits (min/max)
+  - Test minimum zoom (60 seconds visible)
+  - Test maximum zoom (3600 seconds visible)
+  - Test pinch gesture doesn't exceed limits
+  - Test timeline rendering at extreme zooms
+- [ ] Test three-finger swipe disabled
+  - Test three-finger swipe doesn't switch desktops
+  - Test behavior restored after app exit
+  - Test on multiple macOS versions
+- [ ] Test recording pauses when visible
+  - Test recording service detects Playback app
+  - Test recording pauses when app opens
+  - Test recording resumes when app closes
+  - Test no data loss during pause/resume
+- [ ] Test loading screen behavior
+  - Test loading screen shows when processing running
+  - Test estimated time remaining (if available)
+  - Test ESC cancels and closes app
+  - Test automatic dismissal when processing completes
+- [ ] Test app icon launch
+  - Test clicking icon in Applications folder launches app
+  - Test clicking icon in Dock launches app
+  - Test icon visible in menu bar (if applicable)
+  - Test icon design matches specification
+### Performance Tests
+- [ ] Verify startup time
+  - Target: Cold launch < 2 seconds
+  - Target: Database load < 500ms (30 days data)
+  - Target: First video load < 500ms
+  - Target: Fullscreen transition immediate
+- [ ] Verify memory usage
+  - Target: Baseline ~100MB (app overhead)
+  - Target: Video buffers ~100-200MB (AVPlayer managed)
+  - Target: Timeline rendering ~50MB (cached layers)
+  - Target: Peak ~300-500MB
+- [ ] Verify CPU usage
+  - Target: Idle (video paused) < 5%
+  - Target: Video playback 15-30% (hardware decode)
+  - Target: Scrubbing 20-40% (rapid seeks)
+  - Target: Timeline rendering 10-20% (during zoom/pan)
+- [ ] Verify GPU usage
+  - Video decode: Hardware accelerated (VideoToolbox)
+  - UI rendering: Metal backend
+  - Target: Smooth 60fps on older Macs
+- [ ] Test with 30+ days of data
+  - Test database query performance
+  - Test timeline rendering performance
+  - Test memory usage with large dataset
+  - Test scrubbing responsiveness
 
-- Long recording session (24+ hours)
-- Multiple segment transitions
-- Scrubbing through gaps
-- Zoom limits (min/max)
-- Three-finger swipe disabled
-- Recording pauses when visible
-
-## Dependencies
-
-- macOS 12.0+ (Monterey or later)
-- Swift 5.5+
-- SwiftUI 3.0+
-- AVFoundation (AVPlayer, AVKit)
-- SQLite3 (system framework)
-- Carbon (global hotkeys)
-
-## Future Enhancements
-
-### Potential Features
-
-1. **Search by App** - Jump to segments from specific app
-2. **Date Picker** - Calendar UI to jump to specific date
-3. **Bookmarks** - Save interesting moments
-4. **Export Range** - Export time range as video file
-5. **Annotations** - Add notes to timeline
-6. **Thumbnail Scrubbing** - Show frame preview while scrubbing
-7. **Multi-Display Timeline** - Separate tracks for each monitor
-8. **Speed Control** - Playback speed adjustment (0.5x, 2x, etc.)
-9. **Picture-in-Picture** - View timeline while working
-10. **Shared Sessions** - View recordings from other devices
-
-### Performance Optimizations
-
-1. **Predictive Loading** - Preload next segment
-2. **Thumbnail Cache** - Cache timeline thumbnails
-3. **Lazy Segment Loading** - Load only visible segments
-4. **Metal Shaders** - Custom video rendering pipeline

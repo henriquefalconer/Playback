@@ -1,648 +1,1313 @@
-# Configuration Specification
+# Configuration System Implementation Plan
 
 **Component:** Configuration System
-**Version:** 1.0
 **Last Updated:** 2026-02-07
 
 ## Overview
 
-Playback uses a JSON-based configuration system stored in the user's Application Support directory. All components read from this single source of truth, ensuring consistent behavior across the system.
+This document provides a complete, self-contained specification for implementing the Playback configuration system. It covers JSON schema, hot-reloading, validation, migration, and environment variables.
 
-## Configuration File
+## Configuration System Details
 
-### Location
+### Complete JSON Schema
 
-**Path:** `~/Library/Application Support/Playback/config.json`
-
-**Creation:** Automatically created on first launch with default values
-
-**Permissions:** 0644 (user read/write, others read-only)
-
-### Schema
-
-**Version:** 1.0
-
-**Full Structure:**
+The configuration file (`config.json`) uses the following structure:
 
 ```json
 {
-  "version": "1.0",
-  "recording_enabled": true,
+  "version": "1.0.0",
   "processing_interval_minutes": 5,
   "temp_retention_policy": "1_week",
   "recording_retention_policy": "never",
-  "excluded_apps": [
-    "com.apple.Keychain",
-    "com.1password.1password"
-  ],
   "exclusion_mode": "skip",
-  "pause_on_timeline_open": true,
-  "notifications": {
-    "errors": true,
-    "disk_full": true,
-    "recording_status": false
-  },
-  "launch_at_login": true,
-  "timeline_shortcut": "Option+Shift+Space",
-  "ffmpeg_preset": "veryfast",
+  "excluded_apps": [],
   "ffmpeg_crf": 28,
   "video_fps": 30,
-  "segment_duration_seconds": 5
+  "timeline_shortcut": "Option+Shift+Space",
+  "notifications": {
+    "processing_complete": true,
+    "processing_errors": true,
+    "disk_space_warnings": true,
+    "recording_status": false
+  }
 }
 ```
 
-## Configuration Fields
+#### Field Definitions and Defaults
 
-### Recording Settings
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `version` | String | `"1.0.0"` | Configuration schema version for migration |
+| `processing_interval_minutes` | Integer | `5` | How often to process recordings (1, 5, 10, 15, 30, or 60) |
+| `temp_retention_policy` | String | `"1_week"` | When to delete temp recordings ("never", "1_day", "1_week", "1_month") |
+| `recording_retention_policy` | String | `"never"` | When to delete processed recordings ("never", "1_day", "1_week", "1_month") |
+| `exclusion_mode` | String | `"skip"` | How to handle excluded apps ("invisible" or "skip") |
+| `excluded_apps` | Array[String] | `[]` | Bundle IDs of apps to exclude from recording |
+| `ffmpeg_crf` | Integer | `28` | FFmpeg quality setting (0-51, lower is better quality) |
+| `video_fps` | Integer | `30` | Recording frame rate |
+| `timeline_shortcut` | String | `"Option+Shift+Space"` | Keyboard shortcut to open timeline |
+| `notifications.processing_complete` | Boolean | `true` | Show notification when processing completes |
+| `notifications.processing_errors` | Boolean | `true` | Show notification on processing errors |
+| `notifications.disk_space_warnings` | Boolean | `true` | Show notification for low disk space |
+| `notifications.recording_status` | Boolean | `false` | Show recording start/stop notifications |
 
-**`recording_enabled`** (boolean)
-- **Default:** `true`
-- **Description:** Master switch for screenshot capture
-- **Modified by:** Menu bar app toggle
-- **Read by:** Recording service, menu bar app
+#### Validation Rules for Each Field
 
-**`pause_on_timeline_open`** (boolean)
-- **Default:** `true`
-- **Description:** Whether to pause recording when playback app is visible
-- **Modified by:** Settings window
-- **Read by:** Recording service
+**version**
+- Type: String in semantic versioning format (e.g., "1.0.0")
+- Default: "1.0.0"
+- Invalid: Use "1.0.0" and log warning
 
-**`excluded_apps`** (array of strings)
-- **Default:** `[]`
-- **Description:** List of bundle IDs to exclude from recording
-- **Format:** Array of bundle identifier strings (e.g., "com.apple.Safari")
-- **Modified by:** Settings window (Privacy tab)
-- **Read by:** Recording service
+**processing_interval_minutes**
+- Valid values: [1, 5, 10, 15, 30, 60]
+- Default on invalid: 5
+- Validation: `if value not in [1, 5, 10, 15, 30, 60] then value = 5`
 
-**`exclusion_mode`** (string enum)
-- **Default:** `"skip"`
-- **Options:**
-  - `"invisible"` - Take screenshot but black out excluded app
-  - `"skip"` - Don't take screenshot at all
-- **Description:** How to handle excluded apps
-- **Modified by:** Settings window (Privacy tab)
-- **Read by:** Recording service
+**temp_retention_policy**
+- Valid values: ["never", "1_day", "1_week", "1_month"]
+- Default on invalid: "1_week"
+- Validation: `if value not in valid_values then value = "1_week"`
 
-### Processing Settings
+**recording_retention_policy**
+- Valid values: ["never", "1_day", "1_week", "1_month"]
+- Default on invalid: "never"
+- Validation: `if value not in valid_values then value = "never"`
 
-**`processing_interval_minutes`** (integer)
-- **Default:** `5`
-- **Options:** 1, 5, 10, 15, 30, 60
-- **Description:** How often to run video processing (minutes)
-- **Modified by:** Settings window (Processing tab)
-- **Read by:** Menu bar app (to update LaunchAgent plist)
+**exclusion_mode**
+- Valid values: ["invisible", "skip"]
+- Default on invalid: "skip"
+- Validation: `if value not in ["invisible", "skip"] then value = "skip"`
 
-**`ffmpeg_preset`** (string)
-- **Default:** `"veryfast"`
-- **Options:** `"ultrafast"`, `"veryfast"`, `"fast"`, `"medium"`, `"slow"`
-- **Description:** FFmpeg encoding speed preset
-- **Modified by:** Not user-configurable (fixed per requirements)
-- **Read by:** Processing service
+**excluded_apps**
+- Type: Array of strings (bundle IDs)
+- Format: Each entry must match regex `^[a-z0-9.-]+$`
+- Sanitization: Strip whitespace, filter invalid entries
+- Default: Empty array `[]`
+- Example valid entry: "com.apple.Safari"
 
-**`ffmpeg_crf`** (integer)
-- **Default:** `28`
-- **Range:** 0-51 (lower = better quality, larger file)
-- **Description:** FFmpeg Constant Rate Factor for video quality
-- **Modified by:** Not user-configurable (fixed per requirements)
-- **Read by:** Processing service
+**ffmpeg_crf**
+- Type: Integer
+- Valid range: [0, 51]
+- Default on invalid: 28
+- Validation: `if value < 0 or value > 51 then value = 28`
 
-**`video_fps`** (integer)
-- **Default:** `30`
-- **Description:** Output video framerate
-- **Modified by:** Not user-configurable (fixed per requirements)
-- **Read by:** Processing service
+**video_fps**
+- Type: Integer
+- Valid range: > 0
+- Default on invalid: 30
+- Validation: `if value <= 0 then value = 30`
 
-**`segment_duration_seconds`** (integer)
-- **Default:** `5`
-- **Description:** Target duration for each video segment
-- **Modified by:** Not user-configurable (fixed per requirements)
-- **Read by:** Processing service
+**timeline_shortcut**
+- Type: String
+- Format: "[Modifiers+]Key" (e.g., "Option+Shift+Space", "Command+K")
+- Valid modifiers: Command, Option, Shift, Control
+- Default on invalid: "Option+Shift+Space"
+- Validation: Parse shortcut, verify valid key and modifiers
 
-### Storage Settings
+**notifications (all fields)**
+- Type: Boolean
+- Defaults: See table above
+- Validation: `if not boolean then value = default`
 
-**`temp_retention_policy`** (string enum)
-- **Default:** `"1_week"`
-- **Options:** `"never"`, `"1_day"`, `"1_week"`, `"1_month"`
-- **Description:** Delete temp screenshots older than this duration
-- **Modified by:** Settings window (Storage tab)
-- **Read by:** Processing service
+### Hot-Reloading Implementation
 
-**`recording_retention_policy`** (string enum)
-- **Default:** `"never"`
-- **Options:** `"never"`, `"1_day"`, `"1_week"`, `"1_month"`
-- **Description:** Delete video recordings older than this duration
-- **Modified by:** Settings window (Storage tab)
-- **Read by:** Processing service
+The configuration system supports hot-reloading using file system watching to detect external changes.
 
-### User Interface Settings
+#### FileSystemWatcher Implementation (Swift)
 
-**`launch_at_login`** (boolean)
-- **Default:** `true`
-- **Description:** Start menu bar app automatically on user login
-- **Modified by:** Settings window (General tab)
-- **Read by:** Menu bar app (to manage login item)
-
-**`timeline_shortcut`** (string)
-- **Default:** `"Option+Shift+Space"`
-- **Description:** Global keyboard shortcut to open playback app
-- **Format:** Modifier keys + Key (e.g., "Command+Option+S")
-- **Modified by:** Settings window (General tab)
-- **Read by:** Playback app
-
-**`notifications`** (object)
-- **Default:** `{"errors": true, "disk_full": true, "recording_status": false}`
-- **Description:** Which notifications to show
-- **Fields:**
-  - `errors` (boolean) - Show error notifications
-  - `disk_full` (boolean) - Show disk full notifications
-  - `recording_status` (boolean) - Show start/stop notifications
-- **Modified by:** Settings window (General tab)
-- **Read by:** All services
-
-### Metadata
-
-**`version`** (string)
-- **Default:** `"1.0"`
-- **Description:** Configuration schema version
-- **Modified by:** System (during migrations)
-- **Read by:** All components (for compatibility checks)
-
-## Configuration Management
-
-### Loading Configuration
-
-**Priority:**
-1. Read from config file
-2. If file doesn't exist: Create with defaults
-3. If file is malformed: Log error, use defaults, back up corrupt file
-4. If missing fields: Merge with defaults (partial config)
-
-**Implementation (Swift):**
 ```swift
-struct Config: Codable {
-    let version: String
-    var recordingEnabled: Bool
-    var processingIntervalMinutes: Int
-    var tempRetentionPolicy: String
-    var recordingRetentionPolicy: String
-    var excludedApps: [String]
-    var exclusionMode: String
-    var pauseOnTimelineOpen: Bool
-    var notifications: NotificationPreferences
-    var launchAtLogin: Bool
-    var timelineShortcut: String
-    let ffmpegPreset: String
-    let ffmpegCrf: Int
-    let videoFps: Int
-    let segmentDurationSeconds: Int
+import Foundation
 
-    struct NotificationPreferences: Codable {
-        var errors: Bool
-        var diskFull: Bool
-        var recordingStatus: Bool
-    }
-
-    static let `default` = Config(
-        version: "1.0",
-        recordingEnabled: true,
-        processingIntervalMinutes: 5,
-        tempRetentionPolicy: "1_week",
-        recordingRetentionPolicy: "never",
-        excludedApps: [],
-        exclusionMode: "skip",
-        pauseOnTimelineOpen: true,
-        notifications: NotificationPreferences(errors: true, diskFull: true, recordingStatus: false),
-        launchAtLogin: true,
-        timelineShortcut: "Option+Shift+Space",
-        ffmpegPreset: "veryfast",
-        ffmpegCrf: 28,
-        videoFps: 30,
-        segmentDurationSeconds: 5
-    )
-}
-
-func loadConfig() -> Config {
-    let url = configFileURL()
-
-    guard FileManager.default.fileExists(atPath: url.path) else {
-        let defaultConfig = Config.default
-        saveConfig(defaultConfig)
-        return defaultConfig
-    }
-
-    do {
-        let data = try Data(contentsOf: url)
-        var config = try JSONDecoder().decode(Config.self, from: data)
-
-        // Validate and clamp values
-        config = validateConfig(config)
-
-        return config
-    } catch {
-        print("[Config] Failed to load config: \(error)")
-
-        // Back up corrupt file
-        let backupURL = url.appendingPathExtension("backup.\(Date().timeIntervalSince1970)")
-        try? FileManager.default.copyItem(at: url, to: backupURL)
-
-        return Config.default
-    }
-}
-```
-
-**Implementation (Python):**
-```python
-import json
-from pathlib import Path
-from typing import Any, Dict
-
-DEFAULT_CONFIG = {
-    "version": "1.0",
-    "recording_enabled": True,
-    "processing_interval_minutes": 5,
-    "temp_retention_policy": "1_week",
-    "recording_retention_policy": "never",
-    "excluded_apps": [],
-    "exclusion_mode": "skip",
-    "pause_on_timeline_open": True,
-    "notifications": {
-        "errors": True,
-        "disk_full": True,
-        "recording_status": False
-    },
-    "launch_at_login": True,
-    "timeline_shortcut": "Option+Shift+Space",
-    "ffmpeg_preset": "veryfast",
-    "ffmpeg_crf": 28,
-    "video_fps": 30,
-    "segment_duration_seconds": 5
-}
-
-def get_config_path() -> Path:
-    return Path.home() / "Library/Application Support/Playback/config.json"
-
-def load_config() -> Dict[str, Any]:
-    path = get_config_path()
-
-    if not path.exists():
-        save_config(DEFAULT_CONFIG)
-        return DEFAULT_CONFIG.copy()
-
-    try:
-        with open(path, 'r') as f:
-            config = json.load(f)
-
-        # Merge with defaults (in case new fields added)
-        merged = DEFAULT_CONFIG.copy()
-        merged.update(config)
-
-        # Validate values
-        merged = validate_config(merged)
-
-        return merged
-    except Exception as e:
-        print(f"[Config] Failed to load config: {e}")
-        return DEFAULT_CONFIG.copy()
-
-def validate_config(config: Dict[str, Any]) -> Dict[str, Any]:
-    # Clamp processing interval to valid values
-    valid_intervals = [1, 5, 10, 15, 30, 60]
-    if config["processing_interval_minutes"] not in valid_intervals:
-        config["processing_interval_minutes"] = 5
-
-    # Validate retention policies
-    valid_policies = ["never", "1_day", "1_week", "1_month"]
-    if config["temp_retention_policy"] not in valid_policies:
-        config["temp_retention_policy"] = "1_week"
-    if config["recording_retention_policy"] not in valid_policies:
-        config["recording_retention_policy"] = "never"
-
-    # Validate exclusion mode
-    valid_modes = ["invisible", "skip"]
-    if config["exclusion_mode"] not in valid_modes:
-        config["exclusion_mode"] = "skip"
-
-    return config
-```
-
-### Saving Configuration
-
-**Process:**
-1. Validate all fields
-2. Serialize to JSON with pretty formatting
-3. Write to temp file atomically
-4. Rename temp file to target (atomic replace)
-5. Log configuration change
-
-**Implementation (Swift):**
-```swift
-func saveConfig(_ config: Config) {
-    let url = configFileURL()
-    let tempURL = url.appendingPathExtension("tmp")
-
-    do {
-        // Ensure directory exists
-        try FileManager.default.createDirectory(
-            at: url.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-
-        // Encode to JSON
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        let data = try encoder.encode(config)
-
-        // Write to temp file
-        try data.write(to: tempURL)
-
-        // Atomic replace
-        _ = try FileManager.default.replaceItemAt(url, withItemAt: tempURL)
-
-        print("[Config] Configuration saved successfully")
-    } catch {
-        print("[Config] Failed to save config: \(error)")
-    }
-}
-```
-
-**Implementation (Python):**
-```python
-def save_config(config: Dict[str, Any]) -> None:
-    path = get_config_path()
-    temp_path = path.with_suffix('.tmp')
-
-    try:
-        # Ensure directory exists
-        path.parent.mkdir(parents=True, exist_ok=True)
-
-        # Write to temp file
-        with open(temp_path, 'w') as f:
-            json.dump(config, f, indent=2, sort_keys=True)
-
-        # Atomic replace
-        temp_path.replace(path)
-
-        print("[Config] Configuration saved successfully")
-    except Exception as e:
-        print(f"[Config] Failed to save config: {e}")
-```
-
-### Configuration Changes
-
-**Propagation:**
-- Menu bar app: Immediate (watches file for changes)
-- Recording service: Next iteration (every 2 seconds)
-- Processing service: Next run (every N minutes)
-- Playback app: On launch
-
-**Change Notification (Optional):**
-- Use FSEvents to watch config file
-- Notify components to reload when changed
-- Reduces latency for settings changes
-
-**Implementation (Swift):**
-```swift
 class ConfigWatcher {
-    private var monitor: DispatchSourceFileSystemObject?
+    private var fileDescriptor: CInt = -1
+    private var source: DispatchSourceFileSystemObject?
+    private let configPath: String
+    private let onChange: () -> Void
 
-    func startWatching(onChange: @escaping () -> Void) {
-        let url = configFileURL()
-        let fd = open(url.path, O_EVTONLY)
-        guard fd >= 0 else { return }
+    init(configPath: String, onChange: @escaping () -> Void) {
+        self.configPath = configPath
+        self.onChange = onChange
+    }
 
-        let queue = DispatchQueue(label: "com.playback.config.watcher")
-        monitor = DispatchSource.makeFileSystemObjectSource(
-            fileDescriptor: fd,
-            eventMask: .write,
-            queue: queue
+    func startWatching() {
+        // Open file descriptor
+        fileDescriptor = open(configPath, O_EVTONLY)
+        guard fileDescriptor >= 0 else {
+            print("Failed to open config file for watching: \(configPath)")
+            return
+        }
+
+        // Create dispatch source for file system events
+        source = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: fileDescriptor,
+            eventMask: [.write, .delete, .rename],
+            queue: DispatchQueue.main
         )
 
-        monitor?.setEventHandler {
-            onChange()
+        source?.setEventHandler { [weak self] in
+            self?.onChange()
         }
 
-        monitor?.setCancelHandler {
-            close(fd)
+        source?.setCancelHandler { [weak self] in
+            if let fd = self?.fileDescriptor, fd >= 0 {
+                close(fd)
+            }
         }
 
-        monitor?.resume()
+        source?.resume()
     }
 
     func stopWatching() {
-        monitor?.cancel()
-        monitor = nil
+        source?.cancel()
+        source = nil
+        if fileDescriptor >= 0 {
+            close(fileDescriptor)
+            fileDescriptor = -1
+        }
+    }
+
+    deinit {
+        stopWatching()
     }
 }
 ```
 
-## Configuration Validation
+#### Configuration Reload Strategy
 
-### Field Validation Rules
+**Menu Bar App (Swift)**
+- Uses `ConfigWatcher` to monitor config file
+- Reloads immediately on file change (< 1 second)
+- Updates UI reactively via SwiftUI @Published properties
+- Propagates changes to recording service via LaunchAgent environment update
 
-**`processing_interval_minutes`:**
-- Must be in: [1, 5, 10, 15, 30, 60]
-- If invalid: Reset to 5
+**Recording Service (Python)**
+- Checks config file at start of each iteration (every 2 seconds)
+- Compares file modification time with last loaded time
+- Reloads if file changed
+- No file watching needed (polling is sufficient at 2-second interval)
 
-**`temp_retention_policy`:**
-- Must be in: ["never", "1_day", "1_week", "1_month"]
-- If invalid: Reset to "1_week"
+**Processing Service (Python)**
+- Reloads config at start of each processing run
+- Doesn't need hot-reload during processing (short-lived execution)
+- Inherits environment variables from LaunchAgent
 
-**`recording_retention_policy`:**
-- Must be in: ["never", "1_day", "1_week", "1_month"]
-- If invalid: Reset to "never"
+#### Configuration Change Propagation
 
-**`exclusion_mode`:**
-- Must be in: ["invisible", "skip"]
-- If invalid: Reset to "skip"
+```
+User edits config.json
+         ↓
+FileSystemWatcher detects change (Swift)
+         ↓
+ConfigManager.reload() called
+         ↓
+SwiftUI views update (via @Published)
+         ↓
+LaunchAgent environment updated (if needed)
+         ↓
+Services pick up changes on next iteration
+```
 
-**`excluded_apps`:**
-- Must be array of strings
-- Each string should be valid bundle ID format
-- If invalid: Filter out invalid entries
+### Migration Strategy Between Versions
 
-**`ffmpeg_crf`:**
-- Must be integer in range [0, 51]
-- If invalid: Reset to 28
+The configuration system uses semantic versioning to handle schema changes across app versions.
 
-**`video_fps`:**
-- Must be positive integer
-- Recommended: 24, 30, 60
-- If invalid: Reset to 30
+#### Version Checking
 
-**`timeline_shortcut`:**
-- Must be valid keyboard shortcut string
-- Format: "[Modifiers+]Key"
-- If invalid: Reset to "Option+Shift+Space"
+On config load:
+1. Read `version` field from config.json
+2. Compare with current app version's expected config version
+3. If versions match, load normally
+4. If config is older, apply migrations
+5. If config is newer, log warning and attempt to load (forward compatibility)
 
-### Sanitization
-
-**Bundle IDs:**
-- Strip whitespace
-- Convert to lowercase (optional)
-- Validate format: `[a-z0-9.-]+`
-
-**File Paths:**
-- Expand ~ to home directory
-- Resolve symlinks
-- Validate directory exists (for storage locations)
-
-## Configuration Migration
-
-### Version Compatibility
-
-**Current Version:** 1.0
-
-**Future Versions:** 1.1, 2.0, etc.
-
-**Migration Strategy:**
-1. Read config file
-2. Check version field
-3. If older version: Apply migration transformations
-4. Write updated config with new version
-
-### Migration Example (1.0 → 1.1)
+#### Migration Framework
 
 ```swift
-func migrateConfig(from oldVersion: String, to newVersion: String, config: inout Config) {
+func migrateConfig(from oldVersion: String, to newVersion: String, config: [String: Any]) -> [String: Any] {
+    var migratedConfig = config
+
+    // Apply migrations in sequence
     switch (oldVersion, newVersion) {
-    case ("1.0", "1.1"):
-        // Example: Add new field with default value
-        // (In practice, Codable handles this via default values)
-        print("[Config] Migrating from 1.0 to 1.1")
-        config.version = "1.1"
+    case ("1.0.0", "1.1.0"):
+        // Example: Add new field with default
+        if migratedConfig["new_field"] == nil {
+            migratedConfig["new_field"] = defaultValue
+        }
+        migratedConfig["version"] = "1.1.0"
+
+    case ("1.1.0", "2.0.0"):
+        // Example: Rename field
+        if let oldValue = migratedConfig["old_field_name"] {
+            migratedConfig["new_field_name"] = oldValue
+            migratedConfig.removeValue(forKey: "old_field_name")
+        }
+        migratedConfig["version"] = "2.0.0"
 
     default:
-        print("[Config] No migration needed")
+        print("No migration path from \(oldVersion) to \(newVersion)")
     }
+
+    return migratedConfig
 }
 ```
 
-## Environment Variables
+#### Migration Examples
 
-### Runtime Overrides
+**Adding a New Field (1.0.0 → 1.1.0)**
+```swift
+// Before: config.json doesn't have "auto_cleanup_enabled"
+// After: Add field with default value
+migratedConfig["auto_cleanup_enabled"] = true
+```
 
-**`PLAYBACK_CONFIG`** (optional)
-- Override config file path
-- Used by LaunchAgents to specify config location
-- Example: `PLAYBACK_CONFIG=$HOME/Library/Application Support/Playback/config.json`
+**Renaming a Field (1.1.0 → 1.2.0)**
+```swift
+// Before: "processing_interval" (seconds)
+// After: "processing_interval_minutes" (minutes)
+if let seconds = migratedConfig["processing_interval"] as? Int {
+    migratedConfig["processing_interval_minutes"] = seconds / 60
+    migratedConfig.removeValue(forKey: "processing_interval")
+}
+```
 
-**`PLAYBACK_DATA_DIR`** (optional)
-- Override data directory (temp/, chunks/, meta.sqlite3)
-- Default: `~/Library/Application Support/Playback/data/`
-- Example: `PLAYBACK_DATA_DIR=/Volumes/External/Playback/`
+**Changing Valid Values (1.2.0 → 1.3.0)**
+```swift
+// Before: retention_policy = "short", "medium", "long"
+// After: retention_policy = "1_day", "1_week", "1_month"
+if let oldPolicy = migratedConfig["temp_retention_policy"] as? String {
+    let newPolicy = mapOldPolicyToNew(oldPolicy)
+    migratedConfig["temp_retention_policy"] = newPolicy
+}
+```
 
-### Usage in LaunchAgent
+#### Backward Compatibility
+
+- **Missing fields**: Filled with defaults (Codable handles this automatically)
+- **Extra fields**: Ignored (future-proofing for newer configs)
+- **Type mismatches**: Fall back to default value and log warning
+- **Version field missing**: Assume version "1.0.0" and attempt migration
+
+### Environment Variable Handling
+
+The configuration system supports environment variable overrides for deployment flexibility.
+
+#### Supported Environment Variables
+
+**PLAYBACK_CONFIG**
+- Purpose: Override config file path
+- Default: `~/Library/Application Support/Playback/config.json` (production)
+- Example: `PLAYBACK_CONFIG=/custom/path/config.json`
+- Used by: Menu bar app, recording service, processing service
+
+**PLAYBACK_DATA_DIR**
+- Purpose: Override data directory path
+- Default: `~/Library/Application Support/Playback/data/` (production)
+- Example: `PLAYBACK_DATA_DIR=/Volumes/ExternalDrive/playback-data`
+- Used by: All components that read/write recordings
+
+**PLAYBACK_DEV_MODE**
+- Purpose: Enable development mode with local paths
+- Default: Not set (production mode)
+- Example: `PLAYBACK_DEV_MODE=1`
+- Effect: Uses project directory for config and data instead of Application Support
+
+#### Priority Order
+
+Configuration file location is determined by:
+1. `PLAYBACK_CONFIG` environment variable (highest priority)
+2. Development mode paths if `PLAYBACK_DEV_MODE=1`
+3. Production paths in `~/Library/Application Support/Playback/` (default)
+
+Data directory location is determined by:
+1. `PLAYBACK_DATA_DIR` environment variable (highest priority)
+2. Development mode paths if `PLAYBACK_DEV_MODE=1`
+3. Production paths in `~/Library/Application Support/Playback/data/` (default)
+
+#### Development Mode Paths
+
+When `PLAYBACK_DEV_MODE=1`:
+- Config: `<project>/dev_config.json`
+- Data: `<project>/dev_data/`
+- Logs: `<project>/dev_data/logs/`
+- Temp: `<project>/dev_data/temp/`
+
+#### Production Mode Paths
+
+When `PLAYBACK_DEV_MODE` not set:
+- Config: `~/Library/Application Support/Playback/config.json`
+- Data: `~/Library/Application Support/Playback/data/`
+- Logs: `~/Library/Application Support/Playback/data/logs/`
+- Temp: `~/Library/Application Support/Playback/data/temp/`
+
+#### Usage in LaunchAgent
+
+Environment variables are set in LaunchAgent plist files:
 
 ```xml
 <key>EnvironmentVariables</key>
 <dict>
     <key>PLAYBACK_CONFIG</key>
-    <string>$HOME/Library/Application Support/Playback/config.json</string>
+    <string>/Users/username/Library/Application Support/Playback/config.json</string>
     <key>PLAYBACK_DATA_DIR</key>
-    <string>$HOME/Library/Application Support/Playback/data</string>
+    <string>/Users/username/Library/Application Support/Playback/data</string>
 </dict>
 ```
 
-## Configuration Backup
+Note: `$HOME` must be expanded to actual home directory path in LaunchAgent plists.
 
-### Automatic Backups
+## Implementation Checklist
 
-**Trigger:** Before saving changes
+### JSON Configuration File Structure
+- [ ] Define Config struct in Swift
+  - Source: `Playback/Config/Config.swift`
+  - Codable struct with all configuration fields
+  - Nested struct for NotificationPreferences
+  - **Example:**
+    ```swift
+    struct Config: Codable {
+        let version: String
+        let processingIntervalMinutes: Int
+        let tempRetentionPolicy: String
+        let recordingRetentionPolicy: String
+        let exclusionMode: String
+        let excludedApps: [String]
+        let ffmpegCrf: Int
+        let videoFps: Int
+        let timelineShortcut: String
+        let notifications: NotificationPreferences
 
-**Location:** `~/Library/Application Support/Playback/config.json.backup`
+        struct NotificationPreferences: Codable {
+            let processingComplete: Bool
+            let processingErrors: Bool
+            let diskSpaceWarnings: Bool
+            let recordingStatus: Bool
+        }
 
-**Retention:** Keep last 5 backups
+        static let `default` = Config(
+            version: "1.0.0",
+            processingIntervalMinutes: 5,
+            tempRetentionPolicy: "1_week",
+            recordingRetentionPolicy: "never",
+            exclusionMode: "skip",
+            excludedApps: [],
+            ffmpegCrf: 28,
+            videoFps: 30,
+            timelineShortcut: "Option+Shift+Space",
+            notifications: NotificationPreferences(
+                processingComplete: true,
+                processingErrors: true,
+                diskSpaceWarnings: true,
+                recordingStatus: false
+            )
+        )
+    }
+    ```
 
-**Naming:**
-- `config.json.backup.1` (most recent)
-- `config.json.backup.2`
-- ...
-- `config.json.backup.5` (oldest)
+- [ ] Define Python config schema
+  - Source: `scripts/config.py` or embedded in services
+  - DEFAULT_CONFIG dictionary with all fields
+  - Type hints for configuration values
+  - **Example:**
+    ```python
+    from typing import TypedDict, List
 
-**Implementation:**
-```swift
-func rotateBackups() {
-    let baseURL = configFileURL()
-    let backupURLs = (1...5).map { baseURL.appendingPathExtension("backup.\($0)") }
+    class NotificationPreferences(TypedDict):
+        processing_complete: bool
+        processing_errors: bool
+        disk_space_warnings: bool
+        recording_status: bool
 
-    // Rotate existing backups (5 → delete, 4 → 5, 3 → 4, ...)
-    for i in stride(from: 4, through: 1, by: -1) {
-        let src = backupURLs[i-1]
-        let dst = backupURLs[i]
-        try? FileManager.default.removeItem(at: dst)
-        try? FileManager.default.moveItem(at: src, to: dst)
+    class Config(TypedDict):
+        version: str
+        processing_interval_minutes: int
+        temp_retention_policy: str
+        recording_retention_policy: str
+        exclusion_mode: str
+        excluded_apps: List[str]
+        ffmpeg_crf: int
+        video_fps: int
+        timeline_shortcut: str
+        notifications: NotificationPreferences
+
+    DEFAULT_CONFIG: Config = {
+        "version": "1.0.0",
+        "processing_interval_minutes": 5,
+        "temp_retention_policy": "1_week",
+        "recording_retention_policy": "never",
+        "exclusion_mode": "skip",
+        "excluded_apps": [],
+        "ffmpeg_crf": 28,
+        "video_fps": 30,
+        "timeline_shortcut": "Option+Shift+Space",
+        "notifications": {
+            "processing_complete": True,
+            "processing_errors": True,
+            "disk_space_warnings": True,
+            "recording_status": False
+        }
+    }
+    ```
+
+- [ ] Implement JSON schema validation (optional)
+  - Source: `Playback/Config/ConfigSchema.swift`
+  - Validates structure before loading
+  - Provides helpful error messages for invalid configs
+
+### Default Configuration
+- [ ] Create default configuration constant
+  - Source: `Playback/Config/Config.swift`
+  - Static property: `Config.default`
+  - All fields initialized with defaults from schema
+  - **Example:** See Config struct above with `static let default`
+
+- [ ] Implement first-launch initialization
+  - Source: `Playback/Config/ConfigManager.swift`
+  - Create config.json if it doesn't exist
+  - Create parent directory if needed
+  - Set file permissions to 0644
+  - Log creation event
+  - **Example:**
+    ```swift
+    func initializeConfig() {
+        let configPath = getConfigPath()
+        let configURL = URL(fileURLWithPath: configPath)
+
+        if !FileManager.default.fileExists(atPath: configPath) {
+            // Create parent directory
+            let parentDir = configURL.deletingLastPathComponent()
+            try? FileManager.default.createDirectory(
+                at: parentDir,
+                withIntermediateDirectories: true,
+                attributes: [.posixPermissions: 0o755]
+            )
+
+            // Write default config
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            let data = try encoder.encode(Config.default)
+            try data.write(to: configURL)
+
+            // Set permissions
+            try FileManager.default.setAttributes(
+                [.posixPermissions: 0o644],
+                ofItemAtPath: configPath
+            )
+
+            print("Created default config at \(configPath)")
+        }
+    }
+    ```
+
+### Environment-Specific Configurations
+- [ ] Implement development mode detection
+  - Check for `PLAYBACK_DEV_MODE=1` environment variable
+  - Source: `Playback/Config/ConfigManager.swift`
+  - **Example:**
+    ```swift
+    func isDevelopmentMode() -> Bool {
+        return ProcessInfo.processInfo.environment["PLAYBACK_DEV_MODE"] == "1"
+    }
+    ```
+
+- [ ] Set up development paths
+  - Development config: `<project>/dev_config.json`
+  - Development data: `<project>/dev_data/`
+  - Use when `PLAYBACK_DEV_MODE=1` is set
+  - **Example:**
+    ```swift
+    func getDevConfigPath() -> String {
+        let projectDir = FileManager.default.currentDirectoryPath
+        return "\(projectDir)/dev_config.json"
+    }
+    ```
+
+- [ ] Set up production paths
+  - Production config: `~/Library/Application Support/Playback/config.json`
+  - Production data: `~/Library/Application Support/Playback/data/`
+  - Default when dev mode not enabled
+  - **Example:**
+    ```swift
+    func getProdConfigPath() -> String {
+        let appSupport = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first!
+        let playbackDir = appSupport.appendingPathComponent("Playback")
+        return playbackDir.appendingPathComponent("config.json").path
+    }
+    ```
+
+- [ ] Implement environment variable overrides
+  - `PLAYBACK_CONFIG`: Override config file path
+  - `PLAYBACK_DATA_DIR`: Override data directory path
+  - Priority: Environment variables > Dev mode > Production defaults
+  - **Example:**
+    ```swift
+    func getConfigPath() -> String {
+        // Priority 1: Environment variable
+        if let customPath = ProcessInfo.processInfo.environment["PLAYBACK_CONFIG"] {
+            return customPath
+        }
+
+        // Priority 2: Development mode
+        if isDevelopmentMode() {
+            return getDevConfigPath()
+        }
+
+        // Priority 3: Production default
+        return getProdConfigPath()
+    }
+    ```
+
+### Configuration Loading
+- [ ] Implement loadConfig() function
+  - Source: `Playback/Config/ConfigManager.swift`
+  - Handle missing file → create with defaults
+  - Handle malformed JSON → backup and use defaults
+  - Handle partial config → merge with defaults
+  - **Example:**
+    ```swift
+    func loadConfig() -> Config {
+        let configPath = getConfigPath()
+
+        // Missing file: create with defaults
+        if !FileManager.default.fileExists(atPath: configPath) {
+            initializeConfig()
+            return Config.default
+        }
+
+        do {
+            let data = try Data(contentsOf: URL(fileURLWithPath: configPath))
+            let decoder = JSONDecoder()
+            decoder.keyDecodingStrategy = .convertFromSnakeCase
+            var config = try decoder.decode(Config.self, from: data)
+
+            // Validate and clamp values
+            config = validateConfig(config)
+
+            return config
+        } catch {
+            // Malformed JSON: backup and use defaults
+            print("Failed to load config: \(error)")
+            backupCorruptConfig(configPath)
+            return Config.default
+        }
     }
 
-    // Copy current config to backup.1
-    try? FileManager.default.copyItem(at: baseURL, to: backupURLs[0])
-}
-```
+    func backupCorruptConfig(_ path: String) {
+        let timestamp = ISO8601DateFormatter().string(from: Date())
+        let backupPath = "\(path).backup.\(timestamp)"
+        try? FileManager.default.copyItem(atPath: path, toPath: backupPath)
+        print("Backed up corrupt config to \(backupPath)")
+    }
+    ```
 
-### Manual Export/Import
+- [ ] Implement Python load_config() function
+  - Source: `scripts/config.py`
+  - Same logic as Swift implementation
+  - Used by recording and processing services
+  - **Example:**
+    ```python
+    import json
+    import os
+    from pathlib import Path
+    from typing import Any
 
-**Export:**
-- Settings window → Advanced → "Export Settings"
-- Saves config.json to user-chosen location
-- Includes version and timestamp in filename
+    def load_config() -> Config:
+        config_path = get_config_path()
 
-**Import:**
-- Settings window → Advanced → "Import Settings"
-- Loads config from user-chosen file
-- Validates and merges with current config
-- Confirmation dialog showing changes
+        # Missing file: create with defaults
+        if not os.path.exists(config_path):
+            initialize_config()
+            return DEFAULT_CONFIG.copy()
 
-## Security Considerations
+        try:
+            with open(config_path, 'r') as f:
+                loaded = json.load(f)
 
-### Sensitive Data
+            # Merge with defaults (handle partial config)
+            config = DEFAULT_CONFIG.copy()
+            config.update(loaded)
 
-**Excluded Apps List:**
-- May reveal user's security/privacy concerns
-- File permissions: 0644 (user-readable only)
-- No encryption (not highly sensitive)
+            # Validate and clamp values
+            config = validate_config(config)
 
-**No Passwords/Tokens:**
-- Config file does not store credentials
-- No API keys or authentication tokens
+            return config
+        except (json.JSONDecodeError, IOError) as e:
+            # Malformed JSON: backup and use defaults
+            print(f"Failed to load config: {e}")
+            backup_corrupt_config(config_path)
+            return DEFAULT_CONFIG.copy()
+    ```
 
-### File Permissions
+- [ ] Handle corrupt configuration files
+  - Backup corrupt file to `config.json.backup.<timestamp>`
+  - Log error with details
+  - Fall back to default configuration
+  - Show notification to user (optional)
 
-**Config File:** `0644` (user read/write, others read)
-- Prevents other users from modifying settings
-- Allows system services to read settings
+### Configuration Saving
+- [ ] Implement saveConfig() function
+  - Source: `Playback/Config/ConfigManager.swift`
+  - Atomic write using temp file + rename
+  - Pretty-printed JSON with sorted keys
+  - Create parent directory if needed
+  - **Example:**
+    ```swift
+    func saveConfig(_ config: Config) throws {
+        let configPath = getConfigPath()
+        let configURL = URL(fileURLWithPath: configPath)
 
-**Config Directory:** `0755` (standard Application Support permissions)
+        // Rotate backups first
+        rotateBackups()
 
-## Testing
+        // Validate before saving
+        let validatedConfig = validateConfig(config)
 
-### Unit Tests
+        // Write to temp file
+        let tempPath = configPath + ".tmp"
+        let tempURL = URL(fileURLWithPath: tempPath)
 
-- Config loading with missing file
-- Config loading with malformed JSON
-- Config validation (invalid values)
-- Config migration (version upgrade)
-- Field clamping (out-of-range values)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        encoder.keyEncodingStrategy = .convertToSnakeCase
+        let data = try encoder.encode(validatedConfig)
 
-### Integration Tests
+        try data.write(to: tempURL)
 
-- Settings change → LaunchAgent update
-- Settings change → Service picks up new value
-- Config file corruption → Fallback to defaults
-- Concurrent writes (race conditions)
+        // Atomic rename
+        try FileManager.default.moveItem(at: tempURL, to: configURL)
 
-## Future Enhancements
+        // Set permissions
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o644],
+            ofItemAtPath: configPath
+        )
 
-### Potential Features
+        print("Saved config to \(configPath)")
+    }
+    ```
 
-1. **Per-Display Settings** - Different recording intervals per monitor
-2. **Time-Based Profiles** - Different settings for work hours vs. personal time
-3. **App-Specific Settings** - Custom recording intervals per app
-4. **Cloud Sync** - Sync settings across devices (iCloud)
-5. **Configuration Presets** - Quick switch between preset configurations
-6. **CLI Configuration Tool** - Manage settings from terminal
+- [ ] Implement Python save_config() function
+  - Source: `scripts/config.py`
+  - Same atomic write pattern as Swift
+  - Used when processing service updates config
+  - **Example:**
+    ```python
+    def save_config(config: Config) -> None:
+        config_path = get_config_path()
 
-### Advanced Validation
+        # Rotate backups first
+        rotate_backups()
 
-1. **Schema Validation** - JSON Schema for strict validation
-2. **Type Safety** - Ensure types are correct at runtime
-3. **Dependency Validation** - Check for conflicting settings
-4. **Resource Checks** - Validate FFmpeg available, disk space sufficient
+        # Validate before saving
+        validated = validate_config(config)
+
+        # Write to temp file
+        temp_path = config_path + ".tmp"
+        with open(temp_path, 'w') as f:
+            json.dump(validated, f, indent=2, sort_keys=True)
+
+        # Atomic rename
+        os.rename(temp_path, config_path)
+
+        # Set permissions
+        os.chmod(config_path, 0o644)
+
+        print(f"Saved config to {config_path}")
+    ```
+
+- [ ] Add pre-save validation
+  - Validate all fields before writing
+  - Clamp values to valid ranges
+  - Log validation errors/warnings
+
+- [ ] Rotate backups before saving
+  - Keep last 5 config backups
+  - Naming: `config.json.backup.1` through `config.json.backup.5`
+  - Rotate before each save: 5→delete, 4→5, 3→4, 2→3, 1→2, current→1
+  - **Example:**
+    ```swift
+    func rotateBackups() {
+        let configPath = getConfigPath()
+
+        // Delete oldest backup (5)
+        let backup5 = "\(configPath).backup.5"
+        try? FileManager.default.removeItem(atPath: backup5)
+
+        // Rotate existing backups
+        for i in (1...4).reversed() {
+            let oldBackup = "\(configPath).backup.\(i)"
+            let newBackup = "\(configPath).backup.\(i + 1)"
+            if FileManager.default.fileExists(atPath: oldBackup) {
+                try? FileManager.default.moveItem(atPath: oldBackup, toPath: newBackup)
+            }
+        }
+
+        // Backup current config to .backup.1
+        let backup1 = "\(configPath).backup.1"
+        try? FileManager.default.copyItem(atPath: configPath, toPath: backup1)
+    }
+    ```
+
+### Configuration Validation
+- [ ] Implement validateConfig() function
+  - Source: `Playback/Config/ConfigManager.swift`
+  - Validate each field according to rules
+  - Clamp invalid values to defaults
+  - Return validated config
+  - **Example:**
+    ```swift
+    func validateConfig(_ config: Config) -> Config {
+        var validated = config
+
+        // Validate processing_interval_minutes
+        let validIntervals = [1, 5, 10, 15, 30, 60]
+        if !validIntervals.contains(validated.processingIntervalMinutes) {
+            print("Invalid processing_interval_minutes: \(validated.processingIntervalMinutes), using default: 5")
+            validated.processingIntervalMinutes = 5
+        }
+
+        // Validate retention policies
+        let validPolicies = ["never", "1_day", "1_week", "1_month"]
+        if !validPolicies.contains(validated.tempRetentionPolicy) {
+            print("Invalid temp_retention_policy: \(validated.tempRetentionPolicy), using default: 1_week")
+            validated.tempRetentionPolicy = "1_week"
+        }
+        if !validPolicies.contains(validated.recordingRetentionPolicy) {
+            print("Invalid recording_retention_policy: \(validated.recordingRetentionPolicy), using default: never")
+            validated.recordingRetentionPolicy = "never"
+        }
+
+        // Validate exclusion_mode
+        if !["invisible", "skip"].contains(validated.exclusionMode) {
+            print("Invalid exclusion_mode: \(validated.exclusionMode), using default: skip")
+            validated.exclusionMode = "skip"
+        }
+
+        // Validate excluded_apps
+        validated.excludedApps = validated.excludedApps
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { $0.range(of: "^[a-z0-9.-]+$", options: .regularExpression) != nil }
+
+        // Validate ffmpeg_crf
+        if validated.ffmpegCrf < 0 || validated.ffmpegCrf > 51 {
+            print("Invalid ffmpeg_crf: \(validated.ffmpegCrf), using default: 28")
+            validated.ffmpegCrf = 28
+        }
+
+        // Validate video_fps
+        if validated.videoFps <= 0 {
+            print("Invalid video_fps: \(validated.videoFps), using default: 30")
+            validated.videoFps = 30
+        }
+
+        // Validate timeline_shortcut
+        if !isValidShortcut(validated.timelineShortcut) {
+            print("Invalid timeline_shortcut: \(validated.timelineShortcut), using default: Option+Shift+Space")
+            validated.timelineShortcut = "Option+Shift+Space"
+        }
+
+        return validated
+    }
+    ```
+
+- [ ] Validate processing_interval_minutes
+  - Must be in: [1, 5, 10, 15, 30, 60]
+  - Default on invalid: 5
+
+- [ ] Validate retention policies
+  - temp_retention_policy: ["never", "1_day", "1_week", "1_month"]
+  - recording_retention_policy: ["never", "1_day", "1_week", "1_month"]
+  - Defaults: "1_week" for temp, "never" for recording
+
+- [ ] Validate exclusion_mode
+  - Must be in: ["invisible", "skip"]
+  - Default on invalid: "skip"
+
+- [ ] Validate excluded_apps array
+  - Must be array of strings
+  - Validate bundle ID format: `[a-z0-9.-]+`
+  - Strip whitespace from each entry
+  - Filter out invalid entries
+
+- [ ] Validate ffmpeg_crf
+  - Must be integer in range [0, 51]
+  - Default on invalid: 28
+
+- [ ] Validate video_fps
+  - Must be positive integer
+  - Default on invalid: 30
+
+- [ ] Validate timeline_shortcut
+  - Must be valid keyboard shortcut format
+  - Format: "[Modifiers+]Key"
+  - Default on invalid: "Option+Shift+Space"
+
+### Hot-Reloading/File Watching
+- [ ] Implement ConfigWatcher class
+  - Source: `Playback/Config/ConfigWatcher.swift`
+  - Use DispatchSourceFileSystemObject for file monitoring
+  - Watch for write events on config.json
+  - **Example:** See "Hot-Reloading Implementation" section above
+
+- [ ] Add file watching to menu bar app
+  - Reload config immediately on file change
+  - Update UI to reflect new settings
+  - Propagate to other components
+  - **Example:**
+    ```swift
+    class ConfigManager: ObservableObject {
+        @Published var config: Config
+        private var watcher: ConfigWatcher?
+
+        init() {
+            self.config = loadConfig()
+
+            let configPath = getConfigPath()
+            self.watcher = ConfigWatcher(configPath: configPath) { [weak self] in
+                self?.reloadConfig()
+            }
+            self.watcher?.startWatching()
+        }
+
+        func reloadConfig() {
+            self.config = loadConfig()
+            print("Config reloaded from file")
+        }
+    }
+    ```
+
+- [ ] Add periodic config checks to services
+  - Recording service: Check every iteration (2 seconds)
+  - Processing service: Check at start of each run
+  - Avoids need for IPC or file watching in Python
+  - **Example:**
+    ```python
+    class RecordingService:
+        def __init__(self):
+            self.config = load_config()
+            self.config_mtime = os.path.getmtime(get_config_path())
+
+        def run(self):
+            while True:
+                # Check if config changed
+                current_mtime = os.path.getmtime(get_config_path())
+                if current_mtime > self.config_mtime:
+                    self.config = load_config()
+                    self.config_mtime = current_mtime
+                    print("Config reloaded")
+
+                # Do recording work
+                self.capture_frame()
+                time.sleep(2)
+    ```
+
+### Configuration Migration
+- [ ] Implement version checking
+  - Source: `Playback/Config/ConfigMigration.swift`
+  - Read version field from loaded config
+  - Compare against current app version
+  - Apply migrations if needed
+
+- [ ] Create migration framework
+  - Function: `migrateConfig(from:to:config:)`
+  - Switch statement for version pairs
+  - Log migration events
+  - Update version field after migration
+  - **Example:** See "Migration Strategy Between Versions" section above
+
+- [ ] Handle backward compatibility
+  - Old configs should work with new app versions
+  - Missing fields filled with defaults (Codable handles this)
+  - Extra fields ignored (future-proofing)
+
+- [ ] Test migration paths
+  - Unit test for each version upgrade path
+  - Verify all fields migrated correctly
+  - Verify version field updated
+
+### Environment Variables
+- [ ] Implement PLAYBACK_CONFIG override
+  - Read from environment in ConfigManager
+  - Override default config file path
+  - Used by LaunchAgents to specify config location
+  - **Example:** See "Environment Variable Handling" section above
+
+- [ ] Implement PLAYBACK_DATA_DIR override
+  - Read from environment in ConfigManager
+  - Override data directory path
+  - Pass to recording and processing services
+
+- [ ] Add environment variables to LaunchAgent plists
+  - Source: `Playback/Services/LaunchAgentManager.swift`
+  - Set in <EnvironmentVariables> section
+  - Expand $HOME to actual home directory
+  - **Example:** See "Usage in LaunchAgent" section above
+
+### Backup System
+- [ ] Implement automatic backup rotation
+  - Function: `rotateBackups()`
+  - Called before each saveConfig()
+  - Keep last 5 backups with numbered suffixes
+  - **Example:** See saveConfig() section above
+
+- [ ] Implement manual export
+  - Source: `Playback/Settings/AdvancedSettingsView.swift`
+  - "Export Settings" button in Advanced tab
+  - Save dialog with suggested filename including timestamp
+  - Copy current config.json to user-chosen location
+  - **Example:**
+    ```swift
+    func exportSettings() {
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = "playback-config-\(timestamp).json"
+        panel.allowedContentTypes = [.json]
+
+        panel.begin { response in
+            if response == .OK, let url = panel.url {
+                let configPath = getConfigPath()
+                try? FileManager.default.copyItem(
+                    atPath: configPath,
+                    toPath: url.path
+                )
+            }
+        }
+    }
+    ```
+
+- [ ] Implement manual import
+  - Source: `Playback/Settings/AdvancedSettingsView.swift`
+  - "Import Settings" button in Advanced tab
+  - File picker for config.json file
+  - Validate imported config
+  - Show confirmation dialog with diff of changes
+  - Merge with current config (don't overwrite all fields)
+  - **Example:**
+    ```swift
+    func importSettings() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.json]
+
+        panel.begin { response in
+            if response == .OK, let url = panel.url {
+                do {
+                    let data = try Data(contentsOf: url)
+                    let imported = try JSONDecoder().decode(Config.self, from: data)
+                    let validated = validateConfig(imported)
+
+                    // Show diff and confirm
+                    if showImportConfirmation(current: config, imported: validated) {
+                        try saveConfig(validated)
+                        reloadConfig()
+                    }
+                } catch {
+                    showError("Failed to import settings: \(error)")
+                }
+            }
+        }
+    }
+    ```
+
+- [ ] Add restore from backup feature
+  - Source: `Playback/Settings/AdvancedSettingsView.swift`
+  - List available backups with timestamps
+  - Preview backup contents
+  - Restore button copies backup to config.json
+  - Reload config after restore
+
+### File Permissions and Security
+- [ ] Set config file permissions
+  - Set to 0644 on creation (user read/write, others read)
+  - Verify permissions after saving
+  - Log warning if permissions incorrect
+
+- [ ] Set config directory permissions
+  - Set to 0755 on creation (standard Application Support)
+  - Ensure parent directories created with correct permissions
+
+- [ ] Sanitize sensitive data
+  - No passwords or tokens in config (verify this)
+  - Excluded apps list is privacy-sensitive but not encrypted
+  - Log sanitized config (redact sensitive fields if any added)
+
+### Configuration Access API
+- [ ] Create ConfigManager singleton
+  - Source: `Playback/Config/ConfigManager.swift`
+  - Shared instance: `ConfigManager.shared`
+  - Thread-safe access to config
+  - Observable for SwiftUI views
+  - **Example:**
+    ```swift
+    class ConfigManager: ObservableObject {
+        static let shared = ConfigManager()
+
+        @Published var config: Config
+        private let queue = DispatchQueue(label: "com.playback.config")
+
+        private init() {
+            self.config = loadConfig()
+        }
+
+        func update(_ newConfig: Config) {
+            queue.async {
+                do {
+                    try self.saveConfig(newConfig)
+                    DispatchQueue.main.async {
+                        self.config = newConfig
+                    }
+                } catch {
+                    print("Failed to save config: \(error)")
+                }
+            }
+        }
+    }
+    ```
+
+- [ ] Implement config field accessors
+  - Methods: `get(key:)`, `set(key:value:)`
+  - Type-safe accessors for each field
+  - Validation on set operations
+  - Auto-save after set operations
+
+- [ ] Add SwiftUI integration
+  - Conform to ObservableObject
+  - @Published properties for reactive updates
+  - Use with @EnvironmentObject in views
+  - **Example:**
+    ```swift
+    struct SettingsView: View {
+        @EnvironmentObject var configManager: ConfigManager
+
+        var body: some View {
+            Form {
+                Picker("Processing Interval", selection: $configManager.config.processingIntervalMinutes) {
+                    ForEach([1, 5, 10, 15, 30, 60], id: \.self) { interval in
+                        Text("\(interval) minutes").tag(interval)
+                    }
+                }
+            }
+        }
+    }
+    ```
+
+## Testing Checklist
+
+### Unit Tests - Configuration Loading
+- [ ] Test loading with missing config file
+  - Should create file with defaults
+  - Should return default configuration
+  - File should have correct permissions (0644)
+
+- [ ] Test loading with malformed JSON
+  - Should backup corrupt file
+  - Should return default configuration
+  - Backup filename should include timestamp
+  - Should log error message
+
+- [ ] Test loading with partial configuration
+  - Missing fields should use defaults
+  - Present fields should be preserved
+  - Merged config should validate correctly
+
+- [ ] Test loading with extra fields
+  - Should ignore unknown fields (forward compatibility)
+  - Should preserve known fields
+  - Should not error
+
+### Unit Tests - Configuration Validation
+- [ ] Test processing_interval_minutes validation
+  - Valid values [1, 5, 10, 15, 30, 60] should pass
+  - Invalid values should clamp to 5
+  - Test boundary values (0, 61, negative)
+
+- [ ] Test retention policy validation
+  - Valid policies ["never", "1_day", "1_week", "1_month"] should pass
+  - Invalid policies should reset to defaults
+  - Test empty string, null, numeric values
+
+- [ ] Test exclusion_mode validation
+  - Valid modes ["invisible", "skip"] should pass
+  - Invalid modes should reset to "skip"
+
+- [ ] Test excluded_apps validation
+  - Valid bundle IDs should pass
+  - Invalid formats should be filtered out
+  - Whitespace should be stripped
+  - Empty array should be valid
+
+- [ ] Test ffmpeg_crf validation
+  - Range [0, 51] should pass
+  - Out-of-range values should clamp to 28
+  - Non-integer values should error/default
+
+- [ ] Test video_fps validation
+  - Positive integers should pass
+  - Zero and negative should reset to 30
+
+- [ ] Test timeline_shortcut validation
+  - Valid keyboard shortcuts should pass
+  - Invalid formats should reset to default
+  - Test various modifier combinations
+
+### Unit Tests - Configuration Saving
+- [ ] Test atomic save operation
+  - Should write to temp file first
+  - Should rename temp file to target
+  - Should not corrupt config if interrupted
+  - Should create parent directory if needed
+
+- [ ] Test JSON formatting
+  - Output should be pretty-printed
+  - Keys should be sorted
+  - Should be valid JSON
+
+- [ ] Test backup rotation
+  - Should keep last 5 backups
+  - Should rotate existing backups correctly
+  - Should not fail if no backups exist
+  - Oldest backup (5) should be deleted
+
+### Unit Tests - Configuration Migration
+- [ ] Test version detection
+  - Should correctly read version field
+  - Should handle missing version field
+  - Should handle invalid version format
+
+- [ ] Test migration execution
+  - Should apply correct migration for version pair
+  - Should update version field after migration
+  - Should preserve unmigrated fields
+  - Should log migration events
+
+- [ ] Test no-op migration
+  - Current version config should not migrate
+  - Should return config unchanged
+  - Should not update version field
+
+### Unit Tests - Environment Variables
+- [ ] Test PLAYBACK_CONFIG override
+  - Should use custom config path when set
+  - Should use default when not set
+  - Should handle non-existent path
+
+- [ ] Test PLAYBACK_DATA_DIR override
+  - Should use custom data directory when set
+  - Should use default when not set
+  - Should expand ~ to home directory
+
+- [ ] Test development mode
+  - Should use dev paths when PLAYBACK_DEV_MODE=1
+  - Should use production paths when not set
+  - Should log which mode is active
+
+### Integration Tests - File Watching
+- [ ] Test hot-reload in menu bar app
+  - Modify config file externally
+  - Verify app reloads config within 1 second
+  - Verify UI updates to reflect new values
+
+- [ ] Test hot-reload in recording service
+  - Modify config file during recording
+  - Verify service picks up changes within 2 seconds
+  - Verify recording behavior changes accordingly
+
+- [ ] Test hot-reload in processing service
+  - Modify config file during processing
+  - Verify service picks up changes on next run
+  - Verify processing parameters change
+
+### Integration Tests - Service Communication
+- [ ] Test LaunchAgent environment variables
+  - Verify PLAYBACK_CONFIG passed to services
+  - Verify PLAYBACK_DATA_DIR passed to services
+  - Verify services can read config file
+
+- [ ] Test configuration propagation
+  - Change setting in Settings window
+  - Verify config.json updated
+  - Verify all services see new value
+  - Verify LaunchAgent reloaded if needed
+
+### Integration Tests - Backup and Restore
+- [ ] Test automatic backup creation
+  - Change configuration multiple times
+  - Verify backups created and rotated
+  - Verify backup contents match previous config
+
+- [ ] Test manual export
+  - Export configuration from Settings
+  - Verify file saved to chosen location
+  - Verify exported file is valid JSON
+  - Verify can re-import exported file
+
+- [ ] Test manual import
+  - Import configuration from file
+  - Verify validation runs on import
+  - Verify confirmation dialog shows changes
+  - Verify settings updated after import
+  - Verify invalid imports are rejected
+
+### Integration Tests - Concurrent Access
+- [ ] Test concurrent reads
+  - Multiple services reading config simultaneously
+  - Should not error or corrupt data
+
+- [ ] Test concurrent writes
+  - Settings window and service writing simultaneously
+  - Should use atomic writes to prevent corruption
+  - Last write should win
+
+- [ ] Test read during write
+  - Read config while save in progress
+  - Should read either old or new config (not partial)
+  - Should not error
+
+### Error Handling Tests
+- [ ] Test disk full during save
+  - Should fail gracefully
+  - Should not corrupt existing config
+  - Should log error
+  - Should show notification (optional)
+
+- [ ] Test permission denied
+  - Cannot read config file
+  - Should fall back to defaults
+  - Should log error
+  - Cannot write config file
+  - Should keep settings in memory
+  - Should show notification
+
+- [ ] Test config directory missing
+  - Should create directory on save
+  - Should create parent directories
+  - Should set correct permissions
+
+### Performance Tests
+- [ ] Test config load time
+  - Should load in < 10ms
+  - Test with large excluded_apps list (100+ entries)
+
+- [ ] Test config save time
+  - Should save in < 50ms
+  - Should not block UI thread
+
+- [ ] Test file watching overhead
+  - Monitor CPU usage with file watcher active
+  - Should be < 0.1% CPU when idle
+  - Should respond within 1 second of file change
+
+### Security Tests
+- [ ] Verify file permissions
+  - Config file should be 0644 after creation
+  - Config file should be 0644 after save
+  - Config directory should be 0755
+
+- [ ] Verify no sensitive data in logs
+  - Log output should not contain passwords/tokens
+  - Excluded apps list should be redacted or anonymized in logs (optional)
+
+- [ ] Verify config file location
+  - Production config should be in Application Support
+  - Dev config should be in project directory
+  - Should not be in publicly accessible location

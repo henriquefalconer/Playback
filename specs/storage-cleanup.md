@@ -1,207 +1,491 @@
-# Storage and Cleanup Specification
+# Storage & Cleanup Implementation Plan
 
 **Component:** Storage Management and Cleanup
-**Version:** 1.0
 **Last Updated:** 2026-02-07
 
-## Overview
+## Implementation Checklist
 
-Playback manages two types of storage: temporary screenshots (raw data) and processed video recordings (final output). Both have configurable retention policies to prevent unlimited disk usage growth.
+### Directory Structure Setup
+- [ ] Create base directory structure
+  - Location: `~/Library/Application Support/Playback/data/`
+  - Subdirectories: `temp/`, `chunks/`, `meta.sqlite3`
+  - Reference: See original spec "Directory Structure"
 
-## Directory Structure
+- [ ] Implement date-based folder hierarchy
+  - Structure: `temp/YYYYMM/DD/` and `chunks/YYYYMM/DD/`
+  - Source: `scripts/build_chunks_from_temp.py` (lines 121-122, 467-468)
+  - Ensures organized storage and efficient cleanup by date ranges
 
-### Base Directory
+- [ ] Set up development directory structure
+  - Location: `<project>/dev_data/`
+  - Mirror production structure: `temp/`, `chunks/`, `meta.sqlite3`
+  - Reference: architecture.md "File System Organization"
 
-**Location:** `~/Library/Application Support/Playback/data/`
+### File Naming Conventions
+- [ ] Implement temp file naming
+  - Format: `YYYYMMDD-HHMMSS-<uuid>-<app_id>` (no extension)
+  - Example: `20251222-143052-a3f8b29c-com.apple.Safari`
+  - Source: See original spec "File Naming Conventions"
 
-**Structure:**
+- [ ] Implement video file naming
+  - Format: `<segment_id>.mp4`
+  - Example: `a3f8b29c.mp4`
+  - Segment ID: 20-character hex string from `os.urandom(10).hex()`
+  - Source: `scripts/build_chunks_from_temp.py` (lines 249-254)
+
+- [ ] Parse timestamp from filename
+  - Source: `scripts/build_chunks_from_temp.py` (lines 79-91)
+  - Pattern: `YYYYMMDD-HHMMSS` prefix extraction
+  - Used for: Age calculation in retention policies
+
+- [ ] Parse app_id from filename
+  - Source: `scripts/build_chunks_from_temp.py` (lines 93-113)
+  - Pattern: Extract app bundle ID after UUID
+  - Used for: App-specific filtering and analytics
+
+### Storage Usage Calculation
+- [ ] Implement temp directory size calculation
+  - Function: `calculate_temp_usage() -> int`
+  - Recursively walk `temp/` directory
+  - Sum file sizes, skip hidden files (starting with `.`)
+  - Return: Total bytes
+  - Reference: See original spec "Storage Usage Calculation"
+
+- [ ] Implement chunks directory size calculation
+  - Function: `calculate_chunks_usage() -> int`
+  - Recursively walk `chunks/` directory
+  - Filter for `.mp4` files only
+  - Return: Total bytes
+
+- [ ] Implement database size calculation
+  - Function: `os.path.getsize(META_DB_PATH)`
+  - Single file size check
+  - Return: Total bytes
+
+- [ ] Implement total usage aggregation
+  - Function: `calculate_total_usage() -> dict`
+  - Returns: `{"temp_bytes": int, "chunks_bytes": int, "database_bytes": int, "total_bytes": int}`
+  - Used by: Settings UI and cleanup preview
+
+### Retention Policies - Temp Files
+- [ ] Define temp retention policy options
+  - `"never"` - Keep all temp files indefinitely
+  - `"1_day"` - Delete after 24 hours
+  - `"1_week"` - Delete after 7 days (default)
+  - `"1_month"` - Delete after 30 days
+
+- [ ] Implement temp file cleanup function
+  - Function: `cleanup_temp_files(policy: str)`
+  - Source: See original spec "Retention Policies" (lines 128-162)
+  - Trigger: After successful video generation in processing service
+  - Safety: Only delete files successfully processed (segment exists in database)
+  - Verification: Check `is_processed(file)` before deletion
+
+- [ ] Add temp cleanup logging
+  - Log: Policy applied, files deleted, MB freed
+  - Level: INFO
+  - Format: Structured metadata JSON
+
+- [ ] Integrate temp cleanup into processing service
+  - Location: `scripts/build_chunks_from_temp.py`
+  - Call after: `process_day()` completes successfully
+  - Config: Read `temp_retention_policy` from config.json
+
+### Retention Policies - Recordings
+- [ ] Define recording retention policy options
+  - `"never"` - Keep all recordings indefinitely (default)
+  - `"1_day"` - Delete after 24 hours
+  - `"1_week"` - Delete after 7 days
+  - `"1_month"` - Delete after 30 days
+
+- [ ] Implement recording cleanup function
+  - Function: `cleanup_old_recordings(policy: str)`
+  - Source: See original spec "Retention Policies" (lines 186-231)
+  - Query: `SELECT id, video_path FROM segments WHERE start_ts < ?`
+  - Delete: Video files AND database entries (segments + appsegments)
+  - Uses: `start_ts` field from segments table
+
+- [ ] Add recording cleanup logging
+  - Log: Policy applied, segments deleted, MB freed
+  - Level: INFO
+  - Format: Structured metadata JSON
+
+- [ ] Integrate recording cleanup into processing service
+  - Location: `scripts/build_chunks_from_temp.py`
+  - Call after: `process_day()` completes successfully
+  - Config: Read `recording_retention_policy` from config.json
+
+### Manual Cleanup UI
+- [ ] Create Storage settings tab
+  - Location: `Playback/Settings/StorageTab.swift`
+  - Display: Current usage breakdown (temp, chunks, database, total)
+  - Display: Available disk space
+  - Reference: See original spec "Storage UI Display"
+
+- [ ] Implement storage usage display view
+  - Component: `StorageUsageView` SwiftUI view
+  - Source: See original spec "Storage UI Display" (lines 354-408)
+  - Updates: On view appear
+  - Format: ByteCountFormatter with GB/MB units
+
+- [ ] Add retention policy pickers
+  - UI: Dropdown for temp retention policy
+  - UI: Dropdown for recording retention policy
+  - Options: "never", "1_day", "1_week", "1_month"
+  - Saves to: `config.json`
+
+- [ ] Implement cleanup preview calculation
+  - Function: `calculateCleanupPreview(tempPolicy:recordingPolicy:) -> CleanupPreview`
+  - Returns: File counts and size estimates for confirmation dialog
+  - Does NOT delete files, only calculates impact
+
+- [ ] Add "Clean Up Now" button
+  - Location: Storage settings tab
+  - Function: `performManualCleanup(tempPolicy:recordingPolicy:)`
+  - Source: See original spec "Manual Cleanup" (lines 248-282)
+  - Flow: Preview → Confirmation dialog → Execute → Show results
+
+- [ ] Create confirmation dialog
+  - Type: NSAlert with warning style
+  - Content: File counts, size to be freed
+  - Buttons: "Delete" (primary), "Cancel"
+  - Source: See original spec "Manual Cleanup" (lines 253-264)
+
+- [ ] Show cleanup completion notification
+  - Type: macOS notification
+  - Title: "Cleanup Complete"
+  - Body: "Freed X MB"
+  - Trigger: After cleanup script completes successfully
+
+### Automatic Cleanup on Processing
+- [ ] Add cleanup calls to processing service
+  - Location: `scripts/build_chunks_from_temp.py` (after `process_day()`)
+  - Call: `cleanup_temp_files(config['temp_retention_policy'])`
+  - Call: `cleanup_old_recordings(config['recording_retention_policy'])`
+  - Timing: After successful video generation
+
+- [ ] Add error handling for cleanup failures
+  - Pattern: Log error, continue (don't block processing)
+  - Level: ERROR
+  - Impact: Processing continues even if cleanup fails
+
+- [ ] Add configuration loading
+  - Source: Load from `config.json`
+  - Fields: `temp_retention_policy`, `recording_retention_policy`
+  - Defaults: `"1_week"`, `"never"`
+
+### Disk Space Monitoring
+- [ ] Implement disk space availability check
+  - Function: `get_disk_space_available() -> int`
+  - Source: See original spec "Disk Space Monitoring" (lines 290-295)
+  - Library: `shutil.disk_usage()`
+  - Returns: Free bytes available
+
+- [ ] Define disk space threshold
+  - Threshold: 1 GB minimum
+  - Constant: `MIN_DISK_SPACE_GB = 1.0`
+  - Reference: See original spec "Disk Space Monitoring" (line 297)
+
+- [ ] Add disk space check to recording service
+  - Location: `scripts/record_screen.py`
+  - Frequency: Every 100 captures (~200 seconds at 2s interval)
+  - Action on failure: Disable recording, show notification, exit
+  - Source: See original spec "Disk Full Handling" (lines 305-311)
+
+- [ ] Add disk space check to processing service
+  - Location: `scripts/build_chunks_from_temp.py`
+  - Frequency: Before starting each day
+  - Action on failure: Log error, show notification, skip work, exit with error
+  - Source: See original spec "Disk Full Handling" (lines 313-318)
+
+- [ ] Implement disk space check function
+  - Function: `check_disk_space() -> bool`
+  - Source: See original spec "Disk Full Handling" (lines 321-334)
+  - Logs: Critical error with available GB
+  - Notification: "Playback: Disk Full" with space available
+
+- [ ] Add disk full notification
+  - Title: "Playback stopped: Disk full" (recording) or "Processing failed: Disk full" (processing)
+  - Body: "Only X GB available. Recording stopped."
+  - Type: macOS system notification
+  - Action: User must free space manually
+
+- [ ] Update config on disk full
+  - Recording service: Set `recording_enabled: false` in config
+  - Location: `~/Library/Application Support/Playback/config.json`
+  - Prevents: Auto-restart by LaunchAgent
+
+### Database Cleanup
+- [ ] Implement orphaned segment cleanup
+  - Function: `cleanup_orphaned_segments()`
+  - Source: See original spec "Database Cleanup" (lines 427-449)
+  - Detects: Segment entries where video file is missing
+  - Deletes: Database entries (segments + appsegments)
+
+- [ ] Add orphaned segment cleanup to processing
+  - Location: `scripts/build_chunks_from_temp.py`
+  - Trigger: Weekly or on-demand
+  - Timing: After retention policy cleanup
+
+- [ ] Implement database vacuum
+  - Function: `vacuum_database()`
+  - Source: See original spec "Database Cleanup" (lines 459-464)
+  - SQL: `VACUUM`
+  - Purpose: Reclaim space from deleted rows
+
+- [ ] Add vacuum to processing schedule
+  - Trigger: Monthly or on-demand
+  - Timing: After all cleanup operations complete
+  - Logging: "Database vacuumed"
+
+## Storage Management Details
+
+### Directory Structure
+
+The storage system uses a date-based hierarchy for organizing captured data:
+
 ```
-data/
-├── temp/                   # Temporary screenshots (raw PNG files)
-│   ├── YYYYMM/             # Year-month folder (e.g., 202512)
-│   │   ├── DD/             # Day folder (e.g., 22)
-│   │   │   ├── YYYYMMDD-HHMMSS-<uuid>-<app>  # Screenshot files (no extension)
-│   │   │   └── ...
-│   │   └── ...
-│   └── ...
-├── chunks/                 # Processed video segments
-│   ├── YYYYMM/             # Year-month folder
-│   │   ├── DD/             # Day folder
-│   │   │   ├── <segment_id>.mp4  # Video segment files
-│   │   │   └── ...
-│   │   └── ...
-│   └── ...
-└── meta.sqlite3            # Metadata database
+~/Library/Application Support/Playback/data/
+├── temp/
+│   └── YYYYMM/
+│       └── DD/
+│           └── YYYYMMDD-HHMMSS-<uuid>-<app_id>
+├── chunks/
+│   └── YYYYMM/
+│       └── DD/
+│           └── <segment_id>.mp4
+└── meta.sqlite3
 ```
+
+**Temp Directory (`temp/YYYYMM/DD/`):**
+- Stores raw captured frames before processing
+- Date-based folders created dynamically: year-month (6 digits) / day (2 digits)
+- Example: `temp/202602/07/` for February 7, 2026
+- No file extensions on temp files
+- Cleaned up after successful processing based on retention policy
+
+**Chunks Directory (`chunks/YYYYMM/DD/`):**
+- Stores processed video segments
+- Mirrors temp directory date hierarchy
+- Contains `.mp4` files with segment ID names
+- Cleaned up based on recording retention policy
+
+**Database (`meta.sqlite3`):**
+- SQLite database storing segment metadata
+- Tables: `segments`, `appsegments`
+- Tracks video file paths, timestamps, app associations
+- Size grows with recording history
+
+**Development Environment:**
+- Location: `<project>/dev_data/`
+- Mirrors production structure for testing
+- Allows safe development without affecting user data
 
 ### File Naming Conventions
 
 **Temp Files:**
 - Format: `YYYYMMDD-HHMMSS-<uuid>-<app_id>`
-- Example: `20251222-143052-a3f8b29c-com.apple.Safari`
-- No extension (raw PNG data)
+- No file extension
+- Components:
+  - `YYYYMMDD`: Date (e.g., `20260207`)
+  - `HHMMSS`: Time (e.g., `143052`)
+  - `<uuid>`: Random UUID for uniqueness
+  - `<app_id>`: Application bundle identifier (e.g., `com.apple.Safari`)
+- Example: `20260207-143052-a3f8b29c-com.apple.Safari`
+
+**Parsing Timestamp from Temp File:**
+```python
+def parse_timestamp_from_name(filename: str) -> datetime:
+    """Extract timestamp from temp filename."""
+    # Pattern: YYYYMMDD-HHMMSS at start of filename
+    timestamp_str = filename[:15]  # "YYYYMMDD-HHMMSS"
+    return datetime.strptime(timestamp_str, "%Y%m%d-%H%M%S")
+```
+
+**Parsing App ID from Temp File:**
+```python
+def parse_app_from_name(filename: str) -> str:
+    """Extract app bundle ID from temp filename."""
+    # Pattern: after UUID, following last hyphen
+    parts = filename.split('-')
+    if len(parts) >= 4:
+        return parts[-1]  # App ID is last component
+    return "unknown"
+```
 
 **Video Files:**
 - Format: `<segment_id>.mp4`
-- Example: `a3f8b29c.mp4`
-- Segment ID: 20-character hex string
+- Segment ID: 20-character hexadecimal string
+- Generation: `os.urandom(10).hex()` (10 bytes → 20 hex chars)
+- Example: `a3f8b29c4d5e6f7890ab.mp4`
+- Stored in date-based chunks directory
 
-## Storage Usage Calculation
+### Storage Calculation Algorithms
 
-### Temporary Screenshots
-
-**Typical Size:** 200KB - 2MB per screenshot
-
-**Daily Usage:**
-- Screenshots per day: 43,200 (24 hours × 3600 seconds / 2 second interval)
-- Storage per day: ~20GB - 50GB (depends on resolution and content)
-
-**Calculation Function:**
+**Temp Directory Size:**
 ```python
 def calculate_temp_usage() -> int:
-    """Returns total size in bytes."""
-    total_size = 0
-    for root, dirs, files in os.walk(TEMP_ROOT):
+    """Calculate total size of temp directory in bytes."""
+    total_bytes = 0
+    temp_dir = os.path.join(DATA_DIR, "temp")
+
+    for root, dirs, files in os.walk(temp_dir):
         for file in files:
-            if not file.startswith('.'):
-                total_size += os.path.getsize(os.path.join(root, file))
-    return total_size
+            # Skip hidden files (e.g., .DS_Store)
+            if file.startswith('.'):
+                continue
+
+            file_path = os.path.join(root, file)
+            try:
+                total_bytes += os.path.getsize(file_path)
+            except (OSError, FileNotFoundError):
+                # File may have been deleted, skip
+                pass
+
+    return total_bytes
 ```
 
-### Video Recordings
-
-**Typical Size:** 1MB - 5MB per 5-second segment
-
-**Daily Usage:**
-- Segments per day: 17,280 (24 hours × 3600 seconds / 5 seconds)
-- Storage per day: ~5GB - 20GB (70-90% compression vs. raw screenshots)
-
-**Calculation Function:**
+**Chunks Directory Size:**
 ```python
 def calculate_chunks_usage() -> int:
-    """Returns total size in bytes."""
-    total_size = 0
-    for root, dirs, files in os.walk(CHUNKS_ROOT):
+    """Calculate total size of chunks directory in bytes."""
+    total_bytes = 0
+    chunks_dir = os.path.join(DATA_DIR, "chunks")
+
+    for root, dirs, files in os.walk(chunks_dir):
         for file in files:
-            if file.endswith('.mp4'):
-                total_size += os.path.getsize(os.path.join(root, file))
-    return total_size
+            # Only count .mp4 files
+            if not file.endswith('.mp4'):
+                continue
+
+            file_path = os.path.join(root, file)
+            try:
+                total_bytes += os.path.getsize(file_path)
+            except (OSError, FileNotFoundError):
+                pass
+
+    return total_bytes
 ```
 
-### Total Usage
+**Database Size:**
+```python
+def calculate_database_usage() -> int:
+    """Calculate database file size in bytes."""
+    db_path = os.path.join(DATA_DIR, "meta.sqlite3")
+    try:
+        return os.path.getsize(db_path)
+    except (OSError, FileNotFoundError):
+        return 0
+```
 
-**Function:**
+**Total Usage Aggregation:**
 ```python
 def calculate_total_usage() -> dict:
+    """Calculate all storage usage metrics."""
+    temp_bytes = calculate_temp_usage()
+    chunks_bytes = calculate_chunks_usage()
+    database_bytes = calculate_database_usage()
+
     return {
-        "temp_bytes": calculate_temp_usage(),
-        "chunks_bytes": calculate_chunks_usage(),
-        "database_bytes": os.path.getsize(META_DB_PATH),
-        "total_bytes": calculate_temp_usage() + calculate_chunks_usage() + os.path.getsize(META_DB_PATH)
+        "temp_bytes": temp_bytes,
+        "chunks_bytes": chunks_bytes,
+        "database_bytes": database_bytes,
+        "total_bytes": temp_bytes + chunks_bytes + database_bytes
     }
 ```
 
-## Retention Policies
+### Retention Policy Implementation Logic
 
-### Temp File Retention
+**Temp File Retention Policies:**
+- `"never"`: Keep all temp files indefinitely
+- `"1_day"`: Delete files older than 24 hours
+- `"1_week"`: Delete files older than 7 days (default)
+- `"1_month"`: Delete files older than 30 days
 
-**Policy Options:**
-- `"never"` - Keep all temp files indefinitely
-- `"1_day"` - Delete temp files older than 24 hours
-- `"1_week"` - Delete temp files older than 7 days (default)
-- `"1_month"` - Delete temp files older than 30 days
-
-**Configuration:**
-```json
-{
-  "temp_retention_policy": "1_week"
-}
-```
-
-**Behavior:**
-- Applied during processing run (after successful video generation)
-- Only deletes files that have been successfully processed (segment exists in database)
-- Preserves unprocessed files regardless of age
-
-**Implementation:**
+**Temp File Cleanup Function:**
 ```python
 def cleanup_temp_files(policy: str):
+    """
+    Clean up temp files based on retention policy.
+    Only deletes files that have been successfully processed.
+    """
     if policy == "never":
         return
 
-    thresholds = {
-        "1_day": 86400,
-        "1_week": 604800,
-        "1_month": 2592000
-    }
-    threshold = thresholds.get(policy, 604800)
-    cutoff_time = time.time() - threshold
+    # Calculate age threshold
+    age_days = {
+        "1_day": 1,
+        "1_week": 7,
+        "1_month": 30
+    }[policy]
+
+    cutoff_time = datetime.now() - timedelta(days=age_days)
+    temp_dir = os.path.join(DATA_DIR, "temp")
 
     deleted_count = 0
     freed_bytes = 0
 
-    for root, dirs, files in os.walk(TEMP_ROOT):
+    for root, dirs, files in os.walk(temp_dir):
         for file in files:
             if file.startswith('.'):
                 continue
 
-            path = os.path.join(root, file)
-            mtime = os.path.getmtime(path)
+            file_path = os.path.join(root, file)
 
-            if mtime < cutoff_time and is_processed(file):
-                size = os.path.getsize(path)
-                os.remove(path)
-                deleted_count += 1
-                freed_bytes += size
+            # Parse timestamp from filename
+            try:
+                file_time = parse_timestamp_from_name(file)
+            except ValueError:
+                continue  # Skip malformed filenames
 
-    log_info("Temp cleanup completed", metadata={
-        "policy": policy,
-        "files_deleted": deleted_count,
-        "freed_mb": freed_bytes / (1024 * 1024)
-    })
+            # Check if file is old enough to delete
+            if file_time < cutoff_time:
+                # Verify file has been processed
+                if is_processed(file):
+                    try:
+                        file_size = os.path.getsize(file_path)
+                        os.remove(file_path)
+                        deleted_count += 1
+                        freed_bytes += file_size
+                    except OSError as e:
+                        logging.error(f"Failed to delete {file_path}: {e}")
+
+    logging.info(f"Temp cleanup: policy={policy}, deleted={deleted_count}, freed_mb={freed_bytes / 1024 / 1024:.2f}")
 ```
 
-### Recording Retention
+**Recording Retention Policies:**
+- `"never"`: Keep all recordings indefinitely (default)
+- `"1_day"`: Delete recordings older than 24 hours
+- `"1_week"`: Delete recordings older than 7 days
+- `"1_month"`: Delete recordings older than 30 days
 
-**Policy Options:**
-- `"never"` - Keep all recordings indefinitely (default)
-- `"1_day"` - Delete recordings older than 24 hours
-- `"1_week"` - Delete recordings older than 7 days
-- `"1_month"` - Delete recordings older than 30 days
-
-**Configuration:**
-```json
-{
-  "recording_retention_policy": "never"
-}
-```
-
-**Behavior:**
-- Applied during processing run
-- Deletes video files AND database entries
-- Uses segment `start_ts` field for age calculation
-
-**Implementation:**
+**Recording Cleanup Function:**
 ```python
 def cleanup_old_recordings(policy: str):
+    """
+    Clean up old video recordings based on retention policy.
+    Deletes both video files and database entries.
+    """
     if policy == "never":
         return
 
-    thresholds = {
-        "1_day": 86400,
-        "1_week": 604800,
-        "1_month": 2592000
-    }
-    threshold = thresholds.get(policy, None)
-    if threshold is None:
-        return
+    # Calculate age threshold
+    age_days = {
+        "1_day": 1,
+        "1_week": 7,
+        "1_month": 30
+    }[policy]
 
-    cutoff_ts = time.time() - threshold
+    cutoff_timestamp = int((datetime.now() - timedelta(days=age_days)).timestamp())
 
-    # Query segments older than cutoff
     conn = sqlite3.connect(META_DB_PATH)
     cursor = conn.cursor()
-    cursor.execute("SELECT id, video_path FROM segments WHERE start_ts < ?", (cutoff_ts,))
+
+    # Find old segments
+    cursor.execute(
+        "SELECT id, video_path FROM segments WHERE start_ts < ?",
+        (cutoff_timestamp,)
+    )
     old_segments = cursor.fetchall()
 
     deleted_count = 0
@@ -209,277 +493,401 @@ def cleanup_old_recordings(policy: str):
 
     for segment_id, video_path in old_segments:
         # Delete video file
-        full_path = PLAYBACK_ROOT / video_path
-        if full_path.exists():
-            size = full_path.stat().st_size
-            full_path.unlink()
-            freed_bytes += size
+        full_path = os.path.join(DATA_DIR, "chunks", video_path)
+        try:
+            if os.path.exists(full_path):
+                file_size = os.path.getsize(full_path)
+                os.remove(full_path)
+                freed_bytes += file_size
+        except OSError as e:
+            logging.error(f"Failed to delete {full_path}: {e}")
 
         # Delete database entries
-        cursor.execute("DELETE FROM segments WHERE id = ?", (segment_id,))
-        cursor.execute("DELETE FROM appsegments WHERE id = ?", (segment_id,))
-        deleted_count += 1
+        try:
+            cursor.execute("DELETE FROM appsegments WHERE segment_id = ?", (segment_id,))
+            cursor.execute("DELETE FROM segments WHERE id = ?", (segment_id,))
+            deleted_count += 1
+        except sqlite3.Error as e:
+            logging.error(f"Failed to delete segment {segment_id}: {e}")
 
     conn.commit()
     conn.close()
 
-    log_info("Recording cleanup completed", metadata={
-        "policy": policy,
-        "segments_deleted": deleted_count,
-        "freed_mb": freed_bytes / (1024 * 1024)
-    })
+    logging.info(f"Recording cleanup: policy={policy}, deleted={deleted_count}, freed_mb={freed_bytes / 1024 / 1024:.2f}")
 ```
 
-## Manual Cleanup
-
-### Clean Up Now Button
-
-**Location:** Settings window → Storage tab
-
-**Behavior:**
-1. Calculate current usage
-2. Preview what will be deleted (file count, disk space)
-3. Show confirmation dialog
-4. Execute cleanup
-5. Show results (files deleted, space freed)
-
-**Implementation:**
-```swift
-func performManualCleanup(tempPolicy: String, recordingPolicy: String) {
-    // Preview
-    let preview = calculateCleanupPreview(tempPolicy: tempPolicy, recordingPolicy: recordingPolicy)
-
-    // Confirmation
-    let alert = NSAlert()
-    alert.messageText = "Confirm Cleanup"
-    alert.informativeText = """
-    This will delete:
-    - \(preview.tempFiles) temporary screenshots (\(preview.tempSizeMB) MB)
-    - \(preview.recordingSegments) video segments (\(preview.recordingSizeMB) MB)
-
-    Total space freed: \(preview.totalSizeMB) MB
+**Verification Function for Temp Files:**
+```python
+def is_processed(temp_filename: str) -> bool:
     """
-    alert.addButton(withTitle: "Delete")
-    alert.addButton(withTitle: "Cancel")
-    alert.alertStyle = .warning
-
-    if alert.runModal() == .alertFirstButtonReturn {
-        // Execute
-        let task = Process()
-        task.launchPath = "/usr/bin/python3"
-        task.arguments = [
-            scriptsDir + "/cleanup.py",
-            "--temp-policy", tempPolicy,
-            "--recording-policy", recordingPolicy
-        ]
-        task.launch()
-        task.waitUntilExit()
-
-        // Show results
-        showNotification(title: "Cleanup Complete", body: "Freed \(preview.totalSizeMB) MB")
-    }
-}
-```
-
-## Disk Space Monitoring
-
-### Availability Check
-
-**Function:**
-```python
-def get_disk_space_available() -> int:
-    """Returns available disk space in bytes."""
-    import shutil
-    stat = shutil.disk_usage(str(PLAYBACK_ROOT))
-    return stat.free
-```
-
-**Threshold:** 1 GB minimum
-
-**Check Frequency:**
-- Recording service: Every 100 captures (~200 seconds)
-- Processing service: Before starting each day
-
-### Disk Full Handling
-
-**Recording Service:**
-1. Detect disk space < 1 GB
-2. Log critical error
-3. Show macOS notification: "Playback stopped: Disk full"
-4. Set `recording_enabled: false` in config
-5. Exit gracefully
-
-**Processing Service:**
-1. Detect disk space < 1 GB
-2. Log critical error
-3. Show macOS notification: "Processing failed: Disk full"
-4. Skip remaining work
-5. Exit with error code
-
-**Implementation:**
-```python
-def check_disk_space() -> bool:
-    """Returns True if sufficient disk space available."""
-    available_gb = get_disk_space_available() / (1024**3)
-    if available_gb < 1.0:
-        log_critical("Insufficient disk space", metadata={
-            "available_gb": available_gb
-        })
-        show_notification(
-            "Playback: Disk Full",
-            f"Only {available_gb:.1f} GB available. Recording stopped."
-        )
+    Check if a temp file has been successfully processed.
+    Returns True if corresponding segment exists in database.
+    """
+    # Extract timestamp and app from filename
+    try:
+        file_time = parse_timestamp_from_name(temp_filename)
+        app_id = parse_app_from_name(temp_filename)
+    except ValueError:
         return False
-    return True
-```
 
-## Storage UI Display
-
-### Settings Window
-
-**Storage Tab Content:**
-```
-Current Usage
-  Screenshots (temp):    2.3 GB
-  Videos (chunks):      45.7 GB
-  Database:              12 MB
-  ────────────────────────────
-  Total:                48.0 GB
-
-Available Disk Space:  123.4 GB
-```
-
-**Implementation:**
-```swift
-struct StorageUsageView: View {
-    @State private var usage: StorageUsage?
-
-    var body: some View {
-        VStack(alignment: .leading) {
-            Text("Current Usage")
-                .font(.headline)
-
-            if let usage = usage {
-                HStack {
-                    Text("Screenshots (temp):")
-                    Spacer()
-                    Text(formatBytes(usage.tempBytes))
-                }
-                HStack {
-                    Text("Videos (chunks):")
-                    Spacer()
-                    Text(formatBytes(usage.chunksBytes))
-                }
-                HStack {
-                    Text("Database:")
-                    Spacer()
-                    Text(formatBytes(usage.databaseBytes))
-                }
-                Divider()
-                HStack {
-                    Text("Total:")
-                        .font(.headline)
-                    Spacer()
-                    Text(formatBytes(usage.totalBytes))
-                        .font(.headline)
-                }
-
-                Spacer().frame(height: 20)
-
-                HStack {
-                    Text("Available Disk Space:")
-                    Spacer()
-                    Text(formatBytes(usage.availableBytes))
-                }
-            }
-        }
-        .onAppear {
-            calculateUsage()
-        }
-    }
-
-    func formatBytes(_ bytes: Int) -> String {
-        let formatter = ByteCountFormatter()
-        formatter.allowedUnits = [.useGB, .useMB]
-        formatter.countStyle = .file
-        return formatter.string(fromByteCount: Int64(bytes))
-    }
-}
-```
-
-## Database Cleanup
-
-### Orphaned Entries
-
-**Scenario:** Segment entry exists in database but video file is missing
-
-**Detection:**
-```sql
-SELECT s.id, s.video_path
-FROM segments s
-WHERE NOT EXISTS (
-    SELECT 1 FROM chunks WHERE path = s.video_path
-)
-```
-
-**Cleanup:**
-```python
-def cleanup_orphaned_segments():
+    # Query database for segment in time range
     conn = sqlite3.connect(META_DB_PATH)
     cursor = conn.cursor()
 
-    cursor.execute("""
-        SELECT id, video_path FROM segments
-    """)
+    start_ts = int(file_time.timestamp())
+    end_ts = start_ts + 300  # 5 minute window
 
-    orphaned = []
-    for segment_id, video_path in cursor.fetchall():
-        full_path = PLAYBACK_ROOT / video_path
-        if not full_path.exists():
-            orphaned.append(segment_id)
+    cursor.execute(
+        """
+        SELECT COUNT(*) FROM segments s
+        JOIN appsegments a ON s.id = a.segment_id
+        WHERE s.start_ts BETWEEN ? AND ?
+        AND a.app_id = ?
+        """,
+        (start_ts, end_ts, app_id)
+    )
 
-    for segment_id in orphaned:
-        cursor.execute("DELETE FROM segments WHERE id = ?", (segment_id,))
-        cursor.execute("DELETE FROM appsegments WHERE id = ?", (segment_id,))
+    count = cursor.fetchone()[0]
+    conn.close()
+
+    return count > 0
+```
+
+### Disk Space Monitoring Thresholds
+
+**Disk Space Check Function:**
+```python
+def get_disk_space_available() -> int:
+    """Get available disk space in bytes."""
+    import shutil
+    usage = shutil.disk_usage(DATA_DIR)
+    return usage.free
+```
+
+**Disk Space Threshold:**
+- Minimum required: 1 GB (1,073,741,824 bytes)
+- Constant: `MIN_DISK_SPACE_GB = 1.0`
+- Check frequency:
+  - Recording service: Every 100 captures (~200 seconds)
+  - Processing service: Before starting each day's work
+
+**Disk Space Check Implementation:**
+```python
+MIN_DISK_SPACE_GB = 1.0
+MIN_DISK_SPACE_BYTES = int(MIN_DISK_SPACE_GB * 1024 * 1024 * 1024)
+
+def check_disk_space() -> bool:
+    """
+    Check if sufficient disk space is available.
+    Returns True if enough space, False if below threshold.
+    """
+    available = get_disk_space_available()
+
+    if available < MIN_DISK_SPACE_BYTES:
+        available_gb = available / (1024 ** 3)
+        logging.critical(
+            f"Insufficient disk space: {available_gb:.2f} GB available, "
+            f"{MIN_DISK_SPACE_GB} GB required"
+        )
+
+        # Show notification to user
+        show_notification(
+            title="Playback: Disk Full",
+            body=f"Only {available_gb:.2f} GB available. Please free up space."
+        )
+
+        return False
+
+    return True
+```
+
+**Recording Service Disk Check:**
+```python
+# In record_screen.py
+capture_count = 0
+
+while recording_enabled:
+    # Capture frame...
+
+    capture_count += 1
+
+    # Check disk space every 100 captures
+    if capture_count % 100 == 0:
+        if not check_disk_space():
+            # Disable recording and exit
+            update_config(recording_enabled=False)
+            logging.critical("Recording stopped due to insufficient disk space")
+            sys.exit(1)
+```
+
+**Processing Service Disk Check:**
+```python
+# In build_chunks_from_temp.py
+def process_day(date_str):
+    # Check disk space before processing
+    if not check_disk_space():
+        logging.error(f"Skipping {date_str}: insufficient disk space")
+        show_notification(
+            title="Processing failed: Disk full",
+            body="Free up space to resume processing."
+        )
+        sys.exit(1)
+
+    # Continue with processing...
+```
+
+### Cleanup Execution Workflow
+
+**Automatic Cleanup (Integrated into Processing):**
+1. Processing service completes `process_day()` successfully
+2. Load retention policies from config.json:
+   - `temp_retention_policy` (default: "1_week")
+   - `recording_retention_policy` (default: "never")
+3. Execute temp file cleanup: `cleanup_temp_files(temp_policy)`
+   - Walks temp directory recursively
+   - Identifies files older than threshold
+   - Verifies files have been processed
+   - Deletes files and logs results
+4. Execute recording cleanup: `cleanup_old_recordings(recording_policy)`
+   - Queries database for old segments
+   - Deletes video files from chunks directory
+   - Removes database entries (segments + appsegments)
+   - Logs results
+5. On error: Log but continue (don't block processing)
+
+**Manual Cleanup (User-Initiated):**
+1. User opens Settings → Storage tab
+2. View displays current usage:
+   - Temp directory size
+   - Chunks directory size
+   - Database size
+   - Total usage
+   - Available disk space
+3. User selects retention policies from dropdowns
+4. User clicks "Clean Up Now" button
+5. System calculates cleanup preview:
+   - Count of temp files to delete
+   - Count of recordings to delete
+   - Estimated space to be freed
+6. Confirmation dialog appears with preview information
+7. User confirms or cancels
+8. If confirmed, cleanup executes:
+   - Run `cleanup_temp_files(temp_policy)`
+   - Run `cleanup_old_recordings(recording_policy)`
+   - Calculate actual space freed
+9. Success notification displays freed space
+10. Storage view refreshes to show updated usage
+
+**Manual Cleanup Preview Function:**
+```python
+def calculate_cleanup_preview(temp_policy: str, recording_policy: str) -> dict:
+    """
+    Calculate cleanup impact without actually deleting files.
+    Returns file counts and size estimates.
+    """
+    preview = {
+        "temp_files": 0,
+        "temp_bytes": 0,
+        "recordings": 0,
+        "recordings_bytes": 0
+    }
+
+    # Calculate temp file cleanup
+    if temp_policy != "never":
+        age_days = {"1_day": 1, "1_week": 7, "1_month": 30}[temp_policy]
+        cutoff_time = datetime.now() - timedelta(days=age_days)
+
+        temp_dir = os.path.join(DATA_DIR, "temp")
+        for root, dirs, files in os.walk(temp_dir):
+            for file in files:
+                if file.startswith('.'):
+                    continue
+                try:
+                    file_time = parse_timestamp_from_name(file)
+                    if file_time < cutoff_time and is_processed(file):
+                        file_path = os.path.join(root, file)
+                        preview["temp_files"] += 1
+                        preview["temp_bytes"] += os.path.getsize(file_path)
+                except (ValueError, OSError):
+                    pass
+
+    # Calculate recording cleanup
+    if recording_policy != "never":
+        age_days = {"1_day": 1, "1_week": 7, "1_month": 30}[recording_policy]
+        cutoff_timestamp = int((datetime.now() - timedelta(days=age_days)).timestamp())
+
+        conn = sqlite3.connect(META_DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT video_path FROM segments WHERE start_ts < ?",
+            (cutoff_timestamp,)
+        )
+
+        for (video_path,) in cursor.fetchall():
+            full_path = os.path.join(DATA_DIR, "chunks", video_path)
+            if os.path.exists(full_path):
+                preview["recordings"] += 1
+                preview["recordings_bytes"] += os.path.getsize(full_path)
+
+        conn.close()
+
+    return preview
+```
+
+**Database Cleanup (Orphaned Segments):**
+```python
+def cleanup_orphaned_segments():
+    """
+    Remove database entries for segments with missing video files.
+    Runs weekly or on-demand.
+    """
+    conn = sqlite3.connect(META_DB_PATH)
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT id, video_path FROM segments")
+    segments = cursor.fetchall()
+
+    orphaned_count = 0
+
+    for segment_id, video_path in segments:
+        full_path = os.path.join(DATA_DIR, "chunks", video_path)
+        if not os.path.exists(full_path):
+            # Video file is missing, delete database entries
+            try:
+                cursor.execute("DELETE FROM appsegments WHERE segment_id = ?", (segment_id,))
+                cursor.execute("DELETE FROM segments WHERE id = ?", (segment_id,))
+                orphaned_count += 1
+            except sqlite3.Error as e:
+                logging.error(f"Failed to delete orphaned segment {segment_id}: {e}")
 
     conn.commit()
     conn.close()
 
-    log_info("Orphaned segments cleaned", metadata={"count": len(orphaned)})
+    logging.info(f"Cleaned up {orphaned_count} orphaned segments")
 ```
 
-### Database Vacuum
-
-**Purpose:** Reclaim space from deleted rows
-
-**Trigger:** Monthly or on-demand
-
-**Implementation:**
+**Database Vacuum (Space Reclamation):**
 ```python
 def vacuum_database():
+    """
+    Reclaim space from deleted rows in database.
+    Runs monthly or on-demand.
+    """
     conn = sqlite3.connect(META_DB_PATH)
+
+    # Get size before vacuum
+    size_before = os.path.getsize(META_DB_PATH)
+
+    # Execute vacuum
     conn.execute("VACUUM")
     conn.close()
-    log_info("Database vacuumed")
+
+    # Get size after vacuum
+    size_after = os.path.getsize(META_DB_PATH)
+    freed_mb = (size_before - size_after) / (1024 * 1024)
+
+    logging.info(f"Database vacuumed: freed {freed_mb:.2f} MB")
 ```
 
-## Testing
+**Configuration Storage:**
+```json
+{
+  "recording_enabled": true,
+  "temp_retention_policy": "1_week",
+  "recording_retention_policy": "never"
+}
+```
+
+Location: `~/Library/Application Support/Playback/config.json`
+
+## Testing Checklist
 
 ### Unit Tests
+- [ ] Test storage calculation accuracy
+  - Verify: `calculate_temp_usage()` returns correct byte count
+  - Verify: `calculate_chunks_usage()` returns correct byte count
+  - Verify: `calculate_total_usage()` aggregates correctly
+  - Test with: Empty directories, single file, multiple files
 
-- Storage calculation accuracy
-- Retention policy application (correct files deleted)
-- Disk space threshold detection
+- [ ] Test retention policy logic
+  - Verify: Correct files selected for deletion based on age
+  - Verify: Processed files only deleted (temp cleanup)
+  - Verify: Database entries correctly identified (recording cleanup)
+  - Test with: Each policy option ("never", "1_day", "1_week", "1_month")
+
+- [ ] Test disk space threshold detection
+  - Verify: `check_disk_space()` returns true when space available
+  - Verify: Returns false when below 1 GB
+  - Mock: `shutil.disk_usage()` for test scenarios
+
+- [ ] Test file parsing functions
+  - Verify: `parse_timestamp_from_name()` extracts correct timestamps
+  - Verify: `parse_app_from_name()` extracts correct app IDs
+  - Test with: Valid filenames, malformed filenames, edge cases
 
 ### Integration Tests
+- [ ] Test cleanup with active recording
+  - Scenario: Recording service running during cleanup
+  - Verify: No conflicts, files not locked, cleanup completes
+  - Verify: Recent unprocessed files preserved
 
-- Cleanup with active recording/processing
-- Orphaned entry cleanup
-- Manual cleanup via UI
+- [ ] Test cleanup with active processing
+  - Scenario: Processing service running during manual cleanup
+  - Verify: No database lock conflicts
+  - Verify: Cleanup waits or skips locked files
 
-## Future Enhancements
+- [ ] Test orphaned entry cleanup
+  - Setup: Create database entries without corresponding video files
+  - Verify: `cleanup_orphaned_segments()` removes entries
+  - Verify: No errors for missing files
 
-1. **Smart Cleanup** - Delete least-important segments first (based on activity)
-2. **External Storage** - Support for external drives or network storage
-3. **Compression** - Additional compression for old recordings
-4. **Archiving** - Move old recordings to cold storage (lower priority access)
+- [ ] Test manual cleanup via UI
+  - Scenario: User clicks "Clean Up Now" button
+  - Verify: Preview shows correct counts
+  - Verify: Confirmation dialog appears
+  - Verify: Cleanup executes on confirmation
+  - Verify: Results notification shows correct freed space
+
+- [ ] Test disk full scenario
+  - Mock: Disk space below 1 GB
+  - Verify: Recording service stops and disables recording
+  - Verify: Processing service skips work and exits with error
+  - Verify: Notifications displayed to user
+  - Verify: Config updated (`recording_enabled: false`)
+
+### Performance Tests
+- [ ] Test cleanup with large datasets
+  - Setup: 30+ days of temp files (>500GB)
+  - Verify: Cleanup completes within reasonable time (<5 minutes)
+  - Verify: No memory issues during recursive directory walk
+  - Monitor: CPU and memory usage during cleanup
+
+- [ ] Test storage calculation performance
+  - Setup: Large directory structures with many files
+  - Verify: Calculation completes quickly (<10 seconds)
+  - Verify: UI remains responsive during calculation
+
+- [ ] Test database vacuum performance
+  - Setup: Database with 100,000+ deleted segments
+  - Verify: `VACUUM` completes within reasonable time (<60 seconds)
+  - Measure: Space reclaimed from deleted rows
+
+### Edge Case Tests
+- [ ] Test cleanup with empty directories
+  - Verify: No errors when temp/ or chunks/ is empty
+  - Verify: Correct behavior when no files match retention policy
+
+- [ ] Test cleanup with partial processing
+  - Scenario: Some temp files processed, others not
+  - Verify: Only processed temp files deleted
+  - Verify: Unprocessed files preserved regardless of age
+
+- [ ] Test cleanup with mixed file types
+  - Scenario: Hidden files (`.DS_Store`), invalid files in temp/
+  - Verify: Hidden files ignored in calculations and cleanup
+  - Verify: Invalid files don't break processing
+
+- [ ] Test retention policy edge cases
+  - Test: Files exactly at threshold age (24 hours, 7 days, 30 days)
+  - Test: Files in different timezones
+  - Verify: Consistent behavior at threshold boundaries

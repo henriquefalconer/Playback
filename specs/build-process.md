@@ -1,724 +1,1233 @@
-# Build Process Specification
+# Build Process Implementation Plan
 
-**Component:** Build System
+**Component:** Build System & Testing Pipeline
 **Version:** 1.0
 **Last Updated:** 2026-02-07
 
-## Overview
+## Implementation Checklist
 
-Playback uses a unified build system that supports both development (hot-reloading, isolated data) and production (optimized, user-installed) environments. This specification defines the build process, testing pipeline, and deployment workflow.
+### Xcode Project Configuration
+- [ ] Create Xcode project with unified app target
+  - Location: `Playback/Playback.xcodeproj`
+  - Target: Playback (single app bundle)
+  - Minimum deployment: macOS 26.0 (Tahoe)
+  - Architecture: Apple Silicon only
 
-## Architecture
+- [ ] Configure Debug scheme (Development)
+  - Build configuration: Debug
+  - Code signing: Development (ad-hoc)
+  - Compilation conditions: `DEBUG`, `DEVELOPMENT`
+  - Optimization level: `-Onone`
+  - Enable testability: true
 
-### Single Unified App
+- [ ] Configure Release scheme (Production)
+  - Build configuration: Release
+  - Code signing: Developer ID Application
+  - Optimization level: `-O`
+  - Enable testability: false
+  - Hardened runtime: enabled
 
-**Playback.app** contains:
-- Timeline viewer (fullscreen video playback)
-- Menu bar interface (always running)
-- Settings window
-- Diagnostics viewer
-- Uninstall functionality
+### Build Settings Configuration
+- [ ] Set development build settings
+  - `SWIFT_ACTIVE_COMPILATION_CONDITIONS` = "DEBUG DEVELOPMENT"
+  - `SWIFT_OPTIMIZATION_LEVEL` = "-Onone"
+  - `GCC_PREPROCESSOR_DEFINITIONS` = "DEBUG=1 DEVELOPMENT=1"
+  - `ENABLE_TESTABILITY` = true
 
-**No separate apps** - everything in one bundle for simplicity.
+- [ ] Set production build settings
+  - `SWIFT_ACTIVE_COMPILATION_CONDITIONS` = "RELEASE"
+  - `SWIFT_OPTIMIZATION_LEVEL` = "-O"
+  - `CODE_SIGN_IDENTITY` = "Developer ID Application"
+  - `CODE_SIGN_STYLE` = "Manual"
+  - `ENABLE_HARDENED_RUNTIME` = true
 
-## Development vs Production
+- [ ] Configure copy resources build phase
+  - Copy Python scripts from `scripts/` to `Resources/`
+  - Include: record_screen.py, build_chunks_from_temp.py
+  - Preserve directory structure
 
-### Development Environment
+### Development Build Setup
+- [ ] Create development build script
+  - Location: `scripts/build_dev.sh`
+  - Command: `xcodebuild -scheme Playback-Development`
+  - Output: `build/Debug/Playback.app`
 
-**Purpose:** Fast iteration with hot-reloading, isolated from production data
+- [ ] Implement development data directory creation
+  - Auto-create `dev_data/temp/` directory
+  - Auto-create `dev_data/chunks/` directory
+  - Generate `dev_config.json` with development settings
 
-**Characteristics:**
-- Separate data directory (dev_data/)
-- Hot-reloading for Swift code changes
-- Debug symbols enabled
-- Verbose logging
-- Mock data generation
-- No code signing required
+- [ ] Configure development environment variables
+  - Set `PLAYBACK_DEV_MODE=1` in LaunchAgents
+  - Set `PLAYBACK_DATA_DIR` to project dev_data path
 
-**Data Isolation:**
+### Production Build Setup
+- [ ] Create production build script
+  - Location: `scripts/build_release.sh`
+  - Commands: archive, export, sign, package, notarize
+  - Output: `build/Playback-{VERSION}.pkg`
+
+- [ ] Configure archive settings
+  - Archive path: `build/Playback.xcarchive`
+  - Export options: `exportOptions.plist`
+  - Export method: Developer ID
+
+- [ ] Implement code signing
+  - Sign with: "Developer ID Application"
+  - Options: `--deep --force --options runtime`
+  - Target: `build/Release/Playback.app`
+
+- [ ] Configure package creation
+  - Tool: `pkgbuild`
+  - Bundle ID: `com.playback.Playback`
+  - Install location: `/Applications`
+  - Post-install scripts: `scripts/pkg/`
+
+- [ ] Implement notarization workflow
+  - Tool: `xcrun notarytool`
+  - Credentials: Keychain (AC_PASSWORD)
+  - Wait for completion
+  - Staple ticket to package
+
+### Hot-Reloading Configuration
+- [ ] Set up Swift hot-reloading (optional)
+  - Method: InjectionIII or Xcode built-in
+  - Enabled only in DEVELOPMENT builds
+  - SwiftUI: `.enableInjection()` modifier
+
+- [ ] Configure Python script hot-reloading
+  - Run scripts directly from source directory
+  - Detect `PLAYBACK_DEV_MODE` environment variable
+  - Use dev_data/ path in development
+
+### Unit Test Setup
+- [ ] Create unit test target
+  - Location: `PlaybackTests/`
+  - Host application: Playback
+  - Test configuration coverage and database logic
+
+- [ ] Implement TimelineStore tests
+  - Test: Segment selection logic
+  - Test: Time mapping (absolute ↔ video offset)
+  - Test: Gap handling
+  - Source: `PlaybackTests/TimelineStoreTests.swift`
+
+- [ ] Implement ConfigManager tests
+  - Test: Configuration loading/saving
+  - Test: Environment detection (dev vs production)
+  - Test: Path resolution
+
+- [ ] Implement Database tests
+  - Test: Segment queries
+  - Test: AppSegment queries
+  - Test: OCR text search
+  - Test: Search query parsing
+
+- [ ] Configure unit test execution
+  - Command: `xcodebuild test -scheme Playback-Development`
+  - Destination: `platform=macOS`
+  - Expected time: ~5 seconds
+
+### Integration Test Setup
+- [ ] Create integration test suite
+  - Location: `PlaybackTests/IntegrationTests.swift`
+  - Test end-to-end workflows
+
+- [ ] Implement recording-to-processing flow test
+  - Start RecordingService
+  - Wait for screenshots
+  - Run ProcessingService
+  - Verify database has segments
+
+- [ ] Implement settings-to-service test
+  - Change settings
+  - Verify LaunchAgent reloads
+  - Verify new settings propagate
+
+- [ ] Implement manual processing trigger test
+  - Trigger processing from menu bar
+  - Wait for completion
+  - Verify segments created
+
+- [ ] Configure integration test execution
+  - Use dev mode: `devMode: true`
+  - Expected time: ~30 seconds
+
+### UI Test Setup
+- [ ] Create UI test target
+  - Location: `PlaybackUITests/`
+  - Test application: Playback
+
+- [ ] Implement menu bar UI tests
+  - Test: App launch → menu bar appears
+  - Test: Toggle recording → status icon changes
+  - Test: Open settings → all tabs accessible
+
+- [ ] Implement timeline UI tests
+  - Test: Open timeline (Option+Shift+Space)
+  - Test: Video playback starts
+  - Test: Date/time picker navigation
+  - Test: Search (Command+F) → results appear
+  - Source: `PlaybackUITests/TimelineUITests.swift`
+
+- [ ] Implement settings UI tests
+  - Test: Open settings from menu bar
+  - Test: Navigate between tabs
+  - Test: Toggle preferences
+  - Test: Uninstall confirmation dialog
+
+- [ ] Configure UI test execution
+  - Use XCUIApplication
+  - Expected time: ~2 minutes
+
+### Pre-Commit Hook Setup
+- [ ] Create pre-commit hook script
+  - Location: `.git/hooks/pre-commit`
+  - Run: SwiftLint, flake8, fast tests
+  - Expected time: ~15 seconds
+
+- [ ] Implement Swift linting
+  - Tool: SwiftLint
+  - Config: `--strict --quiet`
+  - Install: `brew install swiftlint`
+
+- [ ] Implement Python linting
+  - Tool: flake8
+  - Config: `--max-line-length=120`
+  - Target: `scripts/`
+  - Install: `pip install flake8`
+
+- [ ] Implement fast unit test subset
+  - Only run tests tagged with @fast
+  - Command: `-only-testing:PlaybackTests/FastTests`
+  - Expected time: ~5 seconds
+
+- [ ] Implement Python test execution
+  - Tool: pytest
+  - Target: `scripts/tests/`
+  - Command: `python3 -m pytest scripts/tests/ -v --tb=short`
+
+- [ ] Implement configuration validation
+  - Script: `scripts/validate_config.py`
+  - Validate: config.json schema
+
+- [ ] Make pre-commit hook executable
+  - Command: `chmod +x .git/hooks/pre-commit`
+  - Alternative: Use pre-commit framework
+
+### CI/CD Pipeline Setup
+- [ ] Create GitHub Actions workflow
+  - Location: `.github/workflows/test.yml`
+  - Trigger: push, pull_request
+  - Runner: macos-latest
+
+- [ ] Configure Xcode setup step
+  - Action: maxim-lobanov/setup-xcode@v1
+  - Version: latest
+
+- [ ] Configure dependency installation
+  - Install: ffmpeg, python@3.10
+  - Install: flake8, pytest
+  - Command: `brew install`, `pip3 install`
+
+- [ ] Configure Swift linting step
+  - Command: `swiftlint --strict`
+
+- [ ] Configure Python linting step
+  - Command: `flake8 scripts/ --max-line-length=120`
+
+- [ ] Configure unit test execution step
+  - Command: `xcodebuild test -scheme Playback-Development`
+  - Destination: `platform=macOS`
+
+- [ ] Configure Python test execution step
+  - Command: `python3 -m pytest scripts/tests/ -v`
+
+- [ ] Configure production build step
+  - Command: `./scripts/build_release.sh`
+  - Only on: main branch
+
+### Dependencies Management
+- [ ] Document build dependencies
+  - Xcode 15.0+
+  - Swift 5.9+
+  - Python 3.8+
+  - FFmpeg 4.0+
+
+- [ ] Create dependency installation script
+  - Location: `scripts/install_deps.sh`
+  - Commands: `brew install ffmpeg python@3.10`
+  - Python packages: pyobjc-framework-Vision, pyobjc-framework-Quartz
+
+- [ ] Document optional development dependencies
+  - SwiftLint (linting)
+  - InjectionIII (hot-reloading)
+  - pre-commit (git hooks)
+  - Install: `brew install swiftlint`, etc.
+
+- [ ] Create development environment setup script
+  - Location: `scripts/setup_dev_env.sh`
+  - Install: Optional dependencies
+  - Create: dev_data/ directories
+  - Generate: dev_config.json
+
+### Environment Configuration
+- [ ] Create development config template
+  - Location: `dev_config.json` (gitignored)
+  - Settings: recording_enabled, processing_interval, data_directory
+  - Log level: DEBUG
+
+- [ ] Create production config template
+  - Location: `~/Library/Application Support/Playback/config.json`
+  - Settings: recording_enabled, processing_interval, data_directory
+  - Log level: INFO
+
+- [ ] Implement environment detection
+  - Source: `Config/Environment.swift`
+  - Enum: development, production
+  - Preprocessor: `#if DEVELOPMENT`
+
+- [ ] Configure data directory resolution
+  - Development: `<project>/dev_data`
+  - Production: `~/Library/Application Support/Playback/data`
+
+## Build System Details
+
+This section contains complete build commands, configuration examples, CI/CD workflows, pre-commit hook scripts, and hot-reloading setup. All information needed to set up and maintain the build system is self-contained in this document.
+
+### Development Build Script
+
+**File:** `scripts/build_dev.sh`
+
+```bash
+#!/bin/bash
+set -e
+
+echo "Building Playback (Development)..."
+
+# Build for development
+xcodebuild \
+  -scheme Playback-Development \
+  -configuration Debug \
+  -derivedDataPath build \
+  -destination 'platform=macOS,arch=arm64' \
+  build
+
+echo "Development build complete: build/Debug/Playback.app"
+
+# Create dev data directories
+mkdir -p dev_data/temp
+mkdir -p dev_data/chunks
+mkdir -p dev_data/segments
+
+# Generate dev config if not exists
+if [ ! -f dev_config.json ]; then
+  echo "Creating dev_config.json..."
+  cat > dev_config.json << 'EOF'
+{
+  "recording_enabled": true,
+  "recording_interval": 5,
+  "processing_interval": 300,
+  "data_directory": "./dev_data",
+  "log_level": "DEBUG",
+  "excluded_apps": [
+    "1Password",
+    "Keychain Access"
+  ],
+  "video_quality": "medium",
+  "max_storage_gb": 50
+}
+EOF
+fi
+
+echo "Development environment ready!"
 ```
-project/
-├── dev_data/               # Development data (gitignored)
-│   ├── temp/
-│   ├── chunks/
-│   └── meta.sqlite3
-└── scripts/
-    └── dev_config.json     # Development configuration
+
+### Production Build Script
+
+**File:** `scripts/build_release.sh`
+
+```bash
+#!/bin/bash
+set -e
+
+VERSION="1.0.0"
+APP_NAME="Playback"
+BUNDLE_ID="com.playback.Playback"
+DEVELOPER_ID="Developer ID Application: Your Name (TEAMID)"
+
+echo "Building ${APP_NAME} v${VERSION} (Production)..."
+
+# Clean previous builds
+rm -rf build/Release
+rm -rf build/${APP_NAME}.xcarchive
+
+# Archive the app
+echo "Archiving..."
+xcodebuild \
+  -scheme Playback-Production \
+  -configuration Release \
+  -archivePath build/${APP_NAME}.xcarchive \
+  -destination 'platform=macOS,arch=arm64' \
+  archive
+
+# Export the archive
+echo "Exporting archive..."
+xcodebuild \
+  -exportArchive \
+  -archivePath build/${APP_NAME}.xcarchive \
+  -exportPath build/Release \
+  -exportOptionsPlist exportOptions.plist
+
+# Sign the app
+echo "Signing app..."
+codesign \
+  --sign "${DEVELOPER_ID}" \
+  --deep \
+  --force \
+  --options runtime \
+  --timestamp \
+  build/Release/${APP_NAME}.app
+
+# Verify signature
+echo "Verifying signature..."
+codesign --verify --verbose build/Release/${APP_NAME}.app
+
+# Create installer package
+echo "Creating installer package..."
+pkgbuild \
+  --component build/Release/${APP_NAME}.app \
+  --install-location /Applications \
+  --identifier ${BUNDLE_ID} \
+  --version ${VERSION} \
+  --scripts scripts/pkg \
+  build/${APP_NAME}-${VERSION}.pkg
+
+# Sign the package
+echo "Signing package..."
+productsign \
+  --sign "Developer ID Installer: Your Name (TEAMID)" \
+  build/${APP_NAME}-${VERSION}.pkg \
+  build/${APP_NAME}-${VERSION}-signed.pkg
+
+mv build/${APP_NAME}-${VERSION}-signed.pkg build/${APP_NAME}-${VERSION}.pkg
+
+# Notarize the package
+echo "Submitting for notarization..."
+xcrun notarytool submit \
+  build/${APP_NAME}-${VERSION}.pkg \
+  --keychain-profile "AC_PASSWORD" \
+  --wait
+
+# Staple the notarization ticket
+echo "Stapling notarization ticket..."
+xcrun stapler staple build/${APP_NAME}-${VERSION}.pkg
+
+echo "Production build complete: build/${APP_NAME}-${VERSION}.pkg"
 ```
 
-### Production Environment
+### Export Options Plist
 
-**Purpose:** Optimized, signed, notarized app for end users
+**File:** `exportOptions.plist`
 
-**Characteristics:**
-- User data in standard locations
-- Optimized build (Release configuration)
-- Code signed and notarized
-- Production logging levels
-- LaunchAgents for background services
-
-**Data Locations:**
-```
-~/Library/Application Support/Playback/
-├── config.json
-└── data/
-    ├── temp/
-    ├── chunks/
-    └── meta.sqlite3
-```
-
-## Build Configuration
-
-### Xcode Project Structure
-
-```
-Playback/
-├── Playback.xcodeproj
-├── Playback/                    # Main app target
-│   ├── PlaybackApp.swift        # Main app entry point
-│   ├── MenuBar/                 # Menu bar UI
-│   │   ├── MenuBarView.swift
-│   │   └── StatusBarController.swift
-│   ├── Timeline/                # Timeline viewer
-│   │   ├── TimelineView.swift
-│   │   ├── VideoPlayer.swift
-│   │   └── DateTimePicker.swift
-│   ├── Settings/                # Settings window
-│   │   ├── SettingsWindow.swift
-│   │   └── UninstallView.swift
-│   ├── Diagnostics/             # Diagnostics viewer
-│   │   └── DiagnosticsWindow.swift
-│   ├── Services/                # LaunchAgent management
-│   │   ├── RecordingService.swift
-│   │   └── ProcessingService.swift
-│   ├── Search/                  # OCR search
-│   │   └── SearchController.swift
-│   ├── Config/                  # Configuration management
-│   │   └── ConfigManager.swift
-│   └── Resources/
-│       ├── Assets.xcassets
-│       └── Info.plist
-├── PlaybackTests/               # Unit tests
-└── PlaybackUITests/             # UI tests
-```
-
-### Build Schemes
-
-**1. Development Scheme**
-- Configuration: Debug
-- Code signing: Development
-- Defines: `DEBUG`, `DEVELOPMENT`
-- Data directory: `dev_data/`
-- Hot-reloading: Enabled
-
-**2. Production Scheme**
-- Configuration: Release
-- Code signing: Developer ID
-- Optimization: -O (full optimization)
-- Data directory: `~/Library/Application Support/Playback/data/`
-- Notarization: Required
-
-### Build Settings
-
-**Development (Debug):**
 ```xml
-<key>SWIFT_ACTIVE_COMPILATION_CONDITIONS</key>
-<string>DEBUG DEVELOPMENT</string>
-
-<key>SWIFT_OPTIMIZATION_LEVEL</key>
-<string>-Onone</string>
-
-<key>GCC_PREPROCESSOR_DEFINITIONS</key>
-<array>
-    <string>DEBUG=1</string>
-    <string>DEVELOPMENT=1</string>
-</array>
-
-<key>ENABLE_TESTABILITY</key>
-<true/>
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>method</key>
+    <string>developer-id</string>
+    <key>teamID</key>
+    <string>TEAMID</string>
+    <key>signingStyle</key>
+    <string>manual</string>
+    <key>signingCertificate</key>
+    <string>Developer ID Application</string>
+    <key>destination</key>
+    <string>export</string>
+    <key>stripSwiftSymbols</key>
+    <true/>
+    <key>uploadBitcode</key>
+    <false/>
+    <key>uploadSymbols</key>
+    <true/>
+</dict>
+</plist>
 ```
 
-**Production (Release):**
-```xml
-<key>SWIFT_ACTIVE_COMPILATION_CONDITIONS</key>
-<string>RELEASE</string>
+### Pre-Commit Hook Script
 
-<key>SWIFT_OPTIMIZATION_LEVEL</key>
-<string>-O</string>
+**File:** `.git/hooks/pre-commit`
 
-<key>ENABLE_TESTABILITY</key>
-<false/>
+```bash
+#!/bin/bash
+set -e
 
-<key>CODE_SIGN_IDENTITY</key>
-<string>Developer ID Application</string>
+echo "Running pre-commit checks..."
 
-<key>CODE_SIGN_STYLE</key>
-<string>Manual</string>
+# Check if SwiftLint is installed
+if ! command -v swiftlint &> /dev/null; then
+    echo "Warning: SwiftLint not installed. Install with: brew install swiftlint"
+    exit 1
+fi
+
+# Check if flake8 is installed
+if ! command -v flake8 &> /dev/null; then
+    echo "Warning: flake8 not installed. Install with: pip3 install flake8"
+    exit 1
+fi
+
+# Run SwiftLint
+echo "Running SwiftLint..."
+swiftlint --strict --quiet
+if [ $? -ne 0 ]; then
+    echo "SwiftLint failed. Fix the issues before committing."
+    exit 1
+fi
+
+# Run flake8 on Python scripts
+echo "Running flake8..."
+flake8 scripts/ --max-line-length=120 --exclude=scripts/venv
+if [ $? -ne 0 ]; then
+    echo "flake8 failed. Fix the issues before committing."
+    exit 1
+fi
+
+# Run fast unit tests
+echo "Running fast unit tests..."
+xcodebuild test \
+  -scheme Playback-Development \
+  -destination 'platform=macOS' \
+  -only-testing:PlaybackTests/FastTests \
+  -quiet
+if [ $? -ne 0 ]; then
+    echo "Fast unit tests failed. Fix the issues before committing."
+    exit 1
+fi
+
+# Run Python tests
+echo "Running Python tests..."
+python3 -m pytest scripts/tests/ -v --tb=short
+if [ $? -ne 0 ]; then
+    echo "Python tests failed. Fix the issues before committing."
+    exit 1
+fi
+
+# Validate configuration schema
+echo "Validating configuration..."
+python3 scripts/validate_config.py
+if [ $? -ne 0 ]; then
+    echo "Configuration validation failed. Fix the schema before committing."
+    exit 1
+fi
+
+echo "All pre-commit checks passed!"
 ```
 
-## Hot-Reloading
+Make the script executable:
+```bash
+chmod +x .git/hooks/pre-commit
+```
 
-### Swift Hot-Reloading
+### CI/CD Workflow (GitHub Actions)
 
-**Using:** Swift Package Manager + InjectionIII (development only)
+**File:** `.github/workflows/test.yml`
 
-**Setup:**
+```yaml
+name: Test and Build
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: macos-14
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Xcode
+      uses: maxim-lobanov/setup-xcode@v1
+      with:
+        xcode-version: '15.2'
+
+    - name: Install dependencies
+      run: |
+        brew install ffmpeg python@3.10 swiftlint
+        pip3 install flake8 pytest pyobjc-framework-Vision pyobjc-framework-Quartz
+
+    - name: Run SwiftLint
+      run: swiftlint --strict
+
+    - name: Run flake8
+      run: flake8 scripts/ --max-line-length=120 --exclude=scripts/venv
+
+    - name: Run unit tests
+      run: |
+        xcodebuild test \
+          -scheme Playback-Development \
+          -destination 'platform=macOS' \
+          -enableCodeCoverage YES
+
+    - name: Run Python tests
+      run: python3 -m pytest scripts/tests/ -v
+
+    - name: Build development
+      run: ./scripts/build_dev.sh
+
+    - name: Upload test results
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: test-results
+        path: build/Logs/Test/*.xcresult
+
+  build-release:
+    runs-on: macos-14
+    needs: test
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Xcode
+      uses: maxim-lobanov/setup-xcode@v1
+      with:
+        xcode-version: '15.2'
+
+    - name: Install dependencies
+      run: brew install ffmpeg python@3.10
+
+    - name: Import certificates
+      env:
+        CERTIFICATE_P12: ${{ secrets.CERTIFICATE_P12 }}
+        CERTIFICATE_PASSWORD: ${{ secrets.CERTIFICATE_PASSWORD }}
+      run: |
+        echo $CERTIFICATE_P12 | base64 --decode > certificate.p12
+        security create-keychain -p actions temp.keychain
+        security default-keychain -s temp.keychain
+        security unlock-keychain -p actions temp.keychain
+        security import certificate.p12 -k temp.keychain -P $CERTIFICATE_PASSWORD -T /usr/bin/codesign
+        security set-key-partition-list -S apple-tool:,apple: -s -k actions temp.keychain
+
+    - name: Build release
+      env:
+        NOTARIZATION_USERNAME: ${{ secrets.NOTARIZATION_USERNAME }}
+        NOTARIZATION_PASSWORD: ${{ secrets.NOTARIZATION_PASSWORD }}
+      run: ./scripts/build_release.sh
+
+    - name: Upload build artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: playback-installer
+        path: build/Playback-*.pkg
+```
+
+### Hot-Reloading Setup
+
+#### Swift Hot-Reloading with InjectionIII
+
+**Installation:**
+```bash
+brew install injectioniii
+```
+
+**Code Setup (SwiftUI Views):**
+
+Add to your SwiftUI views in development:
+
 ```swift
-#if DEVELOPMENT
-import InjectionIII
+import SwiftUI
+#if DEBUG
+import Inject
+#endif
 
-@main
-struct PlaybackApp: App {
-    init() {
-        // Enable hot-reloading in development
-        Bundle(path: "/Applications/InjectionIII.app/Contents/Resources/iOSInjection.bundle")?.load()
-    }
+struct TimelineView: View {
+    #if DEBUG
+    @ObserveInjection var inject
+    #endif
 
-    var body: some Scene {
-        WindowGroup {
-            ContentView()
-                .enableInjection() // SwiftUI hot-reloading
+    var body: some View {
+        VStack {
+            // Your view code
         }
+        #if DEBUG
+        .enableInjection()
+        #endif
+    }
+}
+```
+
+**AppDelegate Setup:**
+
+```swift
+#if DEBUG
+import Inject
+
+class AppDelegate: NSObject, NSApplicationDelegate {
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        // Enable InjectionIII
+        Bundle(path: "/Applications/InjectionIII.app/Contents/Resources/iOSInjection.bundle")?.load()
     }
 }
 #endif
 ```
 
-**Alternative:** Use Xcode's built-in "Debug" → "Inject Swift Source" (Shift+Cmd+M)
+#### Python Script Hot-Reloading
 
-### Python Script Hot-Reloading
+**Implementation in Swift:**
 
-**Development Mode:**
-- Scripts run directly from source directory
-- Changes take effect on next execution
-- No need to rebuild/reinstall
+```swift
+class PythonScriptRunner {
+    static func runScript(name: String, args: [String]) throws {
+        let scriptPath: String
 
-**Implementation:**
+        #if DEVELOPMENT
+        // In development, run from source directory for hot-reloading
+        let projectRoot = FileManager.default.currentDirectoryPath
+        scriptPath = "\(projectRoot)/scripts/\(name).py"
+        #else
+        // In production, run from app bundle
+        guard let bundlePath = Bundle.main.resourcePath else {
+            throw ScriptError.bundleNotFound
+        }
+        scriptPath = "\(bundlePath)/scripts/\(name).py"
+        #endif
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
+        process.arguments = [scriptPath] + args
+
+        // Set environment variables
+        var environment = ProcessInfo.processInfo.environment
+        if Environment.current == .development {
+            environment["PLAYBACK_DEV_MODE"] = "1"
+            environment["PLAYBACK_DATA_DIR"] = ConfigManager.shared.dataDirectory.path
+        }
+        process.environment = environment
+
+        try process.run()
+        process.waitUntilExit()
+    }
+}
+```
+
+**Python Script Detection:**
+
 ```python
-# scripts/record_screen.py
-
 import os
+import sys
 
-# Use dev_data/ in development
-if os.getenv('PLAYBACK_DEV_MODE'):
-    DATA_DIR = Path(__file__).parent.parent / "dev_data"
-else:
-    DATA_DIR = Path.home() / "Library/Application Support/Playback/data"
+def get_data_dir():
+    """Get data directory based on environment"""
+    if os.getenv('PLAYBACK_DEV_MODE') == '1':
+        # Development mode - use project dev_data
+        data_dir = os.getenv('PLAYBACK_DATA_DIR', './dev_data')
+    else:
+        # Production mode - use Application Support
+        home = os.path.expanduser('~')
+        data_dir = os.path.join(home, 'Library/Application Support/Playback/data')
+
+    return data_dir
+
+def main():
+    data_dir = get_data_dir()
+    print(f"Using data directory: {data_dir}")
+
+    # Script logic here...
 ```
 
-## Build Process
+### Xcode Build Scheme Configuration
 
-### Development Build
+#### Debug Scheme (Development)
 
-**Command:**
-```bash
-# Build development version
-xcodebuild \
-  -project Playback.xcodeproj \
-  -scheme Playback-Development \
-  -configuration Debug \
-  -derivedDataPath build/ \
-  build
+**Build Settings:**
+- Configuration: Debug
+- Build Active Architecture Only: Yes
+- Defines Module: Yes
+- Enable Testability: Yes
 
-# Run development version
-open build/Debug/Playback.app
+**Swift Compiler - Code Generation:**
+- Optimization Level: No Optimization [-Onone]
+- Compilation Mode: Incremental
+- Active Compilation Conditions: DEBUG DEVELOPMENT
 
-# Or use Xcode: Cmd+R
+**Swift Compiler - Custom Flags:**
+- Other Swift Flags: -D DEBUG -D DEVELOPMENT
+
+**Signing & Capabilities:**
+- Signing Certificate: Sign to Run Locally (ad-hoc)
+- Automatic Signing: Yes (Development)
+
+**Environment Variables (Scheme Settings):**
+```
+PLAYBACK_DEV_MODE=1
+PLAYBACK_DATA_DIR=$(SOURCE_ROOT)/dev_data
 ```
 
-**Automatic Steps:**
-1. Compile Swift sources
-2. Copy Python scripts to Resources/
-3. Generate dev_data/ directory structure
-4. Create dev_config.json with development settings
-5. Install development LaunchAgents (pointing to dev environment)
+#### Release Scheme (Production)
 
-**Development LaunchAgent Example:**
+**Build Settings:**
+- Configuration: Release
+- Build Active Architecture Only: No
+- Defines Module: Yes
+- Enable Testability: No
+
+**Swift Compiler - Code Generation:**
+- Optimization Level: Optimize for Speed [-O]
+- Compilation Mode: Whole Module
+- Active Compilation Conditions: RELEASE
+
+**Signing & Capabilities:**
+- Signing Certificate: Developer ID Application
+- Automatic Signing: No (Manual)
+- Hardened Runtime: Enabled
+- Entitlements: Playback.entitlements
+
+**Code Signing Entitlements:**
 ```xml
-<key>EnvironmentVariables</key>
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
 <dict>
-    <key>PLAYBACK_DEV_MODE</key>
-    <string>1</string>
-    <key>PLAYBACK_DATA_DIR</key>
-    <string>/path/to/project/dev_data</string>
+    <key>com.apple.security.app-sandbox</key>
+    <false/>
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+    <key>com.apple.security.automation.apple-events</key>
+    <true/>
+    <key>com.apple.security.device.camera</key>
+    <true/>
+    <key>com.apple.security.device.audio-input</key>
+    <true/>
 </dict>
+</plist>
 ```
 
-### Production Build
+### Development Environment Setup Script
 
-**Command:**
-```bash
-# Build production version
-xcodebuild \
-  -project Playback.xcodeproj \
-  -scheme Playback-Production \
-  -configuration Release \
-  -derivedDataPath build/ \
-  archive \
-  -archivePath build/Playback.xcarchive
-
-# Export app
-xcodebuild \
-  -exportArchive \
-  -archivePath build/Playback.xcarchive \
-  -exportPath build/Release \
-  -exportOptionsPlist exportOptions.plist
-```
-
-**Automatic Steps:**
-1. Compile Swift sources (optimized)
-2. Embed Python scripts in Resources/
-3. Code sign with Developer ID
-4. Create installer package (.pkg)
-5. Submit for notarization
-6. Staple notarization ticket
-
-**Build Script:**
-```bash
-#!/bin/bash
-# scripts/build_release.sh
-
-set -e
-
-VERSION="1.0.0"
-BUNDLE_ID="com.playback.Playback"
-
-echo "Building Playback v${VERSION}..."
-
-# Clean
-rm -rf build/
-
-# Build archive
-xcodebuild \
-  -project Playback.xcodeproj \
-  -scheme Playback-Production \
-  -configuration Release \
-  -archivePath build/Playback.xcarchive \
-  archive
-
-# Export app
-xcodebuild \
-  -exportArchive \
-  -archivePath build/Playback.xcarchive \
-  -exportPath build/Release \
-  -exportOptionsPlist exportOptions.plist
-
-# Sign
-codesign --sign "Developer ID Application" \
-  --deep --force \
-  --options runtime \
-  build/Release/Playback.app
-
-# Create package
-pkgbuild \
-  --root build/Release \
-  --identifier ${BUNDLE_ID} \
-  --version ${VERSION} \
-  --install-location /Applications \
-  --scripts scripts/pkg/ \
-  build/Playback-${VERSION}.pkg
-
-# Notarize
-xcrun notarytool submit build/Playback-${VERSION}.pkg \
-  --apple-id "developer@example.com" \
-  --team-id "TEAMID" \
-  --password "@keychain:AC_PASSWORD" \
-  --wait
-
-# Staple
-xcrun stapler staple build/Playback-${VERSION}.pkg
-
-echo "✓ Build complete: build/Playback-${VERSION}.pkg"
-```
-
-## Testing
-
-### Test Levels
-
-**1. Unit Tests** - Fast, isolated
-**2. Integration Tests** - Component interactions
-**3. UI Tests** - End-to-end user flows
-**4. Pre-commit Tests** - Subset run before each commit
-
-### Unit Tests
-
-**Location:** `PlaybackTests/`
-
-**Coverage:**
-- Configuration loading/saving
-- Database queries (segments, appsegments, OCR)
-- Video segment selection logic
-- Time mapping (absolute ↔ video offset)
-- OCR text extraction
-- Search query parsing
-
-**Example:**
-```swift
-// PlaybackTests/TimelineStoreTests.swift
-
-import XCTest
-@testable import Playback
-
-class TimelineStoreTests: XCTestCase {
-    func testSegmentSelection() {
-        let store = TimelineStore(dbPath: ":memory:")
-
-        // Add test segments
-        store.addSegment(id: "seg1", startTS: 100, endTS: 200)
-        store.addSegment(id: "seg2", startTS: 300, endTS: 400)
-
-        // Test: timestamp inside segment
-        let (segment, offset) = store.segment(for: 150)!
-        XCTAssertEqual(segment.id, "seg1")
-
-        // Test: timestamp in gap (should return closest)
-        let (segment2, offset2) = store.segment(for: 250)!
-        XCTAssertEqual(segment2.id, "seg2")
-    }
-
-    func testTimeMapping() {
-        let segment = Segment(
-            id: "test",
-            startTS: 1000,
-            endTS: 1150,  // 150s real time
-            frameCount: 150,
-            fps: 30,
-            videoURL: URL(fileURLWithPath: "test.mp4")
-        )
-
-        // 30fps * 150 frames = 5s video
-        XCTAssertEqual(segment.videoDuration, 5.0, accuracy: 0.01)
-
-        // Midpoint of timeline (1075) should map to midpoint of video (2.5s)
-        let offset = segment.videoOffset(forAbsoluteTime: 1075)
-        XCTAssertEqual(offset, 2.5, accuracy: 0.01)
-    }
-}
-```
-
-**Run:**
-```bash
-xcodebuild test \
-  -project Playback.xcodeproj \
-  -scheme Playback-Development \
-  -destination 'platform=macOS'
-```
-
-### Integration Tests
-
-**Tests:**
-- Recording service → Processing service → Database
-- Settings change → LaunchAgent reload
-- Manual processing trigger → Process completion
-- App exclusion configuration → Screenshot skipping
-
-**Example:**
-```swift
-// PlaybackTests/IntegrationTests.swift
-
-func testRecordingToProcessingFlow() async throws {
-    // 1. Start recording service
-    let recording = RecordingService(devMode: true)
-    try recording.start()
-
-    // 2. Wait for screenshots
-    try await Task.sleep(nanoseconds: 5_000_000_000) // 5 seconds
-
-    // 3. Stop recording
-    recording.stop()
-
-    // 4. Run processing
-    let processing = ProcessingService(devMode: true)
-    try await processing.processAll()
-
-    // 5. Verify database has segments
-    let db = Database(path: "dev_data/meta.sqlite3")
-    let segments = try db.querySegments()
-    XCTAssertGreaterThan(segments.count, 0)
-}
-```
-
-### UI Tests
-
-**Location:** `PlaybackUITests/`
-
-**Tests:**
-- Launch app → Menu bar appears
-- Toggle recording → Status icon changes
-- Open settings → All tabs accessible
-- Open timeline → Video plays
-- Date/time picker → Navigation works
-- Search (Command+F) → Results appear
-
-**Example:**
-```swift
-// PlaybackUITests/TimelineUITests.swift
-
-func testDateTimePicker() {
-    let app = XCUIApplication()
-    app.launch()
-
-    // Open timeline (Option+Shift+Space)
-    app.typeKey(" ", modifierFlags: [.option, .shift])
-
-    // Wait for timeline to appear
-    XCTAssertTrue(app.windows["Timeline"].waitForExistence(timeout: 5))
-
-    // Click time bubble
-    app.staticTexts.matching(NSPredicate(format: "label CONTAINS '2:30'")).firstMatch.click()
-
-    // Date picker should appear
-    XCTAssertTrue(app.windows["Date Picker"].waitForExistence(timeout: 2))
-
-    // Select a date
-    app.datePickers.firstMatch.click()
-
-    // Verify video jumped
-    // ...
-}
-```
-
-### Pre-Commit Tests
-
-**Purpose:** Fast subset of tests run before every commit
-
-**Configuration:** `.git/hooks/pre-commit`
+**File:** `scripts/setup_dev_env.sh`
 
 ```bash
 #!/bin/bash
-# .git/hooks/pre-commit
-
 set -e
 
-echo "Running pre-commit tests..."
+echo "Setting up Playback development environment..."
 
-# 1. Swift lint
-echo "→ Running SwiftLint..."
-if which swiftlint >/dev/null; then
-  swiftlint --strict --quiet
-else
-  echo "⚠️  SwiftLint not installed. Run: brew install swiftlint"
+# Install Homebrew dependencies
+echo "Installing Homebrew dependencies..."
+brew install ffmpeg python@3.10 swiftlint
+
+# Install Python dependencies
+echo "Installing Python dependencies..."
+pip3 install flake8 pytest pyobjc-framework-Vision pyobjc-framework-Quartz
+
+# Install optional development tools
+read -p "Install InjectionIII for hot-reloading? (y/n) " -n 1 -r
+echo
+if [[ $REPLY =~ ^[Yy]$ ]]; then
+    brew install injectioniii
 fi
 
-# 2. Python lint
-echo "→ Running flake8..."
-if which flake8 >/dev/null; then
-  flake8 scripts/ --max-line-length=120
-else
-  echo "⚠️  flake8 not installed. Run: pip install flake8"
+# Create dev data directories
+echo "Creating dev data directories..."
+mkdir -p dev_data/temp
+mkdir -p dev_data/chunks
+mkdir -p dev_data/segments
+
+# Create dev config
+echo "Creating dev_config.json..."
+cat > dev_config.json << 'EOF'
+{
+  "recording_enabled": true,
+  "recording_interval": 5,
+  "processing_interval": 300,
+  "data_directory": "./dev_data",
+  "log_level": "DEBUG",
+  "excluded_apps": [
+    "1Password",
+    "Keychain Access"
+  ],
+  "video_quality": "medium",
+  "max_storage_gb": 50
+}
+EOF
+
+# Add dev_config.json to .gitignore if not already present
+if ! grep -q "dev_config.json" .gitignore 2>/dev/null; then
+    echo "dev_config.json" >> .gitignore
 fi
 
-# 3. Unit tests (fast only, tagged with @fast)
-echo "→ Running fast unit tests..."
-xcodebuild test \
-  -project Playback.xcodeproj \
-  -scheme Playback-Development \
-  -destination 'platform=macOS' \
-  -only-testing:PlaybackTests/FastTests \
-  -quiet
-
-# 4. Python tests
-echo "→ Running Python tests..."
-python3 -m pytest scripts/tests/ -v --tb=short
-
-# 5. Configuration validation
-echo "→ Validating config schema..."
-python3 scripts/validate_config.py
-
-echo "✓ All pre-commit tests passed"
-```
-
-**Installation:**
-```bash
-# Make pre-commit hook executable
+# Install pre-commit hook
+echo "Installing pre-commit hook..."
+cp scripts/pre-commit .git/hooks/pre-commit
 chmod +x .git/hooks/pre-commit
 
-# Or use pre-commit framework
-pip install pre-commit
-pre-commit install
+echo ""
+echo "Development environment setup complete!"
+echo ""
+echo "Next steps:"
+echo "1. Open Playback.xcodeproj in Xcode"
+echo "2. Select 'Playback-Development' scheme"
+echo "3. Build and run (Cmd+R)"
+echo ""
+echo "For hot-reloading:"
+echo "- Swift: Open InjectionIII.app and inject"
+echo "- Python: Scripts run from source directory automatically"
 ```
 
-### Continuous Integration
+### Dependency Installation Script
 
-**GitHub Actions:** `.github/workflows/test.yml`
+**File:** `scripts/install_deps.sh`
 
-```yaml
-name: Test
-
-on: [push, pull_request]
-
-jobs:
-  test:
-    runs-on: macos-latest
-
-    steps:
-      - uses: actions/checkout@v3
-
-      - name: Setup Xcode
-        uses: maxim-lobanov/setup-xcode@v1
-        with:
-          xcode-version: latest
-
-      - name: Install dependencies
-        run: |
-          brew install ffmpeg python@3.10
-          pip3 install flake8 pytest
-
-      - name: Lint Swift
-        run: swiftlint --strict
-
-      - name: Lint Python
-        run: flake8 scripts/ --max-line-length=120
-
-      - name: Run unit tests
-        run: |
-          xcodebuild test \
-            -project Playback.xcodeproj \
-            -scheme Playback-Development \
-            -destination 'platform=macOS'
-
-      - name: Run Python tests
-        run: python3 -m pytest scripts/tests/ -v
-
-      - name: Build production
-        run: ./scripts/build_release.sh
-```
-
-## Environment Configuration
-
-### Development Config
-
-**File:** `dev_config.json` (gitignored)
-
-```json
-{
-  "version": "1.0",
-  "environment": "development",
-  "recording_enabled": true,
-  "processing_interval_minutes": 1,
-  "data_directory": "dev_data/",
-  "log_directory": "dev_logs/",
-  "log_level": "DEBUG",
-  "mock_screenshots": false,
-  "hot_reload": true
-}
-```
-
-### Production Config
-
-**File:** `~/Library/Application Support/Playback/config.json`
-
-```json
-{
-  "version": "1.0",
-  "environment": "production",
-  "recording_enabled": false,
-  "processing_interval_minutes": 5,
-  "data_directory": "~/Library/Application Support/Playback/data/",
-  "log_directory": "~/Library/Logs/Playback/",
-  "log_level": "INFO"
-}
-```
-
-### Environment Detection
-
-```swift
-// Config/Environment.swift
-
-enum Environment {
-    case development
-    case production
-
-    static var current: Environment {
-        #if DEVELOPMENT
-        return .development
-        #else
-        return .production
-        #endif
-    }
-
-    var dataDirectory: URL {
-        switch self {
-        case .development:
-            return Bundle.main.resourceURL!
-                .deletingLastPathComponent()
-                .deletingLastPathComponent()
-                .appendingPathComponent("dev_data")
-        case .production:
-            return FileManager.default.homeDirectoryForCurrentUser
-                .appendingPathComponent("Library/Application Support/Playback/data")
-        }
-    }
-}
-```
-
-## Dependencies
-
-### Build Dependencies
-
-- Xcode 15.0+
-- Swift 5.9+
-- Python 3.8+
-- FFmpeg 4.0+
-
-**Install:**
 ```bash
+#!/bin/bash
+set -e
+
+echo "Installing Playback dependencies..."
+
+# Check for Homebrew
+if ! command -v brew &> /dev/null; then
+    echo "Homebrew not found. Installing..."
+    /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+fi
+
+# Install system dependencies
+echo "Installing system dependencies..."
 brew install ffmpeg python@3.10
+
+# Install Python packages
+echo "Installing Python packages..."
 pip3 install pyobjc-framework-Vision pyobjc-framework-Quartz
+
+echo "Dependencies installed successfully!"
 ```
 
-### Optional (Development)
+### Configuration Validation Script
 
-- SwiftLint (linting)
-- InjectionIII (hot-reloading)
-- pre-commit (git hooks)
+**File:** `scripts/validate_config.py`
 
-**Install:**
+```python
+#!/usr/bin/env python3
+"""Validate config.json against schema"""
+
+import json
+import sys
+from pathlib import Path
+
+SCHEMA = {
+    "recording_enabled": bool,
+    "recording_interval": int,
+    "processing_interval": int,
+    "data_directory": str,
+    "log_level": str,
+    "excluded_apps": list,
+    "video_quality": str,
+    "max_storage_gb": int
+}
+
+VALID_LOG_LEVELS = ["DEBUG", "INFO", "WARNING", "ERROR"]
+VALID_VIDEO_QUALITIES = ["low", "medium", "high"]
+
+def validate_config(config_path):
+    """Validate configuration file"""
+    if not Path(config_path).exists():
+        print(f"Error: Config file not found: {config_path}")
+        return False
+
+    try:
+        with open(config_path) as f:
+            config = json.load(f)
+    except json.JSONDecodeError as e:
+        print(f"Error: Invalid JSON in {config_path}: {e}")
+        return False
+
+    # Check required fields
+    for key, expected_type in SCHEMA.items():
+        if key not in config:
+            print(f"Error: Missing required field: {key}")
+            return False
+
+        if not isinstance(config[key], expected_type):
+            print(f"Error: Field '{key}' should be {expected_type.__name__}, got {type(config[key]).__name__}")
+            return False
+
+    # Validate log level
+    if config["log_level"] not in VALID_LOG_LEVELS:
+        print(f"Error: Invalid log_level '{config['log_level']}'. Must be one of: {VALID_LOG_LEVELS}")
+        return False
+
+    # Validate video quality
+    if config["video_quality"] not in VALID_VIDEO_QUALITIES:
+        print(f"Error: Invalid video_quality '{config['video_quality']}'. Must be one of: {VALID_VIDEO_QUALITIES}")
+        return False
+
+    # Validate positive integers
+    if config["recording_interval"] <= 0:
+        print("Error: recording_interval must be positive")
+        return False
+
+    if config["processing_interval"] <= 0:
+        print("Error: processing_interval must be positive")
+        return False
+
+    if config["max_storage_gb"] <= 0:
+        print("Error: max_storage_gb must be positive")
+        return False
+
+    print(f"Configuration valid: {config_path}")
+    return True
+
+if __name__ == "__main__":
+    config_file = "dev_config.json" if Path("dev_config.json").exists() else "config.json"
+    success = validate_config(config_file)
+    sys.exit(0 if success else 1)
+```
+
+### Build Commands Reference
+
+**Quick Reference:**
+
 ```bash
-brew install swiftlint
-brew install --cask injectioniii
-pip3 install pre-commit flake8 pytest
+# Development build
+xcodebuild -scheme Playback-Development -configuration Debug build
+
+# Run development build
+open build/Debug/Playback.app
+
+# Run unit tests
+xcodebuild test -scheme Playback-Development -destination 'platform=macOS'
+
+# Run only fast tests
+xcodebuild test -scheme Playback-Development -only-testing:PlaybackTests/FastTests
+
+# Production build
+./scripts/build_release.sh
+
+# Clean build
+xcodebuild clean -scheme Playback-Development
+rm -rf build/
+
+# Lint code
+swiftlint --strict
+flake8 scripts/ --max-line-length=120
+
+# Run Python tests
+python3 -m pytest scripts/tests/ -v
+
+# Validate configuration
+python3 scripts/validate_config.py
 ```
 
-## Troubleshooting
+### Troubleshooting Common Build Issues
 
-### Build Failures
+**Issue: Code signing failed**
+```bash
+# List available signing identities
+security find-identity -v -p codesigning
 
-**Issue:** "Code signing failed"
-**Solution:** Check Developer ID certificate in Keychain
+# Unlock keychain
+security unlock-keychain ~/Library/Keychains/login.keychain
+```
 
-**Issue:** "Python scripts not found"
-**Solution:** Ensure scripts/ copied to Resources in Build Phases
+**Issue: Python scripts not found in development**
+```bash
+# Verify PLAYBACK_DEV_MODE is set
+echo $PLAYBACK_DEV_MODE
 
-**Issue:** "Database not found"
-**Solution:** Create dev_data/ directory: `mkdir -p dev_data/{temp,chunks}`
+# Check script paths
+ls -la scripts/
+```
 
-### Test Failures
+**Issue: FFmpeg not found**
+```bash
+# Install FFmpeg
+brew install ffmpeg
 
-**Issue:** UI tests timeout
-**Solution:** Increase timeout or run on faster machine
+# Verify installation
+ffmpeg -version
+```
 
-**Issue:** Integration tests fail (LaunchAgent not found)
-**Solution:** Install development LaunchAgents: `./scripts/install_dev_launchagents.sh`
+**Issue: Tests failing in CI/CD**
+```bash
+# Run tests locally with same configuration
+xcodebuild test \
+  -scheme Playback-Development \
+  -destination 'platform=macOS' \
+  -enableCodeCoverage YES
+```
 
-## Performance Benchmarks
+**Issue: Notarization failed**
+```bash
+# Check notarization status
+xcrun notarytool log <submission-id> --keychain-profile "AC_PASSWORD"
 
-### Build Times
+# Verify entitlements
+codesign -d --entitlements :- build/Release/Playback.app
+```
 
-- **Development build:** ~30 seconds (incremental: ~5 seconds)
-- **Production build:** ~2 minutes (full rebuild + notarization: ~10 minutes)
+## Testing Checklist
 
-### Test Times
+### Unit Tests (Fast - ~5 seconds)
+- [ ] Test segment selection logic
+  - Given: Multiple segments in database
+  - When: Query for timestamp
+  - Then: Return correct segment with offset
 
-- **Unit tests:** ~5 seconds
-- **Integration tests:** ~30 seconds
-- **UI tests:** ~2 minutes
-- **Pre-commit tests:** ~15 seconds
+- [ ] Test time mapping calculations
+  - Given: Segment with known duration and frame count
+  - When: Convert absolute time to video offset
+  - Then: Return correct video position
 
-## Future Enhancements
+- [ ] Test gap handling
+  - Given: Timestamp between segments
+  - When: Query for segment
+  - Then: Return closest segment
 
-1. **Incremental Builds** - Cache unchanged modules
-2. **Parallel Testing** - Run tests concurrently
-3. **Test Coverage Reports** - Track code coverage over time
-4. **Performance Testing** - Automated performance regression detection
-5. **Docker Builds** - Reproducible builds in containers
+- [ ] Test configuration loading
+  - Given: Valid config.json file
+  - When: Load configuration
+  - Then: Parse all settings correctly
+
+- [ ] Test environment detection
+  - Given: DEVELOPMENT build flag
+  - When: Check Environment.current
+  - Then: Return .development
+
+- [ ] Test path resolution
+  - Given: Development environment
+  - When: Resolve data directory
+  - Then: Return dev_data/ path
+
+### Integration Tests (~30 seconds)
+- [ ] Test recording to processing flow
+  - Start RecordingService in dev mode
+  - Wait for screenshots (5 seconds)
+  - Stop recording
+  - Run ProcessingService
+  - Verify: Database has segments
+
+- [ ] Test settings to service propagation
+  - Change recording interval in settings
+  - Reload LaunchAgent
+  - Verify: Agent uses new interval
+
+- [ ] Test manual processing trigger
+  - Trigger processing from menu bar
+  - Wait for completion
+  - Verify: Segments created and database updated
+
+- [ ] Test app exclusion configuration
+  - Add app to exclusion list
+  - Trigger recording
+  - Verify: Screenshots skipped when app is active
+
+### UI Tests (~2 minutes)
+- [ ] Test app launch and menu bar
+  - Launch app
+  - Verify: Menu bar icon appears
+  - Verify: Menu items accessible
+
+- [ ] Test recording toggle
+  - Click "Start Recording" in menu bar
+  - Verify: Status icon changes
+  - Verify: RecordingService starts
+
+- [ ] Test settings window
+  - Open settings from menu bar
+  - Verify: All tabs accessible
+  - Verify: Preferences can be toggled
+
+- [ ] Test timeline viewer
+  - Open timeline (Option+Shift+Space)
+  - Verify: Timeline window appears
+  - Verify: Video plays
+
+- [ ] Test date/time picker
+  - Click time bubble in timeline
+  - Verify: Date picker appears
+  - Select date
+  - Verify: Video jumps to selected time
+
+- [ ] Test search functionality
+  - Open timeline
+  - Press Command+F
+  - Enter search query
+  - Verify: Results appear
+
+- [ ] Test uninstall dialog
+  - Open settings
+  - Click "Uninstall" tab
+  - Click "Uninstall Playback"
+  - Verify: Confirmation dialog appears
+
+### Pre-Commit Tests (~15 seconds)
+- [ ] Verify SwiftLint passes
+  - Run: `swiftlint --strict --quiet`
+  - Expected: No violations
+
+- [ ] Verify flake8 passes
+  - Run: `flake8 scripts/ --max-line-length=120`
+  - Expected: No violations
+
+- [ ] Verify fast unit tests pass
+  - Run: Unit tests tagged with @fast
+  - Expected: All pass
+
+- [ ] Verify Python tests pass
+  - Run: `python3 -m pytest scripts/tests/ -v`
+  - Expected: All pass
+
+- [ ] Verify configuration validation passes
+  - Run: `python3 scripts/validate_config.py`
+  - Expected: Config schema valid
+
+### Build Tests
+- [ ] Test development build
+  - Run: `xcodebuild -scheme Playback-Development`
+  - Expected: Build succeeds in ~30 seconds
+  - Verify: Playback.app in build/Debug/
+
+- [ ] Test production build
+  - Run: `./scripts/build_release.sh`
+  - Expected: Build succeeds in ~2 minutes
+  - Verify: Playback-{VERSION}.pkg created
+  - Verify: Package is signed and notarized
+
+- [ ] Test incremental build
+  - Make small code change
+  - Run: `xcodebuild -scheme Playback-Development`
+  - Expected: Build succeeds in ~5 seconds
+
+### Performance Tests
+- [ ] Verify build time benchmarks
+  - Development build: ~30 seconds (full)
+  - Development build: ~5 seconds (incremental)
+  - Production build: ~2 minutes (full)
+  - Unit tests: ~5 seconds
+  - Integration tests: ~30 seconds
+  - UI tests: ~2 minutes
+  - Pre-commit tests: ~15 seconds
+
+- [ ] Test under continuous development
+  - Make 10 sequential code changes
+  - Run development build each time
+  - Verify: Incremental builds remain fast
+
+### CI/CD Tests
+- [ ] Verify GitHub Actions workflow
+  - Push to branch
+  - Verify: Workflow triggers
+  - Verify: All steps pass
+  - Expected time: ~10 minutes
+
+- [ ] Test on clean environment
+  - Use fresh macOS installation
+  - Run: `scripts/install_deps.sh`
+  - Run: GitHub Actions workflow steps manually
+  - Verify: All steps succeed
