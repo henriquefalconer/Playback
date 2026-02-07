@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>{{LABEL}}</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/bin/python3</string>
+        <string>{{SCRIPT_PATH}}/record_screen.py</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>{{WORKING_DIR}}</string>
+
+    <key>KeepAlive</key>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+        <key>Crashed</key>
+        <true/>
+    </dict>
+
+    <key>StandardOutPath</key>
+    <string>{{LOG_PATH}}/recording.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>{{LOG_PATH}}/recording-error.log</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PLAYBACK_CONFIG</key>
+        <string>{{CONFIG_PATH}}</string>
+        <key>PLAYBACK_DATA_DIR</key>
+        <string>{{DATA_DIR}}</string>
+        <key>PLAYBACK_DEV_MODE</key>
+        <string>{{DEV_MODE}}</string>
+    </dict>
+
+    <key>ProcessType</key>
+    <string>Background</string>
+
+    <key>Nice</key>
+    <integer>5</integer>
+
+    <key>RunAtLoad</key>
+    <false/>
+
+    <key>LimitLoadToSessionType</key>
+    <string>Aqua</string>
+</dict>
+</plist>
