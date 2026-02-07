@@ -19,6 +19,8 @@ Playback consists of separate components:
 
 ## Phase 1: Core Recording & Processing
 
+**Foundation Complete:** Shared Python utilities are fully implemented and both recording and processing scripts have been refactored to use them. The codebase now has a clean separation between service logic and reusable utilities.
+
 ### 1.1 Recording Service (Python LaunchAgent)
 - ✅ Implement screenshot capture using ScreenCaptureKit
 - ✅ Implement 2-second capture interval loop
@@ -26,9 +28,9 @@ Playback consists of separate components:
 - [ ] Implement timeline viewer detection (check for `.timeline_open` file)
 - [ ] Implement automatic pause when timeline viewer open
 - ✅ Implement screen unavailability detection (screensaver, display off)
+- ✅ Implement file naming convention (YYYYMMDD-HHMMSS-uuid-app_id) - now using timestamps.py
+- ✅ Implement date-based directory structure (YYYYMM/DD/) - now using paths.py
 - Implement app exclusion logic (skip mode)
-- Implement file naming convention (YYYYMMDD-HHMMSS-uuid-app_id)
-- Implement date-based directory structure (YYYYMM/DD/)
 - Implement structured JSON logging
 - Implement permission checks (Screen Recording, Accessibility)
 - Implement graceful error handling and recovery
@@ -38,9 +40,9 @@ Playback consists of separate components:
 - ✅ Implement temp file scanning and grouping
 - ✅ Implement FFmpeg video generation (H.264, CRF 28, 30fps)
 - ✅ Implement segment ID generation
+- ✅ Implement segment metadata extraction (duration, frame count, dimensions) - now using database.py
+- ✅ Implement database insertion for segments - now using database.py
 - Implement 5-minute processing interval via LaunchAgent
-- Implement segment metadata extraction (duration, frame count, dimensions)
-- Implement database insertion for segments
 - Implement app segment aggregation and timeline generation
 - Implement temp file cleanup after processing
 - Implement error handling for corrupted frames
@@ -48,13 +50,13 @@ Playback consists of separate components:
 - Implement progress logging and metrics
 
 ### 1.3 Shared Python Utilities (src/lib/)
-- Implement paths.py for environment-aware path resolution
-- Implement database.py for SQLite operations and schema management
-- Implement video.py for FFmpeg wrappers and video processing
-- Implement macos.py for CoreGraphics and AppleScript integration
-- Implement timestamps.py for filename parsing and generation
-- Migrate duplicated logic from recording/processing services
-- Implement unit tests for all shared utilities
+- ✅ Implement paths.py for environment-aware path resolution
+- ✅ Implement database.py for SQLite operations and schema management
+- ✅ Implement video.py for FFmpeg wrappers and video processing
+- ✅ Implement macos.py for CoreGraphics and AppleScript integration
+- ✅ Implement timestamps.py for filename parsing and generation
+- ✅ Migrate duplicated logic from recording/processing services
+- ✅ Implement unit tests for all shared utilities (test_macos.py created)
 
 ### 1.4 Configuration System
 - Implement ConfigManager in Swift

@@ -18,26 +18,18 @@ Requisitos:
 """
 
 import argparse
-import os
-import re
-import shutil
-import sqlite3
-import subprocess
-import tempfile
+import sys
 from dataclasses import dataclass
-from datetime import datetime
 from pathlib import Path
 from typing import List, Optional, Tuple
 
+# Add parent directory to path for lib imports
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-PLAYBACK_ROOT = PROJECT_ROOT / "com.playback.Playback"
-TEMP_ROOT = PLAYBACK_ROOT / "temp"
-CHUNKS_ROOT = PLAYBACK_ROOT / "chunks"
-META_DB_PATH = PLAYBACK_ROOT / "meta.sqlite3"
-
-
-DATE_RE = re.compile(r"^(?P<date>\d{8})-(?P<time>\d{6})")
+from lib.database import init_database, generate_segment_id
+from lib.paths import get_temp_directory, get_chunks_directory, get_database_path
+from lib.timestamps import parse_timestamp_from_name, parse_app_from_name
+from lib.video import get_image_size, create_video_from_images
 
 
 @dataclass
@@ -49,69 +41,6 @@ class FrameInfo:
     height: Optional[int] = None
 
 
-def get_image_size(path: Path) -> Tuple[Optional[int], Optional[int]]:
-    """
-    Obtém (largura, altura) de um frame PNG usando ffprobe.
-    Se algo falhar, retorna (None, None).
-    """
-    try:
-        cmd = [
-            "ffprobe",
-            "-v",
-            "error",
-            "-select_streams",
-            "v:0",
-            "-show_entries",
-            "stream=width,height",
-            "-of",
-            "csv=p=0:s=x",
-            str(path),
-        ]
-        out = subprocess.check_output(cmd, text=True).strip()
-        if not out:
-            return None, None
-        w_str, h_str = out.split("x")
-        return int(w_str), int(h_str)
-    except Exception:
-        return None, None
-
-
-def parse_timestamp_from_name(name: str) -> Optional[float]:
-    """
-    Tenta extrair timestamp do padrão YYYYMMDD-HHMMSS-... no nome do arquivo.
-    Retorna epoch seconds ou None se não bater o padrão.
-    """
-    m = DATE_RE.match(name)
-    if not m:
-        return None
-    date_str = m.group("date")
-    time_str = m.group("time")
-    dt = datetime.strptime(date_str + time_str, "%Y%m%d%H%M%S")
-    return dt.timestamp()
-
-
-def parse_app_from_name(name: str) -> Optional[str]:
-    """
-    Extrai o app_id do nome do frame, se estiver no formato:
-      YYYYMMDD-HHMMSS-<uuid>-<app_id>
-    Retorna None se não houver essa parte.
-    """
-    m = DATE_RE.match(name)
-    if not m:
-        return None
-    # Após o match teremos algo como "-<uuid>-<app_id>"
-    rest = name[m.end() :]
-    if not rest.startswith("-"):
-        return None
-    rest = rest[1:]  # remove o primeiro '-'
-    parts = rest.split("-", 1)
-    if len(parts) != 2:
-        return None
-    # uuid = parts[0]
-    app_id = parts[1] or None
-    return app_id
-
-
 def load_frames_for_day(day: str) -> List[FrameInfo]:
     """
     Carrega todos os frames de temp/YYYYMM/DD relativos ao dia informado
@@ -119,7 +48,7 @@ def load_frames_for_day(day: str) -> List[FrameInfo]:
     """
     year_month = day[:6]
     day_only = day[6:]
-    day_dir = TEMP_ROOT / year_month / day_only
+    day_dir = get_temp_directory() / year_month / day_only
 
     if not day_dir.is_dir():
         raise FileNotFoundError(f"Pasta de frames não encontrada: {day_dir}")
@@ -132,7 +61,7 @@ def load_frames_for_day(day: str) -> List[FrameInfo]:
         if entry.name.startswith("."):
             continue
 
-        # Para a linha do tempo, confiamos sempre no \"Date Created\" do arquivo
+        # Para a linha do tempo, confiamos sempre no "Date Created" do arquivo
         # (st_birthtime no macOS). Se não existir, usamos mtime como fallback.
         st = entry.stat()
         ts = getattr(st, "st_birthtime", None) or st.st_mtime
@@ -168,7 +97,7 @@ def group_frames_by_count(
     frames consecutivos **e** garantindo que cada segmento tenha apenas um
     formato de quadro (mesma largura/altura).
 
-    Isso \"comprime\" uma sequência arbitrariamente longa de screenshots em
+    Isso "comprime" uma sequência arbitrariamente longa de screenshots em
     vídeos curtos de N frames (ex.: 150 frames = 5s a 30fps), sem repetir
     frames.
     """
@@ -204,199 +133,6 @@ def group_frames_by_count(
         segments.append(current_segment)
 
     return segments
-
-
-def init_meta_db(path: Path) -> None:
-    """
-    Cria (se não existir) um pequeno banco SQLite para registrar segmentos
-    de vídeo e faixas de uso por app (appsegments).
-    """
-    conn = sqlite3.connect(path)
-    try:
-        cur = conn.cursor()
-        cur.execute(
-            """
-            CREATE TABLE IF NOT EXISTS segments (
-                id TEXT PRIMARY KEY,
-                date TEXT NOT NULL,
-                start_ts REAL NOT NULL,
-                end_ts REAL NOT NULL,
-                frame_count INTEGER NOT NULL,
-                fps REAL,
-                width INTEGER,
-                height INTEGER,
-                file_size_bytes INTEGER NOT NULL,
-                video_path TEXT NOT NULL
-            )
-            """
-        )
-        cur.execute(
-            """
-            CREATE TABLE IF NOT EXISTS appsegments (
-                id TEXT PRIMARY KEY,
-                app_id TEXT,
-                date TEXT NOT NULL,
-                start_ts REAL NOT NULL,
-                end_ts REAL NOT NULL
-            )
-            """
-        )
-        conn.commit()
-    finally:
-        conn.close()
-
-
-def generate_segment_id() -> str:
-    """
-    Gera um ID curto pseudo-aleatório para o segmento.
-    Não precisa bater exatamente o padrão do app original.
-    """
-    return os.urandom(10).hex()
-
-
-def run_ffmpeg_make_segment(
-    frames: List[FrameInfo],
-    fps: float,
-    crf: int,
-    preset: str,
-    dest_without_ext: Path,
-) -> Tuple[int, Optional[int], Optional[int]]:
-    """
-    Gera um vídeo HEVC a partir de uma lista de frames, usando ffmpeg.
-    Retorna (file_size_bytes, width, height).
-    """
-    # Arquivo final usará extensão .mp4 para melhor compatibilidade com AVPlayer/QuickTime.
-    dest_tmp = dest_without_ext.with_suffix(".mp4")
-
-    with tempfile.TemporaryDirectory() as tmpdir_str:
-        tmpdir = Path(tmpdir_str)
-
-        # Copia frames para nomes sequenciais .png
-        for idx, frame in enumerate(frames, start=1):
-            target = tmpdir / f"frame_{idx:05d}.png"
-            shutil.copy2(frame.path, target)
-
-        cmd = [
-            "ffmpeg",
-            "-y",
-            "-framerate",
-            str(fps),
-            "-i",
-            str(tmpdir / "frame_%05d.png"),
-            "-c:v",
-            "libx264",  # H.264 para melhor compatibilidade com AVPlayer/QuickTime
-            "-preset",
-            preset,
-            "-crf",
-            str(crf),
-            "-pix_fmt",
-            "yuv420p",
-            str(dest_tmp),
-        ]
-
-        subprocess.run(cmd, check=True)
-
-    # Mantemos a extensão .mp4 (não renomeamos), pois players nativos do macOS
-    # se baseiam bastante na extensão para detectar o formato.
-    st = dest_tmp.stat()
-    size = st.st_size
-
-    # Pega width/height com ffprobe (opcional)
-    try:
-        probe_cmd = [
-            "ffprobe",
-            "-v",
-            "error",
-            "-select_streams",
-            "v:0",
-            "-show_entries",
-            "stream=width,height",
-            "-of",
-            "default=noprint_wrappers=1:nokey=1",
-            str(dest_tmp),
-        ]
-        out = subprocess.check_output(probe_cmd, text=True)
-        lines = [l for l in out.splitlines() if l.strip()]
-        if len(lines) >= 2:
-            width = int(lines[0])
-            height = int(lines[1])
-        else:
-            width = height = None
-    except Exception:
-        width = height = None
-
-    return size, width, height
-
-
-def insert_segment_meta(
-    db_path: Path,
-    segment_id: str,
-    date_str: str,
-    frames: List[FrameInfo],
-    fps: float,
-    file_size_bytes: int,
-    video_rel_path: str,
-    width: Optional[int],
-    height: Optional[int],
-) -> None:
-    conn = sqlite3.connect(db_path)
-    try:
-        cur = conn.cursor()
-        # Usamos timestamps reais dos frames (Date Created em temp) para
-        # representar o intervalo coberto por este segmento.
-        start_ts = frames[0].ts
-        end_ts = frames[-1].ts
-        cur.execute(
-            """
-            INSERT OR REPLACE INTO segments
-            (id, date, start_ts, end_ts, frame_count, fps, width, height, file_size_bytes, video_path)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                segment_id,
-                date_str,
-                start_ts,
-                end_ts,
-                len(frames),
-                fps,
-                width,
-                height,
-                file_size_bytes,
-                video_rel_path,
-            ),
-        )
-        conn.commit()
-    finally:
-        conn.close()
-
-
-def insert_appsegment_meta(
-    db_path: Path,
-    appsegment_id: str,
-    date_str: str,
-    app_id: Optional[str],
-    start_ts: float,
-    end_ts: float,
-) -> None:
-    """
-    Registra uma faixa contínua de tempo em que um determinado app (app_id)
-    estava ativo na tela. Essas faixas podem atravessar múltiplos segmentos
-    de vídeo ou cobrir apenas parte de um segmento.
-    """
-    conn = sqlite3.connect(db_path)
-    try:
-        cur = conn.cursor()
-        cur.execute(
-            """
-            INSERT OR REPLACE INTO appsegments
-            (id, app_id, date, start_ts, end_ts)
-            VALUES (?, ?, ?, ?, ?)
-            """,
-            (appsegment_id, app_id, date_str, start_ts, end_ts),
-        )
-        conn.commit()
-    finally:
-        conn.close()
 
 
 def build_appsegments_for_day(frames: List[FrameInfo]) -> List[Tuple[Optional[str], float, float]]:
@@ -464,10 +200,10 @@ def process_day(
 
     year_month = day[:6]
     day_only = day[6:]
-    day_chunks_dir = CHUNKS_ROOT / year_month / day_only
+    day_chunks_dir = get_chunks_directory() / year_month / day_only
     day_chunks_dir.mkdir(parents=True, exist_ok=True)
 
-    init_meta_db(META_DB_PATH)
+    db = init_database(get_database_path())
 
     date_str = f"{day[:4]}-{day[4:6]}-{day[6:]}"
 
@@ -476,24 +212,34 @@ def process_day(
         dest_without_ext = day_chunks_dir / segment_id
         print(f"[build_chunks] Segmento {idx}/{len(segments)} -> {dest_without_ext}.mp4")
 
-        size, width, height = run_ffmpeg_make_segment(
-            seg_frames,
+        # Use shared library function for video creation
+        frame_paths = [frame.path for frame in seg_frames]
+        size, width, height = create_video_from_images(
+            image_paths=frame_paths,
+            output_path=dest_without_ext,
             fps=fps,
+            codec="libx264",
             crf=crf,
             preset=preset,
-            dest_without_ext=dest_without_ext,
+            pix_fmt="yuv420p",
         )
 
-        # Caminho relativo deve apontar para o arquivo .mp4
-        rel_path = str(dest_without_ext.with_suffix(".mp4").relative_to(PLAYBACK_ROOT))
-        insert_segment_meta(
-            META_DB_PATH,
+        # Caminho relativo ao diretório base de dados
+        base_data_dir = get_database_path().parent
+        rel_path = str(dest_without_ext.with_suffix(".mp4").relative_to(base_data_dir))
+
+        # Use DatabaseManager methods instead of direct SQL
+        start_ts = seg_frames[0].ts
+        end_ts = seg_frames[-1].ts
+        db.insert_segment(
             segment_id=segment_id,
             date_str=date_str,
-            frames=seg_frames,
+            start_ts=start_ts,
+            end_ts=end_ts,
+            frame_count=len(seg_frames),
             fps=fps,
             file_size_bytes=size,
-            video_rel_path=rel_path,
+            video_path=rel_path,
             width=width,
             height=height,
         )
@@ -501,13 +247,12 @@ def process_day(
     # Persiste todos os appsegments calculados para o dia.
     for app_id, start_ts, end_ts in appsegments:
         appsegment_id = generate_segment_id()
-        insert_appsegment_meta(
-            META_DB_PATH,
+        db.insert_appsegment(
             appsegment_id=appsegment_id,
             date_str=date_str,
-            app_id=app_id,
             start_ts=start_ts,
             end_ts=end_ts,
+            app_id=app_id,
         )
 
 
@@ -561,5 +306,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
-
