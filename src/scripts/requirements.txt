@@ -6,6 +6,9 @@ pyobjc-framework-Vision>=10.0      # Apple Vision framework for OCR
 pyobjc-framework-Quartz>=10.0      # Core Graphics and image loading
 pyobjc-framework-Foundation>=10.0  # Foundation framework (NSURL, etc.)
 
+# System monitoring and metrics
+psutil>=6.1.1                       # Resource usage metrics (CPU, memory, disk)
+
 # Testing (if needed)
 # pytest>=7.0.0
 # pytest-cov>=4.0.0
