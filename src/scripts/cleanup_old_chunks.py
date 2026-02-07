@@ -39,6 +39,23 @@ from lib.paths import (
     get_database_path,
     get_temp_directory,
 )
+from lib.logging_config import (
+    setup_logger,
+    log_info,
+    log_warning,
+    log_error,
+    log_debug,
+    log_resource_metrics,
+    log_error_with_context,
+)
+import time
+
+# Import psutil for resource metrics (optional)
+try:
+    import psutil
+    PSUTIL_AVAILABLE = True
+except ImportError:
+    PSUTIL_AVAILABLE = False
 
 
 def format_size(bytes_count: int) -> str:
@@ -161,6 +178,7 @@ def calculate_cutoff_timestamp(policy: str) -> float:
 
 def cleanup_temp_files(
     policy: str,
+    logger,
     dry_run: bool = False,
     verbose: bool = False
 ) -> Tuple[int, int]:
@@ -169,6 +187,7 @@ def cleanup_temp_files(
 
     Args:
         policy: Retention policy to apply
+        logger: Logger instance
         dry_run: If True, only preview deletions without actually deleting
         verbose: If True, print detailed information
 
@@ -176,17 +195,33 @@ def cleanup_temp_files(
         Tuple of (files_deleted, bytes_freed)
     """
     if policy == "never":
-        if verbose:
-            print("[cleanup] Temp retention policy is 'never', skipping cleanup")
+        log_info(
+            logger,
+            "Skipping temp cleanup - policy is 'never'",
+            policy=policy
+        )
         return 0, 0
 
     cutoff_ts = calculate_cutoff_timestamp(policy)
     temp_dir = get_temp_directory()
 
     if not temp_dir.exists():
-        if verbose:
-            print(f"[cleanup] Temp directory does not exist: {temp_dir}")
+        log_info(
+            logger,
+            "Temp directory does not exist",
+            temp_dir=str(temp_dir)
+        )
         return 0, 0
+
+    log_info(
+        logger,
+        "Starting temp file cleanup",
+        policy=policy,
+        cutoff_timestamp=cutoff_ts,
+        cutoff_date=datetime.fromtimestamp(cutoff_ts).strftime('%Y-%m-%d %H:%M:%S'),
+        temp_dir=str(temp_dir),
+        dry_run=dry_run
+    )
 
     deleted_count = 0
     freed_bytes = 0
@@ -209,7 +244,15 @@ def cleanup_temp_files(
 
                     if verbose:
                         file_date = datetime.fromtimestamp(file_ts).strftime('%Y-%m-%d %H:%M:%S')
-                        print(f"[cleanup] {'Would delete' if dry_run else 'Deleting'}: {file} ({format_size(file_size)}, {file_date})")
+                        log_debug(
+                            logger,
+                            f"{'Would delete' if dry_run else 'Deleting'} temp file",
+                            file_name=file,
+                            file_size_bytes=file_size,
+                            file_size_formatted=format_size(file_size),
+                            file_date=file_date,
+                            dry_run=dry_run
+                        )
 
                     if not dry_run:
                         file_path.unlink()
@@ -218,7 +261,12 @@ def cleanup_temp_files(
                     freed_bytes += file_size
 
             except Exception as e:
-                print(f"[cleanup] Error processing {file_path}: {e}")
+                log_error_with_context(
+                    logger,
+                    e,
+                    "Error processing temp file",
+                    file_path=str(file_path)
+                )
 
     # Clean up empty directories
     if not dry_run:
@@ -231,16 +279,36 @@ def cleanup_temp_files(
                     if not remaining:
                         dir_path.rmdir()
                         if verbose:
-                            print(f"[cleanup] Removed empty directory: {dir_path}")
+                            log_debug(
+                                logger,
+                                "Removed empty directory",
+                                directory=str(dir_path)
+                            )
                 except Exception as e:
                     if verbose:
-                        print(f"[cleanup] Could not remove directory {dir_path}: {e}")
+                        log_warning(
+                            logger,
+                            "Could not remove directory",
+                            directory=str(dir_path),
+                            error=str(e)
+                        )
+
+    log_info(
+        logger,
+        "Temp file cleanup completed",
+        files_deleted=deleted_count,
+        bytes_freed=freed_bytes,
+        bytes_freed_formatted=format_size(freed_bytes),
+        policy=policy,
+        dry_run=dry_run
+    )
 
     return deleted_count, freed_bytes
 
 
 def cleanup_old_recordings(
     policy: str,
+    logger,
     dry_run: bool = False,
     verbose: bool = False
 ) -> Tuple[int, int]:
@@ -251,6 +319,7 @@ def cleanup_old_recordings(
 
     Args:
         policy: Retention policy to apply
+        logger: Logger instance
         dry_run: If True, only preview deletions without actually deleting
         verbose: If True, print detailed information
 
@@ -258,20 +327,43 @@ def cleanup_old_recordings(
         Tuple of (segments_deleted, bytes_freed)
     """
     if policy == "never":
-        if verbose:
-            print("[cleanup] Recording retention policy is 'never', skipping cleanup")
+        log_info(
+            logger,
+            "Skipping recording cleanup - policy is 'never'",
+            policy=policy
+        )
         return 0, 0
 
     cutoff_ts = calculate_cutoff_timestamp(policy)
     db = init_database(get_database_path())
 
+    log_info(
+        logger,
+        "Starting recording cleanup",
+        policy=policy,
+        cutoff_timestamp=cutoff_ts,
+        cutoff_date=datetime.fromtimestamp(cutoff_ts).strftime('%Y-%m-%d %H:%M:%S'),
+        dry_run=dry_run
+    )
+
     # Find old segments
     old_segments = db.get_old_segments(cutoff_ts)
 
     if not old_segments:
-        if verbose:
-            print("[cleanup] No old segments found to delete")
+        log_info(
+            logger,
+            "No old segments found to delete",
+            policy=policy,
+            cutoff_timestamp=cutoff_ts
+        )
         return 0, 0
+
+    log_info(
+        logger,
+        "Found old segments to delete",
+        segment_count=len(old_segments),
+        policy=policy
+    )
 
     deleted_count = 0
     freed_bytes = 0
@@ -287,8 +379,15 @@ def cleanup_old_recordings(
                 file_size = full_path.stat().st_size
 
                 if verbose:
-                    segment_date = datetime.fromtimestamp(cutoff_ts).strftime('%Y-%m-%d %H:%M:%S')
-                    print(f"[cleanup] {'Would delete' if dry_run else 'Deleting'}: {video_path} ({format_size(file_size)})")
+                    log_debug(
+                        logger,
+                        f"{'Would delete' if dry_run else 'Deleting'} recording segment",
+                        segment_id=segment_id,
+                        video_path=video_path,
+                        file_size_bytes=file_size,
+                        file_size_formatted=format_size(file_size),
+                        dry_run=dry_run
+                    )
 
                 # Delete video file
                 if not dry_run:
@@ -305,7 +404,13 @@ def cleanup_old_recordings(
             deleted_count += 1
 
         except Exception as e:
-            print(f"[cleanup] Error deleting segment {segment_id}: {e}")
+            log_error_with_context(
+                logger,
+                e,
+                "Error deleting segment",
+                segment_id=segment_id,
+                video_path=video_path
+            )
 
     # Clean up empty directories
     if not dry_run:
@@ -319,15 +424,35 @@ def cleanup_old_recordings(
                     if not remaining:
                         dir_path.rmdir()
                         if verbose:
-                            print(f"[cleanup] Removed empty directory: {dir_path}")
+                            log_debug(
+                                logger,
+                                "Removed empty directory",
+                                directory=str(dir_path)
+                            )
                 except Exception as e:
                     if verbose:
-                        print(f"[cleanup] Could not remove directory {dir_path}: {e}")
+                        log_warning(
+                            logger,
+                            "Could not remove directory",
+                            directory=str(dir_path),
+                            error=str(e)
+                        )
+
+    log_info(
+        logger,
+        "Recording cleanup completed",
+        segments_deleted=deleted_count,
+        bytes_freed=freed_bytes,
+        bytes_freed_formatted=format_size(freed_bytes),
+        policy=policy,
+        dry_run=dry_run
+    )
 
     return deleted_count, freed_bytes
 
 
 def cleanup_orphaned_segments(
+    logger,
     dry_run: bool = False,
     verbose: bool = False
 ) -> int:
@@ -335,6 +460,7 @@ def cleanup_orphaned_segments(
     Remove database entries for segments with missing video files.
 
     Args:
+        logger: Logger instance
         dry_run: If True, only preview deletions without actually deleting
         verbose: If True, print detailed information
 
@@ -344,6 +470,13 @@ def cleanup_orphaned_segments(
     db = init_database(get_database_path())
     segments = db.get_all_segments()
 
+    log_info(
+        logger,
+        "Starting orphaned segment cleanup",
+        total_segments=len(segments),
+        dry_run=dry_run
+    )
+
     orphaned_count = 0
     base_data_dir = get_database_path().parent
 
@@ -352,21 +485,36 @@ def cleanup_orphaned_segments(
 
         if not full_path.exists():
             if verbose:
-                print(f"[cleanup] {'Would remove' if dry_run else 'Removing'} orphaned segment: {segment.id} ({segment.video_path})")
+                log_debug(
+                    logger,
+                    f"{'Would remove' if dry_run else 'Removing'} orphaned segment",
+                    segment_id=segment.id,
+                    video_path=segment.video_path,
+                    dry_run=dry_run
+                )
 
             if not dry_run:
                 db.delete_segment(segment.id)
 
             orphaned_count += 1
 
+    log_info(
+        logger,
+        "Orphaned segment cleanup completed",
+        orphaned_count=orphaned_count,
+        total_segments_scanned=len(segments),
+        dry_run=dry_run
+    )
+
     return orphaned_count
 
 
-def vacuum_database(verbose: bool = False) -> int:
+def vacuum_database(logger, verbose: bool = False) -> int:
     """
     Reclaim space from deleted rows in database.
 
     Args:
+        logger: Logger instance
         verbose: If True, print detailed information
 
     Returns:
@@ -375,15 +523,23 @@ def vacuum_database(verbose: bool = False) -> int:
     db_path = get_database_path()
 
     if not db_path.exists():
-        if verbose:
-            print("[cleanup] Database does not exist, skipping vacuum")
+        log_info(
+            logger,
+            "Database does not exist, skipping vacuum",
+            db_path=str(db_path)
+        )
         return 0
 
     # Get size before vacuum
     size_before = db_path.stat().st_size
 
-    if verbose:
-        print(f"[cleanup] Database size before vacuum: {format_size(size_before)}")
+    log_info(
+        logger,
+        "Starting database vacuum",
+        db_path=str(db_path),
+        size_before_bytes=size_before,
+        size_before_formatted=format_size(size_before)
+    )
 
     # Execute vacuum
     db = init_database(db_path)
@@ -393,23 +549,48 @@ def vacuum_database(verbose: bool = False) -> int:
     size_after = db_path.stat().st_size
     freed_bytes = size_before - size_after
 
-    if verbose:
-        print(f"[cleanup] Database size after vacuum: {format_size(size_after)}")
-        print(f"[cleanup] Space freed by vacuum: {format_size(freed_bytes)}")
+    log_info(
+        logger,
+        "Database vacuum completed",
+        size_before_bytes=size_before,
+        size_after_bytes=size_after,
+        bytes_freed=freed_bytes,
+        size_before_formatted=format_size(size_before),
+        size_after_formatted=format_size(size_after),
+        bytes_freed_formatted=format_size(freed_bytes)
+    )
 
     return freed_bytes
 
 
-def print_storage_report(verbose: bool = False) -> None:
+def print_storage_report(logger, verbose: bool = False) -> None:
     """
     Print storage usage report.
 
     Args:
+        logger: Logger instance
         verbose: If True, include additional details
     """
     usage = calculate_storage_usage()
     available = get_disk_space_available()
 
+    # Log structured storage metrics
+    log_info(
+        logger,
+        "Storage usage report",
+        temp_bytes=usage['temp_bytes'],
+        chunks_bytes=usage['chunks_bytes'],
+        database_bytes=usage['database_bytes'],
+        total_bytes=usage['total_bytes'],
+        disk_available_bytes=available,
+        temp_formatted=format_size(usage['temp_bytes']),
+        chunks_formatted=format_size(usage['chunks_bytes']),
+        database_formatted=format_size(usage['database_bytes']),
+        total_formatted=format_size(usage['total_bytes']),
+        available_formatted=format_size(available)
+    )
+
+    # Print user-facing report
     print("\n=== Storage Usage Report ===")
     print(f"Temp files:     {format_size(usage['temp_bytes'])}")
     print(f"Video chunks:   {format_size(usage['chunks_bytes'])}")
@@ -489,12 +670,38 @@ def main() -> None:
     """Main entry point for cleanup script."""
     args = parse_args()
 
+    # Setup structured logging
+    logger = setup_logger("cleanup", log_level="INFO", console_output=False)
+
+    start_time = time.time()
+
+    # Log service initialization
+    log_info(
+        logger,
+        "Cleanup service started",
+        auto_mode=args.auto,
+        dry_run=args.dry_run,
+        verbose=args.verbose,
+        report=args.report,
+        orphaned=args.orphaned,
+        vacuum=args.vacuum,
+        policy_override=args.policy,
+        temp_policy_override=args.temp_policy,
+        recording_policy_override=args.recording_policy,
+        psutil_available=PSUTIL_AVAILABLE
+    )
+
+    # Collect initial resource metrics
+    if PSUTIL_AVAILABLE:
+        log_resource_metrics(logger, "cleanup", operation="start")
+
     # Print storage report if requested
     if args.report:
-        print_storage_report(verbose=args.verbose)
+        print_storage_report(logger, verbose=args.verbose)
 
     # If no action specified and not auto mode, print usage
     if not (args.auto or args.policy or args.temp_policy or args.recording_policy or args.orphaned or args.vacuum):
+        log_info(logger, "No action specified, exiting")
         print("No action specified. Use --auto, --policy, --orphaned, --vacuum, or --report")
         sys.exit(0)
 
@@ -509,7 +716,16 @@ def main() -> None:
         temp_policy = args.temp_policy if args.temp_policy else config.temp_retention_policy
         recording_policy = args.recording_policy if args.recording_policy else config.recording_retention_policy
 
+    log_info(
+        logger,
+        "Cleanup policies determined",
+        temp_policy=temp_policy,
+        recording_policy=recording_policy,
+        dry_run=args.dry_run
+    )
+
     if args.dry_run:
+        log_info(logger, "Running in DRY RUN mode - no files will be deleted")
         print("[cleanup] DRY RUN MODE - No files will be deleted")
         print()
 
@@ -523,6 +739,7 @@ def main() -> None:
 
         temp_deleted, temp_freed = cleanup_temp_files(
             policy=temp_policy,
+            logger=logger,
             dry_run=args.dry_run,
             verbose=args.verbose
         )
@@ -532,6 +749,9 @@ def main() -> None:
 
         print(f"[cleanup] Temp cleanup: {temp_deleted} files deleted, {format_size(temp_freed)} freed")
 
+        if PSUTIL_AVAILABLE:
+            log_resource_metrics(logger, "cleanup", operation="after_temp_cleanup")
+
     # Clean up old recordings
     if args.auto or args.policy or args.recording_policy:
         if args.verbose:
@@ -539,6 +759,7 @@ def main() -> None:
 
         recordings_deleted, recordings_freed = cleanup_old_recordings(
             policy=recording_policy,
+            logger=logger,
             dry_run=args.dry_run,
             verbose=args.verbose
         )
@@ -548,28 +769,38 @@ def main() -> None:
 
         print(f"[cleanup] Recording cleanup: {recordings_deleted} segments deleted, {format_size(recordings_freed)} freed")
 
+        if PSUTIL_AVAILABLE:
+            log_resource_metrics(logger, "cleanup", operation="after_recording_cleanup")
+
     # Clean up orphaned segments
     if args.orphaned:
         if args.verbose:
             print("[cleanup] Cleaning orphaned segments")
 
         orphaned_count = cleanup_orphaned_segments(
+            logger=logger,
             dry_run=args.dry_run,
             verbose=args.verbose
         )
 
         print(f"[cleanup] Orphaned segments: {orphaned_count} removed")
 
+        if PSUTIL_AVAILABLE:
+            log_resource_metrics(logger, "cleanup", operation="after_orphaned_cleanup")
+
     # Vacuum database
     if args.vacuum and not args.dry_run:
         if args.verbose:
             print("[cleanup] Vacuuming database")
 
-        vacuum_freed = vacuum_database(verbose=args.verbose)
+        vacuum_freed = vacuum_database(logger, verbose=args.verbose)
 
         total_bytes_freed += vacuum_freed
 
         print(f"[cleanup] Database vacuum: {format_size(vacuum_freed)} freed")
+
+        if PSUTIL_AVAILABLE:
+            log_resource_metrics(logger, "cleanup", operation="after_vacuum")
 
     # Print summary
     print()
@@ -577,6 +808,22 @@ def main() -> None:
 
     if args.dry_run:
         print("[cleanup] DRY RUN - No changes were made")
+
+    # Final metrics and summary
+    duration = time.time() - start_time
+
+    log_info(
+        logger,
+        "Cleanup service completed",
+        total_files_deleted=total_files_deleted,
+        total_bytes_freed=total_bytes_freed,
+        total_bytes_freed_formatted=format_size(total_bytes_freed),
+        duration_s=round(duration, 2),
+        dry_run=args.dry_run
+    )
+
+    if PSUTIL_AVAILABLE:
+        log_resource_metrics(logger, "cleanup", operation="end")
 
 
 if __name__ == "__main__":

@@ -652,7 +652,9 @@ Phase 4.1 delivers a complete full-text search system with OCR:
 
 ### 4.3 Logging & Diagnostics
 
-**Progress: 🟡 IN PROGRESS (55% - Service migrations complete, UI work remaining)**
+**Progress: 🟡 IN PROGRESS (70% - All service migrations complete, UI work remaining)**
+
+**Status: All 3 service migrations complete, UI work still pending**
 
 **Completed:**
 - ✅ Structured JSON logging system (lib/logging_config.py)
@@ -660,6 +662,7 @@ Phase 4.1 delivers a complete full-text search system with OCR:
 - ✅ Resource metrics collection (CPU, memory, disk I/O via psutil)
 - ✅ Recording service migration to structured logging
 - ✅ Processing service migration to structured logging
+- ✅ Cleanup service migration to structured logging
 - ✅ Comprehensive test suite (28 tests in test_logging_config.py)
 - ✅ psutil dependency added to requirements.txt (>=6.1.1)
 
@@ -670,6 +673,7 @@ Phase 4.1 delivers a complete full-text search system with OCR:
 **Files Modified:**
 - `src/scripts/record_screen.py` (migrated to structured logging with metrics)
 - `src/scripts/build_chunks_from_temp.py` (migrated to structured logging with metrics)
+- `src/scripts/cleanup_old_chunks.py` (migrated to structured logging with metrics)
 - `src/scripts/requirements.txt` (added psutil>=6.1.1)
 
 **Test Results:**
@@ -686,8 +690,16 @@ Phase 4.1 delivers a complete full-text search system with OCR:
 - Day-level and segment-level operation logging
 - Graceful degradation when psutil not available
 
+**Cleanup Service Migration (Completed 2026-02-07):**
+- All 38 print() statements replaced with structured logging
+- Resource metrics collection at 7 key points (start, after each cleanup operation, end)
+- Error context logging for all exceptions
+- Hybrid output approach (JSON logs + user-facing text report)
+- Dry-run awareness in all log messages
+- Log levels properly applied (info/warning/error/critical)
+- Storage statistics logging (deleted files, reclaimed space)
+
 **Remaining Work:**
-- Migrate cleanup service to structured logging
 - Implement log viewer UI in diagnostics tab
 - Implement log filtering and search
 - Implement health monitoring and alerts
