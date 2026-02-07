@@ -16,6 +16,8 @@ Key operational learnings from Phase 2 development (2026-02-07):
 - **Permission checking:** Screen Recording via Python/Quartz `CGWindowListCopyWindowInfo`, Accessibility via `AXIsProcessTrustedWithOptions`
 - **Byte formatting:** Use Foundation's `ByteCountFormatter` for proper GB/MB/KB formatting with automatic unit selection
 - **Shell command integration:** Use `Process` with `Pipe` for stdout/stderr, wrap in `async withCheckedContinuation` for SwiftUI async integration
+- **Python test discovery:** Use `python3 -m pytest src/` to run all tests recursively. Individual module breakdown: paths (32), timestamps (35), config (48), database (51), video (34), security (24), network (14), macos (6) = 244 total tests
+- **Config validation quirks:** None values crash during validation. String values for list fields (like `excluded_apps`) cause iteration over characters instead of list items
 
 ## Specifications
 
@@ -44,7 +46,8 @@ Run tests early and often to catch regressions.
 - **Fast tests only:** `xcodebuild test -scheme Playback-Development -only-testing:PlaybackTests/FastTests`
 - **Single test:** `xcodebuild test -scheme Playback-Development -only-testing:PlaybackTests/<TestName>`
 - **UI tests:** `xcodebuild test -scheme Playback-Development -only-testing:PlaybackUITests`
-- **Python tests:** `python3 -m pytest src/scripts/tests/ -v`
+- **Python tests (all):** `python3 -m pytest src/ -v`
+- **Python tests (specific):** `python3 -m pytest src/lib/test_<module>.py -v`
 - **Python linting:** `flake8 src/scripts/ --max-line-length=120`
 - **Swift linting:** `swiftlint --strict`
 
