@@ -71,6 +71,7 @@ struct TimelineView: View {
 
     @Binding var centerTime: TimeInterval
     @Binding var visibleWindowSeconds: TimeInterval
+    @Binding var showDatePicker: Bool
 
     @GestureState private var dragTranslation: CGFloat = 0
     @State private var dragStartCenterTime: TimeInterval?
@@ -299,10 +300,13 @@ struct TimelineView: View {
                     .position(x: geo.size.width / 2, y: barY + 48)
 
                 // Bubble de timestamp
-                VStack(spacing: 2) {
-                    Text(formattedTimestamp(currentTime))
-                        .font(.system(size: 14, weight: .medium))
-                }
+                Button(action: {
+                    showDatePicker = true
+                }) {
+                    VStack(spacing: 2) {
+                        Text(formattedTimestamp(currentTime))
+                            .font(.system(size: 14, weight: .medium))
+                    }
                     .padding(.horizontal, 20)
                     .padding(.vertical, 10)
                     .background(
@@ -310,7 +314,9 @@ struct TimelineView: View {
                             .fill(Color.white.opacity(0.92))
                     )
                     .foregroundColor(.black)
-                    .position(x: geo.size.width / 2, y: barY - 32)
+                }
+                .buttonStyle(.plain)
+                .position(x: geo.size.width / 2, y: barY - 32)
             }
         }
     }

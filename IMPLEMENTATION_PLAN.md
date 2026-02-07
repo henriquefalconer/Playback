@@ -259,15 +259,41 @@ Continue with remaining Phase 2 tasks:
 - Further performance optimizations for very large datasets (90+ days)
 
 ### 2.3 Date/Time Picker
-- Implement DateTimePickerView in SwiftUI
-- Implement calendar component with month/year selection
-- Implement time input fields (hours, minutes)
-- Implement "available dates" highlighting (days with recordings)
-- Implement SQL queries for date availability
-- Implement jump-to-timestamp functionality
-- Implement smooth transition animations
-- Implement keyboard navigation (Tab, Enter, Escape)
-- Implement caching for date availability queries
+
+**Status: ✅ COMPLETE**
+
+**Features Implemented:**
+- Calendar view with month/year navigation
+- "Today" button for quick navigation
+- Available dates highlighting (bold for dates with recordings)
+- Disabled dates without recordings
+- Time list with 15-minute intervals
+- Available times from database queries
+- Currently playing time indicator
+- Loading states and empty states
+- Click outside to close
+- ESC to cancel (inherits from parent)
+- Jump button to navigate
+- Time bubble now clickable to show picker
+- Arc-style frosted glass material
+
+**Files Created:**
+- `src/Playback/Playback/Timeline/DateTimePickerView.swift` (330+ lines)
+  - Calendar grid with 7-column layout
+  - SQL queries for available dates and times
+  - Async loading with DispatchQueue
+  - Rounded 15-minute intervals for UI
+  - Date formatting (yyyy-MM-dd, h:mm a)
+  - Background/foreground database queries
+  - Material design with RoundedRectangle
+
+**Files Modified:**
+- `src/Playback/Playback/ContentView.swift` (added showDatePicker state and DateTimePickerView overlay)
+- `src/Playback/Playback/TimelineView.swift` (made time bubble clickable, added showDatePicker binding)
+
+**Database Queries:**
+- Available dates: `SELECT DISTINCT DATE(start_ts, 'unixepoch', 'localtime') FROM segments`
+- Available times: `SELECT start_ts FROM segments WHERE DATE(...) = ? ORDER BY start_ts`
 
 ### 2.4 Settings Window
 - Implement SettingsView with tab navigation

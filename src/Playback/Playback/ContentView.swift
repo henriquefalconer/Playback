@@ -7,6 +7,7 @@ struct ContentView: View {
     @EnvironmentObject var playbackController: PlaybackController
 
     @State private var centerTime: TimeInterval = 0
+    @State private var showDatePicker = false
     // Janela de tempo visível na timeline (em segundos).
     // 3600s = 1h visível ao redor do instante atual.
     @State private var visibleWindowSeconds: TimeInterval = 60 * 1
@@ -66,7 +67,8 @@ struct ContentView: View {
 
                     TimelineView(
                         centerTime: $centerTime,
-                        visibleWindowSeconds: $visibleWindowSeconds
+                        visibleWindowSeconds: $visibleWindowSeconds,
+                        showDatePicker: $showDatePicker
                     )
                     .environmentObject(timelineStore)
                     .environmentObject(playbackController)
@@ -80,6 +82,21 @@ struct ContentView: View {
                     )
                 }
                 .frame(width: geo.size.width, height: geo.size.height)
+            }
+
+            if showDatePicker {
+                DateTimePickerView(
+                    isPresented: $showDatePicker,
+                    selectedTime: Binding(
+                        get: { playbackController.currentTime },
+                        set: { newTime in
+                            centerTime = newTime
+                            playbackController.scrub(to: newTime)
+                        }
+                    )
+                )
+                .environmentObject(timelineStore)
+                .transition(.opacity)
             }
 
         }
