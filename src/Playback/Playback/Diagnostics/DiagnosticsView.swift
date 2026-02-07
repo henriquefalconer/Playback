@@ -21,11 +21,17 @@ struct DiagnosticsView: View {
                 }
                 .tag(1)
 
+            PerformanceTab(controller: controller)
+                .tabItem {
+                    Label("Performance", systemImage: "speedometer")
+                }
+                .tag(2)
+
             ReportsTab(controller: controller)
                 .tabItem {
                     Label("Reports", systemImage: "chart.bar.doc.horizontal")
                 }
-                .tag(2)
+                .tag(3)
         }
         .frame(width: 900, height: 600)
     }
@@ -491,6 +497,358 @@ struct ReportsTab: View {
 
             DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
                 showExportSuccess = false
+            }
+        }
+    }
+}
+
+struct PerformanceTab: View {
+    @ObservedObject var controller: DiagnosticsController
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                PerformanceOverviewCard(controller: controller)
+
+                ServiceMetricsSection(controller: controller)
+
+                ResourceUsageChartsSection(controller: controller)
+            }
+            .padding()
+        }
+    }
+}
+
+struct PerformanceOverviewCard: View {
+    @ObservedObject var controller: DiagnosticsController
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Image(systemName: "speedometer")
+                    .font(.system(size: 36))
+                    .foregroundColor(.blue)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Performance Metrics")
+                        .font(.headline)
+
+                    Text("Resource usage and performance statistics from service logs")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                }
+
+                Spacer()
+            }
+
+            Divider()
+
+            let metrics = calculateAverageMetrics()
+
+            HStack(spacing: 30) {
+                MetricColumn(title: "Avg CPU", value: String(format: "%.1f%%", metrics.avgCpu), icon: "cpu")
+                MetricColumn(title: "Avg Memory", value: String(format: "%.0f MB", metrics.avgMemory), icon: "memorychip")
+                MetricColumn(title: "Disk Free", value: String(format: "%.1f GB", metrics.avgDiskFree), icon: "externaldrive")
+            }
+        }
+        .padding()
+        .background(Color(NSColor.controlBackgroundColor))
+        .cornerRadius(12)
+    }
+
+    private func calculateAverageMetrics() -> (avgCpu: Double, avgMemory: Double, avgDiskFree: Double) {
+        let metricsEntries = controller.logEntries.filter { entry in
+            entry.message.contains("Resource metrics") || entry.message.contains("metrics")
+        }.prefix(50)
+
+        var cpuSum = 0.0
+        var memorySum = 0.0
+        var diskFreeSum = 0.0
+        var count = 0
+
+        for entry in metricsEntries {
+            guard let metadata = entry.metadata else { continue }
+
+            if let cpuStr = metadata["cpu_percent"], let cpu = Double(cpuStr) {
+                cpuSum += cpu
+                count += 1
+            }
+            if let memStr = metadata["memory_mb"], let mem = Double(memStr) {
+                memorySum += mem
+            }
+            if let diskStr = metadata["disk_free_gb"], let disk = Double(diskStr) {
+                diskFreeSum += disk
+            }
+        }
+
+        let avgCount = max(count, 1)
+        return (cpuSum / Double(avgCount), memorySum / Double(avgCount), diskFreeSum / Double(avgCount))
+    }
+}
+
+struct MetricColumn: View {
+    let title: String
+    let value: String
+    let icon: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(.caption)
+                .foregroundColor(.secondary)
+            HStack {
+                Image(systemName: icon)
+                    .foregroundColor(.blue)
+                Text(value)
+                    .font(.title2)
+                    .fontWeight(.semibold)
+            }
+        }
+    }
+}
+
+struct ServiceMetricsSection: View {
+    @ObservedObject var controller: DiagnosticsController
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Service Metrics")
+                .font(.headline)
+
+            let serviceStats = calculateServiceMetrics()
+
+            VStack(spacing: 8) {
+                ForEach(Array(serviceStats.keys.sorted()), id: \.self) { service in
+                    if let stats = serviceStats[service] {
+                        ServiceMetricRow(service: service, stats: stats)
+                    }
+                }
+            }
+        }
+    }
+
+    private func calculateServiceMetrics() -> [String: ServiceStats] {
+        var stats: [String: ServiceStats] = [:]
+
+        for component in ["recording", "processing", "cleanup", "export"] {
+            let componentEntries = controller.logEntries.filter { $0.component == component }
+
+            let errorCount = componentEntries.filter { $0.level == .error || $0.level == .critical }.count
+            let warningCount = componentEntries.filter { $0.level == .warning }.count
+
+            var cpuValues: [Double] = []
+            var memoryValues: [Double] = []
+
+            for entry in componentEntries.prefix(100) {
+                if let metadata = entry.metadata {
+                    if let cpuStr = metadata["cpu_percent"], let cpu = Double(cpuStr) {
+                        cpuValues.append(cpu)
+                    }
+                    if let memStr = metadata["memory_mb"], let mem = Double(memStr) {
+                        memoryValues.append(mem)
+                    }
+                }
+            }
+
+            stats[component] = ServiceStats(
+                errorCount: errorCount,
+                warningCount: warningCount,
+                avgCpu: cpuValues.isEmpty ? 0 : cpuValues.reduce(0, +) / Double(cpuValues.count),
+                avgMemory: memoryValues.isEmpty ? 0 : memoryValues.reduce(0, +) / Double(memoryValues.count),
+                totalLogs: componentEntries.count
+            )
+        }
+
+        return stats
+    }
+}
+
+struct ServiceStats {
+    let errorCount: Int
+    let warningCount: Int
+    let avgCpu: Double
+    let avgMemory: Double
+    let totalLogs: Int
+}
+
+struct ServiceMetricRow: View {
+    let service: String
+    let stats: ServiceStats
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text(service.capitalized)
+                    .font(.subheadline)
+                    .fontWeight(.semibold)
+
+                Spacer()
+
+                if stats.errorCount > 0 {
+                    HStack(spacing: 4) {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundColor(.red)
+                            .font(.caption)
+                        Text("\(stats.errorCount)")
+                            .font(.caption)
+                            .foregroundColor(.red)
+                    }
+                }
+
+                if stats.warningCount > 0 {
+                    HStack(spacing: 4) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundColor(.yellow)
+                            .font(.caption)
+                        Text("\(stats.warningCount)")
+                            .font(.caption)
+                            .foregroundColor(.yellow)
+                    }
+                }
+            }
+
+            HStack(spacing: 20) {
+                HStack(spacing: 4) {
+                    Image(systemName: "cpu")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Text(String(format: "%.1f%%", stats.avgCpu))
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+
+                HStack(spacing: 4) {
+                    Image(systemName: "memorychip")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Text(String(format: "%.0f MB", stats.avgMemory))
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+
+                HStack(spacing: 4) {
+                    Image(systemName: "doc.text")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Text("\(stats.totalLogs) logs")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+        }
+        .padding(12)
+        .background(Color(NSColor.controlBackgroundColor))
+        .cornerRadius(8)
+    }
+}
+
+struct ResourceUsageChartsSection: View {
+    @ObservedObject var controller: DiagnosticsController
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Recent Resource Usage")
+                .font(.headline)
+
+            Text("CPU and memory usage from the last 50 metric entries")
+                .font(.caption)
+                .foregroundColor(.secondary)
+
+            let metrics = extractRecentMetrics()
+
+            if metrics.isEmpty {
+                VStack {
+                    Image(systemName: "chart.line.uptrend.xyaxis")
+                        .font(.system(size: 36))
+                        .foregroundColor(.secondary)
+                    Text("No performance metrics available")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                    Text("Metrics are collected automatically by background services")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(40)
+                .background(Color(NSColor.controlBackgroundColor))
+                .cornerRadius(8)
+            } else {
+                VStack(alignment: .leading, spacing: 12) {
+                    SimpleBarChart(title: "CPU Usage (%)", values: metrics.map { $0.cpu }, maxValue: 100, color: .blue)
+                    SimpleBarChart(title: "Memory Usage (MB)", values: metrics.map { $0.memory }, maxValue: nil, color: .green)
+                }
+                .padding()
+                .background(Color(NSColor.controlBackgroundColor))
+                .cornerRadius(8)
+            }
+        }
+    }
+
+    private func extractRecentMetrics() -> [(timestamp: Date, cpu: Double, memory: Double)] {
+        let metricsEntries = controller.logEntries
+            .filter { entry in
+                entry.message.contains("Resource metrics") || entry.message.contains("metrics")
+            }
+            .prefix(50)
+
+        var metrics: [(Date, Double, Double)] = []
+
+        for entry in metricsEntries {
+            guard let metadata = entry.metadata else { continue }
+
+            if let cpuStr = metadata["cpu_percent"], let cpu = Double(cpuStr),
+               let memStr = metadata["memory_mb"], let mem = Double(memStr) {
+                metrics.append((entry.timestamp, cpu, mem))
+            }
+        }
+
+        return metrics.reversed()
+    }
+}
+
+struct SimpleBarChart: View {
+    let title: String
+    let values: [Double]
+    let maxValue: Double?
+    let color: Color
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.subheadline)
+                .fontWeight(.medium)
+
+            if values.isEmpty {
+                Text("No data")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            } else {
+                let max = maxValue ?? values.max() ?? 1.0
+                let avg = values.reduce(0, +) / Double(values.count)
+                let minVal = values.min() ?? 0
+
+                HStack(alignment: .bottom, spacing: 2) {
+                    ForEach(Array(values.enumerated()), id: \.offset) { _, value in
+                        Rectangle()
+                            .fill(color)
+                            .frame(width: 8, height: max(2, CGFloat(value / max) * 60))
+                    }
+                }
+                .frame(height: 70)
+
+                HStack {
+                    Text("Min: \(String(format: "%.1f", minVal))")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                    Spacer()
+                    Text("Avg: \(String(format: "%.1f", avg))")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                    Spacer()
+                    Text("Max: \(String(format: "%.1f", max))")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
             }
         }
     }
