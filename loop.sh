@@ -24,17 +24,24 @@ else
     MAX_ITERATIONS=0
 fi
 
+# Select model
+if [ "$MODE" = "build" ]; then
+    MODEL="sonnet" # for speed
+else
+    MODEL="opus" # complex reasoning & planning
+fi
+
 ITERATION=0
 CURRENT_BRANCH=$(git branch --show-current)
 
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "Mode:   $MODE"
+echo "Model:  $MODEL"
 echo "Prompt: $PROMPT_FILE"
 echo "Branch: $CURRENT_BRANCH"
 [ $MAX_ITERATIONS -gt 0 ] && echo "Max:    $MAX_ITERATIONS iterations"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
-# Verify prompt file exists
 if [ ! -f "$PROMPT_FILE" ]; then
     echo "Error: $PROMPT_FILE not found"
     exit 1
@@ -49,15 +56,22 @@ while true; do
     # Run Ralph iteration via Docker sandbox (prompt passed directly)
     # -p: headless/non-interactive mode
     # --output-format=stream-json: structured streaming output
-    # --model opus: complex reasoning & planning (can switch to sonnet for speed)
+    # --model ...: selects the model
     # --verbose: detailed logging
     # Note: --dangerously-skip-permissions is automatic in sandbox
     docker sandbox run claude . -- \
         -p \
         --output-format=stream-json \
-        --model opus \
+        --model "$MODEL" \
         --verbose \
         "$(cat "$PROMPT_FILE")"
+
+    # Check for agent completion signal
+    if [ -f .agent_complete ]; then
+        echo "✅ Agent signaled completion (.agent_complete found)"
+        rm -f .agent_complete
+        break
+    fi
 
     # Push changes after each iteration
     git push origin "$CURRENT_BRANCH" || {
