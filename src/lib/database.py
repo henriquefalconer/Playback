@@ -82,6 +82,33 @@ class DatabaseManager:
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
 
+        # Ensure database file is created with secure permissions if it's a new file
+        self._ensure_secure_permissions()
+
+    def _ensure_secure_permissions(self) -> None:
+        """
+        Ensure database file has secure permissions (0o600).
+
+        This method is called during initialization and after database creation
+        to prevent other users from accessing the database file.
+
+        Sets permissions on:
+            - Main database file (.sqlite3)
+            - WAL file (.sqlite3-wal) if it exists
+            - SHM file (.sqlite3-shm) if it exists
+        """
+        if self.db_path.exists():
+            os.chmod(self.db_path, 0o600)
+
+            # Also secure WAL and SHM files if they exist
+            wal_path = self.db_path.with_suffix(self.db_path.suffix + "-wal")
+            shm_path = self.db_path.with_suffix(self.db_path.suffix + "-shm")
+
+            if wal_path.exists():
+                os.chmod(wal_path, 0o600)
+            if shm_path.exists():
+                os.chmod(shm_path, 0o600)
+
     @contextmanager
     def _get_connection(self, read_only: bool = False):
         """
@@ -98,14 +125,32 @@ class DatabaseManager:
                 cursor = conn.cursor()
                 cursor.execute("SELECT * FROM segments")
         """
-        if read_only and self.db_path.exists():
+        # Track if database file existed before connection
+        db_existed = self.db_path.exists()
+
+        if read_only and db_existed:
             uri = f"file:{self.db_path}?mode=ro"
             conn = sqlite3.connect(uri, uri=True)
         else:
-            conn = sqlite3.connect(self.db_path)
+            # Set restrictive umask before creating database
+            old_umask = os.umask(0o077)
+            try:
+                conn = sqlite3.connect(self.db_path)
+            finally:
+                os.umask(old_umask)
+
+            # Ensure secure permissions on newly created database
+            if not db_existed:
+                self._ensure_secure_permissions()
 
         try:
             conn.row_factory = sqlite3.Row
+
+            # Set secure_delete for this connection
+            # This ensures deleted data is overwritten with zeros for privacy
+            if not read_only:
+                conn.execute("PRAGMA secure_delete=ON")
+
             yield conn
         except Exception as e:
             conn.rollback()
@@ -119,7 +164,8 @@ class DatabaseManager:
         Initialize database schema with all tables and indexes.
 
         Creates schema_version, segments, and appsegments tables with appropriate
-        indexes. Enables WAL mode for concurrent access. Safe to call multiple times.
+        indexes. Enables WAL mode for concurrent access and secure_delete for
+        privacy. Safe to call multiple times.
 
         Raises:
             sqlite3.Error: If database initialization fails
@@ -130,6 +176,11 @@ class DatabaseManager:
             # Enable WAL mode for concurrent reads during writes
             cursor.execute("PRAGMA journal_mode=WAL")
             logger.info("WAL mode enabled for concurrent access")
+
+            # Enable secure_delete to overwrite deleted data with zeros
+            # This ensures deleted records are truly removed from disk, enhancing privacy
+            cursor.execute("PRAGMA secure_delete=ON")
+            logger.info("Secure delete enabled for privacy protection")
 
             # Create schema_version table
             cursor.execute("""
@@ -242,6 +293,9 @@ class DatabaseManager:
             conn.commit()
             logger.info(f"Database initialized at {self.db_path}")
 
+            # Ensure secure permissions after initialization
+            self._ensure_secure_permissions()
+
     def get_schema_version(self) -> str:
         """
         Get current database schema version.
@@ -267,6 +321,36 @@ class DatabaseManager:
         except sqlite3.OperationalError:
             # Table doesn't exist (first time setup)
             return "0.0"
+
+    def verify_secure_delete(self) -> bool:
+        """
+        Verify that secure_delete pragma is enabled.
+
+        The secure_delete pragma causes SQLite to overwrite deleted content with zeros
+        rather than leaving it in the database file. This enhances privacy by ensuring
+        deleted data cannot be recovered through disk forensics.
+
+        Returns:
+            bool: True if secure_delete is ON, False otherwise
+
+        Example:
+            if not db.verify_secure_delete():
+                logger.warning("secure_delete is not enabled")
+        """
+        try:
+            with self._get_connection(read_only=True) as conn:
+                cursor = conn.cursor()
+                cursor.execute("PRAGMA secure_delete")
+                result = cursor.fetchone()
+                is_enabled = result[0] == 1
+                if is_enabled:
+                    logger.debug("secure_delete is enabled")
+                else:
+                    logger.warning("secure_delete is not enabled")
+                return is_enabled
+        except Exception as e:
+            logger.error(f"Error checking secure_delete pragma: {e}", exc_info=True)
+            return False
 
     def insert_segment(
         self,

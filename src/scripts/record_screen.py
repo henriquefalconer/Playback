@@ -19,16 +19,53 @@ Requisitos:
 import subprocess
 import time
 import sys
+import tempfile
 from datetime import datetime
 from pathlib import Path
 
 # Add parent directory to path to import lib modules
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from lib.paths import get_temp_directory, ensure_directory_exists, get_timeline_open_signal_path
+from lib.paths import get_temp_directory, ensure_directory_exists, get_timeline_open_signal_path, create_secure_file
 from lib.macos import is_screen_unavailable, get_active_display_index, get_frontmost_app_bundle_id
 from lib.timestamps import generate_chunk_name
 from lib.config import load_config_with_defaults
+
+
+def _has_screen_recording_permission() -> bool:
+    """
+    Verifica se o processo tem permissão de Screen Recording tentando capturar uma screenshot de teste.
+    Retorna True se bem-sucedido, False se a permissão foi negada.
+    """
+    try:
+        # Cria um arquivo temporário para o teste
+        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as temp_file:
+            temp_path = Path(temp_file.name)
+
+        try:
+            # Tenta capturar uma screenshot de teste
+            cmd = [
+                "screencapture",
+                "-x",  # sem UI / som
+                "-t", "png",
+                str(temp_path)
+            ]
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+
+            # Verifica se o arquivo foi criado e tem tamanho > 0
+            if result.returncode == 0 and temp_path.exists() and temp_path.stat().st_size > 0:
+                return True
+            else:
+                return False
+
+        finally:
+            # Limpa o arquivo de teste
+            if temp_path.exists():
+                temp_path.unlink()
+
+    except (subprocess.TimeoutExpired, subprocess.CalledProcessError, Exception) as e:
+        print(f"[Playback] Erro ao verificar permissão: {e}")
+        return False
 
 
 def ensure_chunk_dir(now: datetime) -> Path:
@@ -49,6 +86,9 @@ def capture_screen(output_path: Path) -> None:
     Usa o binário nativo `screencapture` do macOS para tirar screenshot da tela.
     -x: sem som de câmera
     -t png: formato PNG
+
+    Screenshots are created with secure permissions (0o600) to prevent other
+    users from accessing recorded screen data.
     """
     # Salvamos em um arquivo temporário com extensão .png,
     # depois renomeamos para remover a extensão (imitando o outro app).
@@ -72,8 +112,15 @@ def capture_screen(output_path: Path) -> None:
 
     subprocess.run(cmd, check=True)
 
+    # Set secure permissions on the screenshot (0o600 = user read/write only)
+    import os
+    os.chmod(temp_path, 0o600)
+
     # Renomeia removendo a extensão para ficar igual aos chunks existentes
     temp_path.rename(output_path)
+
+    # Ensure final file also has secure permissions after rename
+    os.chmod(output_path, 0o600)
 
 
 def is_timeline_viewer_open() -> bool:
@@ -94,6 +141,25 @@ def main(
     - Pausa automaticamente quando o timeline viewer está aberto.
     - Pula apps excluídos conforme configuração.
     """
+    # Verifica permissão de Screen Recording antes de iniciar
+    if not _has_screen_recording_permission():
+        error_message = """
+[Playback] ERRO: Permissão de Screen Recording não concedida.
+
+Para conceder a permissão:
+1. Abra System Settings (Preferências do Sistema)
+2. Vá para Privacy & Security > Screen Recording
+3. Ative a permissão para o app que está executando este script
+   (pode ser Terminal, Python, ou o próprio Playback)
+4. Reinicie este serviço após conceder a permissão
+
+O serviço será encerrado agora.
+"""
+        print(error_message, file=sys.stderr)
+        sys.exit(1)
+
+    print("[Playback] Permissão de Screen Recording verificada com sucesso")
+
     temp_root = get_temp_directory()
     signal_path = get_timeline_open_signal_path()
     config = load_config_with_defaults()

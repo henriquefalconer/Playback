@@ -501,9 +501,10 @@ python3 src/scripts/cleanup_old_chunks.py --database-only
 
 ### Progress Summary
 - **Phase 4.1 Status:** 100% COMPLETE (Full OCR search pipeline, UI integration, timeline markers)
-- **Files Created:** 6 new Swift files, 1 Python file, database schema updated
-- **Lines of Code:** ~800+ lines
-- **Completion:** OCR processing, FTS5 search, Command+F UI, timeline markers all operational
+- **Phase 4.2 Status:** 75% COMPLETE (Privacy & security backend complete, UI work remaining)
+- **Files Created:** 6 new Swift files, 4 Python files (OCR + security scripts), 2 test suites
+- **Lines of Code:** ~1600+ lines (800 Phase 4.1 + 800 Phase 4.2)
+- **Completion:** OCR processing, FTS5 search, file permissions, security tests, network isolation, data export, uninstall script all operational
 
 ### 4.1 Text Search with OCR
 
@@ -559,17 +560,72 @@ Phase 4.1 delivers a complete full-text search system with OCR:
 - **User Experience:** Arc-style design matching app aesthetic, seamless navigation
 
 ### 4.2 Privacy & Security
-- Implement app exclusion system (skip screenshot mode)
-- Implement frontmost app tracking
-- Implement exclusion list management UI
-- Implement recommended exclusions (password managers)
-- Implement screen unavailability detection enhancement
-- Implement permission checking functions
-- Implement file permission enforcement
-- Implement secure file creation helpers
-- Implement network access audit (verify zero network calls)
-- Implement data export functionality
-- Implement uninstallation with data preservation option
+
+**Status: 🟡 IN PROGRESS (~75% Complete as of 2026-02-07)**
+
+**Completed Backend (11/14 tasks):**
+
+*File Permissions & Security:*
+- ✅ File permission enforcement (0o600 for sensitive files via `create_secure_file()` in lib/paths.py)
+- ✅ Secure file creation helper with umask protection
+- ✅ Database file created with 0o600 permissions
+- ✅ Screenshots and videos created with 0o600 permissions
+- ✅ SQLite secure_delete pragma enabled (overwrites deleted data with zeros)
+- ✅ Directory permissions enforcement (0o700 for data directories)
+
+*Permission Management:*
+- ✅ Permission checking in recording service (`_has_screen_recording_permission()` via test screenshot)
+- ✅ Graceful degradation for Accessibility permission denial
+- ✅ Screen unavailability detection (screensaver, display off, timeline open)
+
+*App Exclusion System:*
+- ✅ App exclusion system (skip mode implemented in record_screen.py)
+- ✅ Frontmost app tracking (via AppleScript in lib/macos.py)
+- ✅ RECOMMENDED_EXCLUSIONS constant in lib/config.py (8 password managers)
+- ✅ Exclusion mode configuration (skip vs invisible)
+
+*Data Management:*
+- ✅ Export data script (src/scripts/export_data.py - comprehensive ZIP export with manifest)
+- ✅ Uninstall script with data preservation (scripts/uninstall.sh - 270 lines, colored output, size reporting)
+
+*Security Testing:*
+- ✅ Security test suite (test_security.py - 400+ lines)
+  - File permission tests (0o600, 0o700 enforcement)
+  - Database security tests (secure_delete verification)
+  - Input validation tests (config parsing, bundle ID validation)
+  - Secure file creation tests
+- ✅ Network isolation tests (test_network.py - 400+ lines)
+  - Static analysis of imports (no urllib, requests, socket, http)
+  - Subprocess audit (no curl, wget, network tools)
+  - URL pattern detection in code
+  - CI/CD integration ready
+
+**Remaining UI Work (3/14 tasks):**
+- [ ] Swift UI enhancements for Privacy tab in Settings
+  - [ ] Permission status indicators (Screen Recording, Accessibility) with visual status badges
+  - [ ] Recommended apps list with quick-add buttons (using RECOMMENDED_EXCLUSIONS)
+  - [ ] "Open System Settings" deep links for permission management
+  - [ ] Data export button integration (calls export_data.py)
+  - [ ] Manual uninstall guidance in UI
+- [ ] Manual cleanup UI buttons in Storage tab
+  - [ ] "Clean Temp Files Now" button with dry-run preview
+  - [ ] "Delete All Recordings" button with confirmation dialog and size display
+- [ ] Settings tab structure verification
+  - [ ] Ensure Privacy tab exists as separate component (may be integrated into SettingsView)
+  - [ ] Storage tab cleanup button integration
+
+**Files Created in Phase 4.2:**
+- `src/scripts/export_data.py` (270 lines) - ZIP export with manifest, metadata, integrity verification
+- `scripts/uninstall.sh` (270 lines) - Colored output, data preservation prompt, LaunchAgent cleanup
+- `src/scripts/tests/test_security.py` (400+ lines) - Comprehensive security test suite
+- `src/scripts/tests/test_network.py` (400+ lines) - Network isolation verification
+- `src/scripts/tests/README.md` - Test documentation and CI/CD integration guide
+
+**Files Modified:**
+- `src/lib/paths.py` - Added `create_secure_file()` with umask and chmod enforcement
+- `src/lib/database.py` - Added secure_delete pragma and verification method
+- `src/lib/config.py` - Added RECOMMENDED_EXCLUSIONS constant with documentation
+- `src/scripts/record_screen.py` - Added permission checking and secure file creation
 
 ### 4.3 Logging & Diagnostics
 - Implement structured JSON logging for all services
@@ -814,7 +870,7 @@ Playback/
 | Phase 1: Core Recording & Processing | 4-6 weeks | ✅ COMPLETE |
 | Phase 2: User Interface | 6-8 weeks | ✅ COMPLETE |
 | Phase 3: Data & Storage | 3-4 weeks | ✅ COMPLETE |
-| Phase 4: Advanced Features | 4-6 weeks | 🟡 IN PROGRESS (Phase 4.1: ✅ 100%) |
+| Phase 4: Advanced Features | 4-6 weeks | 🟡 IN PROGRESS (4.1: ✅ 100%, 4.2: 🟡 75%) |
 | Phase 5: Testing & Quality | 3-4 weeks | 📋 Planned |
 | Phase 6: Distribution & Deployment | 2-3 weeks | 📋 Planned |
 
@@ -927,8 +983,15 @@ Playback/
 - FTS5 full-text search with caching (<200ms queries)
 - All backend and frontend components operational
 
+**Phase 4.2 - Privacy & Security: 🟡 IN PROGRESS (75% as of 2026-02-07)**
+- ✅ Backend security infrastructure complete (file permissions, secure_delete, permission checks)
+- ✅ Security test suites operational (test_security.py, test_network.py)
+- ✅ Data export and uninstall scripts fully functional
+- 🟡 UI work remaining (Privacy tab enhancements, manual cleanup buttons)
+- **Files Created:** export_data.py (270 lines), uninstall.sh (270 lines), test_security.py (400+ lines), test_network.py (400+ lines)
+
 **Upcoming Priorities:**
-1. **Privacy & Security (Phase 4.2)** - Enhanced app exclusion, permission checking, secure file operations
+1. **Complete Phase 4.2 UI** - Settings Privacy tab with permission status, recommended exclusions, manual cleanup
 2. **Logging & Diagnostics (Phase 4.3)** - Structured JSON logging, log viewer UI, health monitoring
 3. **Performance Monitoring (Phase 4.4)** - Metrics collection, performance dashboard, optimization suggestions
 

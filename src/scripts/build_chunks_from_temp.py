@@ -32,6 +32,7 @@ from lib.paths import get_temp_directory, get_chunks_directory, get_database_pat
 from lib.timestamps import parse_timestamp_from_name, parse_app_from_name
 from lib.video import get_image_size, create_video_from_images
 from lib.config import load_config_with_defaults
+import os
 
 # Import OCR processor for text extraction (Phase 4.1)
 try:
@@ -361,9 +362,13 @@ def process_day(
             pix_fmt="yuv420p",
         )
 
+        # Set secure permissions on generated video file (0o600 = user read/write only)
+        video_file = dest_without_ext.with_suffix(".mp4")
+        os.chmod(video_file, 0o600)
+
         # Caminho relativo ao diretório base de dados
         base_data_dir = get_database_path().parent
-        rel_path = str(dest_without_ext.with_suffix(".mp4").relative_to(base_data_dir))
+        rel_path = str(video_file.relative_to(base_data_dir))
 
         # Use DatabaseManager methods instead of direct SQL
         start_ts = seg_frames[0].ts

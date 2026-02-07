@@ -210,6 +210,53 @@ def ensure_data_directories() -> None:
     ensure_directory_exists(get_logs_directory(), mode=0o755)
 
 
+def create_secure_file(path: Path | str, content: bytes) -> None:
+    """
+    Create a file with secure permissions (0o600 = rw-------).
+
+    This function ensures that sensitive files (screenshots, videos, database)
+    are created with user-only read/write permissions to prevent other users
+    on the system from accessing recorded screen data.
+
+    Implementation:
+        1. Set restrictive umask (0o077) to prevent default permissions
+        2. Write file content
+        3. Explicitly chmod to 0o600 for defense-in-depth
+        4. Restore original umask
+
+    Args:
+        path: Path to the file to create (Path or str)
+        content: Binary content to write to the file
+
+    Raises:
+        OSError: If file creation or permission setting fails
+        TypeError: If content is not bytes
+
+    Example:
+        create_secure_file(Path("/path/to/screenshot.png"), screenshot_data)
+        create_secure_file("/path/to/video.mp4", video_data)
+    """
+    if not isinstance(content, bytes):
+        raise TypeError(f"content must be bytes, got {type(content).__name__}")
+
+    # Convert to Path for consistent handling
+    file_path = Path(path) if isinstance(path, str) else path
+
+    # Set restrictive umask to prevent readable/writable by group/other
+    old_umask = os.umask(0o077)
+
+    try:
+        # Write file content
+        with open(file_path, 'wb') as f:
+            f.write(content)
+
+        # Explicitly set permissions for defense-in-depth
+        os.chmod(file_path, 0o600)
+    finally:
+        # Always restore original umask
+        os.umask(old_umask)
+
+
 def get_day_directory(date_str: str, subdirectory: str) -> Path:
     """
     Get the directory for a specific day within temp/ or chunks/.
@@ -269,6 +316,7 @@ __all__ = [
     "ensure_directory_exists",
     "ensure_data_directories",
     "get_day_directory",
+    "create_secure_file",
     "PROJECT_ROOT",
     "TEMP_ROOT",
     "CHUNKS_ROOT",

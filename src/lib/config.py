@@ -7,9 +7,44 @@ and default fallback values.
 
 import json
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from .paths import get_config_path
+
+
+RECOMMENDED_EXCLUSIONS: List[Tuple[str, str]] = [
+    ("com.apple.keychainaccess", "Keychain Access"),
+    ("com.1password.1password", "1Password 8"),
+    ("com.agilebits.onepassword7", "1Password 7"),
+    ("com.lastpass.LastPass", "LastPass"),
+    ("com.dashlane.Dashlane", "Dashlane"),
+    ("com.keepassxc.keepassxc", "KeePassXC"),
+    ("com.bitwarden.desktop", "Bitwarden"),
+    ("org.keepassx.keepassxc", "KeePassX"),
+]
+"""
+Recommended apps to exclude from recording.
+
+This list contains bundle IDs and display names of password managers and
+other sensitive applications that users should consider excluding from
+screen recording.
+
+IMPORTANT: These apps are NOT automatically excluded. Users must manually
+add them to the excluded_apps list in their config.json. This list is
+provided as a convenience for users to make informed privacy decisions.
+
+Each entry is a tuple of (bundle_id, display_name).
+
+Privacy rationale:
+- Password managers: Prevent recording of master passwords, stored credentials
+- Sensitive apps: Prevent recording of banking, financial, or personal data
+
+To exclude an app, users should add the bundle ID to the "excluded_apps"
+array in config.json:
+{
+  "excluded_apps": ["com.1password.1password", "com.apple.keychainaccess"]
+}
+"""
 
 
 class Config:
@@ -78,6 +113,31 @@ class Config:
         """
         return bundle_id in self.excluded_apps
 
+    @staticmethod
+    def get_recommended_exclusions() -> List[Tuple[str, str]]:
+        """
+        Get list of recommended apps to exclude from recording.
+
+        Returns a list of (bundle_id, display_name) tuples for password managers
+        and other sensitive applications that users should consider excluding.
+
+        IMPORTANT: These apps are NOT automatically excluded. Users must manually
+        add them to their config.json excluded_apps list. This method is provided
+        for UI convenience and user education about privacy options.
+
+        Returns:
+            List of (bundle_id, display_name) tuples.
+
+        Example:
+            >>> recommendations = Config.get_recommended_exclusions()
+            >>> for bundle_id, name in recommendations:
+            ...     print(f"{name}: {bundle_id}")
+            Keychain Access: com.apple.keychainaccess
+            1Password 8: com.1password.1password
+            ...
+        """
+        return RECOMMENDED_EXCLUSIONS.copy()
+
 
 def load_config() -> Config:
     """
@@ -125,4 +185,5 @@ __all__ = [
     "Config",
     "load_config",
     "load_config_with_defaults",
+    "RECOMMENDED_EXCLUSIONS",
 ]
