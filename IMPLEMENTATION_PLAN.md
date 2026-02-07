@@ -652,7 +652,7 @@ Playback/
 
 ---
 
-### Phase 2: User Interface - IN PROGRESS 📋 (75% Complete)
+### Phase 2: User Interface - IN PROGRESS 📋 (78% Complete)
 
 **Completed:**
 - ✅ **2.1 Menu Bar Component (COMPLETE)**
@@ -667,6 +667,7 @@ Playback/
   - Time labels and ticks with dynamic spacing
   - Auto-refresh for new segments (5-second polling)
   - Core timeline functionality (playback, scrubbing, zoom, gestures)
+  - Keyboard shortcuts (Space for play/pause, Left/Right arrows for 5s seek)
 
 - ✅ **2.3 Date/Time Picker (COMPLETE)**
   - Calendar view with month/year navigation
@@ -678,7 +679,6 @@ Playback/
 **Remaining:**
 - 2.5 First-Run Setup (onboarding wizard with permissions, dependencies, initial config)
 - Polish items:
-  - Keyboard shortcuts (Space for play/pause, arrows for seek)
   - Loading screen for processing
   - Error handling UI (empty states, error dialogs)
   - Segment preloading (reduce transition latency)

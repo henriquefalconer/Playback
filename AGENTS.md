@@ -1,5 +1,17 @@
 # Playback Agent Guidelines
 
+## Recent Implementation Notes
+
+Key operational learnings from Phase 2 development (2026-02-07):
+
+- **MenuBarExtra initialization:** Requires `@StateObject` for proper lifecycle management, not `@ObservedObject`
+- **Global hotkeys:** Use Carbon API (`EventHotKeyRef`) - no modern SwiftUI equivalent exists for app-wide hotkeys
+- **Accessibility permission:** Required for global hotkey registration via `AXIsProcessTrusted()`
+- **Time bubble interaction:** Wrap static text in `Button` with transparent style to make clickable
+- **Database queries:** Run on background queue with `DispatchQueue.global(qos: .userInitiated)` to avoid blocking UI
+- **Keyboard shortcuts:** Use `NSEvent.addLocalMonitorForEvents` with keyCode comparison for timeline-local shortcuts
+- **DatePicker binding:** Requires separate `@State var selectedTime` binding to avoid mutating published state directly
+
 ## Specifications
 
 **IMPORTANT:** Before implementing any feature, consult the specifications in `specs/README.md`.
