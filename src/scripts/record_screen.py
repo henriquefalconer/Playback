@@ -1,218 +1,290 @@
 #!/usr/bin/env python3
 """
-Proof-of-concept de gravação de tela para o macOS.
+Screen recording service for Playback.
 
-Funciona assim:
-- Em loop infinito, tira screenshots da tela atual usando o utilitário nativo `screencapture`.
-- Salva os arquivos em uma estrutura de pastas do tipo:
+Continuously captures screenshots at configured intervals using macOS's native
+`screencapture` utility. Implements pause detection, app exclusion, and resource
+monitoring with structured JSON logging.
 
-  com.playback.Playback/temp/YYYYMM/DD/<id>
-
-- Cada arquivo é uma imagem PNG, mas sem extensão, imitando o padrão de `com.memoryvault.MemoryVault/chunks`.
-
-Requisitos:
-- macOS (já inclui o binário `screencapture`)
-- Python 3
-- Permissão de "Gravação de Tela" nas Preferências do Sistema para o Terminal/Cursor.
+Requirements:
+- macOS with screencapture utility
+- Python 3.12+
+- Screen Recording permission granted in System Settings
 """
 
 import subprocess
 import time
 import sys
-import tempfile
 from datetime import datetime
 from pathlib import Path
 
 # Add parent directory to path to import lib modules
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from lib.paths import get_temp_directory, ensure_directory_exists, get_timeline_open_signal_path, create_secure_file
-from lib.macos import is_screen_unavailable, get_active_display_index, get_frontmost_app_bundle_id
+from lib.paths import (
+    get_temp_directory,
+    ensure_directory_exists,
+    get_timeline_open_signal_path,
+)
+from lib.macos import (
+    is_screen_unavailable,
+    get_active_display_index,
+    get_frontmost_app_bundle_id,
+)
 from lib.timestamps import generate_chunk_name
 from lib.config import load_config_with_defaults
+from lib.logging_config import (
+    setup_logger,
+    log_info,
+    log_warning,
+    log_error,
+    log_critical,
+    log_debug,
+    log_resource_metrics,
+    log_error_with_context,
+)
+
+# Try to import psutil for resource monitoring
+try:
+    import psutil
+
+    PSUTIL_AVAILABLE = True
+except ImportError:
+    PSUTIL_AVAILABLE = False
 
 
 def _has_screen_recording_permission() -> bool:
     """
-    Verifica se o processo tem permissão de Screen Recording tentando capturar uma screenshot de teste.
-    Retorna True se bem-sucedido, False se a permissão foi negada.
+    Verify Screen Recording permission by attempting a test screenshot.
+
+    Returns:
+        True if permission granted, False otherwise
     """
+    import tempfile
+
     try:
-        # Cria um arquivo temporário para o teste
         with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as temp_file:
             temp_path = Path(temp_file.name)
 
         try:
-            # Tenta capturar uma screenshot de teste
-            cmd = [
-                "screencapture",
-                "-x",  # sem UI / som
-                "-t", "png",
-                str(temp_path)
-            ]
+            cmd = ["screencapture", "-x", "-t", "png", str(temp_path)]
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
 
-            # Verifica se o arquivo foi criado e tem tamanho > 0
-            if result.returncode == 0 and temp_path.exists() and temp_path.stat().st_size > 0:
+            if (
+                result.returncode == 0
+                and temp_path.exists()
+                and temp_path.stat().st_size > 0
+            ):
                 return True
             else:
                 return False
 
         finally:
-            # Limpa o arquivo de teste
             if temp_path.exists():
                 temp_path.unlink()
 
-    except (subprocess.TimeoutExpired, subprocess.CalledProcessError, Exception) as e:
-        print(f"[Playback] Erro ao verificar permissão: {e}")
+    except (subprocess.TimeoutExpired, subprocess.CalledProcessError, Exception):
         return False
 
 
 def ensure_chunk_dir(now: datetime) -> Path:
     """
-    Garante que a pasta temp/YYYYMM/DD exista.
-    Retorna o caminho da pasta do dia.
+    Ensure temp/YYYYMM/DD directory exists.
+
+    Args:
+        now: Current datetime
+
+    Returns:
+        Path to day directory
     """
-    year_month = now.strftime("%Y%m")  # ex: 202512
-    day = now.strftime("%d")           # ex: 22
+    year_month = now.strftime("%Y%m")
+    day = now.strftime("%d")
 
     day_dir = get_temp_directory() / year_month / day
     ensure_directory_exists(day_dir, mode=0o700)
     return day_dir
 
 
-def capture_screen(output_path: Path) -> None:
+def capture_screen(output_path: Path, logger) -> None:
     """
-    Usa o binário nativo `screencapture` do macOS para tirar screenshot da tela.
-    -x: sem som de câmera
-    -t png: formato PNG
+    Capture screenshot using macOS screencapture utility.
 
-    Screenshots are created with secure permissions (0o600) to prevent other
-    users from accessing recorded screen data.
+    Args:
+        output_path: Path where screenshot should be saved
+        logger: Logger instance for structured logging
+
+    Raises:
+        subprocess.CalledProcessError: If screencapture command fails
     """
-    # Salvamos em um arquivo temporário com extensão .png,
-    # depois renomeamos para remover a extensão (imitando o outro app).
     temp_path = output_path.with_suffix(".png")
 
-    # Tenta descobrir qual monitor está em uso (onde está a janela em foco)
-    # para capturar o DISPLAY inteiro com `screencapture -D`.
+    # Try to detect active display
     display_index = get_active_display_index()
 
-    cmd = [
-        "screencapture",
-        "-x",        # sem UI / som
-        "-t",
-        "png",       # formato
-    ]
+    cmd = ["screencapture", "-x", "-t", "png"]
+
     if display_index is not None:
-        print(f"[Playback] Usando screencapture -D {display_index} (monitor em uso)")
+        log_debug(logger, "Using active display", display_index=display_index)
         cmd.extend(["-D", str(display_index)])
 
     cmd.append(str(temp_path))
 
     subprocess.run(cmd, check=True)
 
-    # Set secure permissions on the screenshot (0o600 = user read/write only)
+    # Set secure permissions (0o600 = user read/write only)
     import os
+
     os.chmod(temp_path, 0o600)
 
-    # Renomeia removendo a extensão para ficar igual aos chunks existentes
+    # Rename to remove .png extension
     temp_path.rename(output_path)
 
-    # Ensure final file also has secure permissions after rename
+    # Ensure final file has secure permissions
     os.chmod(output_path, 0o600)
 
 
 def is_timeline_viewer_open() -> bool:
     """
-    Verifica se o timeline viewer está aberto checando a existência do arquivo .timeline_open.
-    Retorna True se o arquivo existe, False caso contrário.
+    Check if timeline viewer is open by checking signal file.
+
+    Returns:
+        True if signal file exists, False otherwise
     """
     signal_path = get_timeline_open_signal_path()
     return signal_path.exists()
 
 
-def main(
-    interval_seconds: int = 2,
-) -> None:
+def collect_metrics(start_time: float, total_captures: int) -> dict:
     """
-    Loop principal:
-    - A cada `interval_seconds`, tira um screenshot e salva no diretório de temp.
-    - Pausa automaticamente quando o timeline viewer está aberto.
-    - Pula apps excluídos conforme configuração.
+    Collect resource usage metrics if psutil is available.
+
+    Args:
+        start_time: Service start time (from time.time())
+        total_captures: Total number of captures since start
+
+    Returns:
+        Dictionary of metrics
     """
-    # Verifica permissão de Screen Recording antes de iniciar
+    if not PSUTIL_AVAILABLE:
+        return {}
+
+    try:
+        process = psutil.Process()
+        cpu_percent = process.cpu_percent(interval=0.1)
+        memory_info = process.memory_info()
+        memory_mb = memory_info.rss / (1024 * 1024)
+
+        # Get disk usage for temp directory
+        temp_dir = get_temp_directory()
+        disk_usage = psutil.disk_usage(str(temp_dir))
+        disk_free_gb = disk_usage.free / (1024 * 1024 * 1024)
+
+        uptime_hours = (time.time() - start_time) / 3600
+
+        return {
+            "cpu_percent": cpu_percent,
+            "memory_mb": memory_mb,
+            "disk_free_gb": disk_free_gb,
+            "uptime_hours": uptime_hours,
+            "captures_total": total_captures,
+        }
+    except Exception:
+        return {}
+
+
+def main(interval_seconds: int = 2) -> None:
+    """
+    Main recording loop.
+
+    Captures screenshots at regular intervals, pausing when timeline viewer is open
+    and skipping excluded apps as configured.
+
+    Args:
+        interval_seconds: Seconds between captures (default: 2)
+    """
+    # Setup structured logging
+    logger = setup_logger("recording", log_level="INFO", console_output=False)
+
+    log_info(logger, "Recording service starting", interval_seconds=interval_seconds)
+
+    # Verify Screen Recording permission
     if not _has_screen_recording_permission():
+        log_critical(
+            logger,
+            "Screen Recording permission denied",
+            resolution="Grant permission in System Settings > Privacy & Security > Screen Recording",
+        )
+
+        # Also print to stderr for immediate visibility
         error_message = """
-[Playback] ERRO: Permissão de Screen Recording não concedida.
+[Playback] CRITICAL: Screen Recording permission denied.
 
-Para conceder a permissão:
-1. Abra System Settings (Preferências do Sistema)
-2. Vá para Privacy & Security > Screen Recording
-3. Ative a permissão para o app que está executando este script
-   (pode ser Terminal, Python, ou o próprio Playback)
-4. Reinicie este serviço após conceder a permissão
+To grant permission:
+1. Open System Settings (Preferences)
+2. Go to Privacy & Security > Screen Recording
+3. Enable permission for the app running this script
+4. Restart this service after granting permission
 
-O serviço será encerrado agora.
+Service exiting now.
 """
         print(error_message, file=sys.stderr)
         sys.exit(1)
 
-    print("[Playback] Permissão de Screen Recording verificada com sucesso")
+    log_info(logger, "Screen Recording permission verified")
 
     temp_root = get_temp_directory()
     signal_path = get_timeline_open_signal_path()
     config = load_config_with_defaults()
 
-    print(f"[Playback] Iniciando gravação de tela com intervalo de {interval_seconds}s...")
-    print(f"[Playback] Salvando em: {temp_root}")
-    print(f"[Playback] Monitorando sinal de pause em: {signal_path}")
-
-    if config.excluded_apps:
-        print(f"[Playback] Apps excluídos (modo {config.exclusion_mode}): {', '.join(config.excluded_apps)}")
-    else:
-        print(f"[Playback] Nenhum app excluído")
+    log_info(
+        logger,
+        "Recording service initialized",
+        temp_directory=str(temp_root),
+        signal_path=str(signal_path),
+        excluded_apps=config.excluded_apps or [],
+        exclusion_mode=config.exclusion_mode,
+    )
 
     timeline_was_open = False
     last_config_check = time.time()
+    start_time = time.time()
+    total_captures = 0
+    last_metrics_log = 0
 
     while True:
         now = datetime.now()
-        print(f"[Playback] DEBUG: Iniciando ciclo de captura às {now.strftime('%H:%M:%S')}")
+        cycle_start = time.time()
 
-        # Reload config every 30 seconds to pick up changes
+        # Reload config every 30 seconds
         if time.time() - last_config_check > 30:
             config = load_config_with_defaults()
             last_config_check = time.time()
+            log_debug(logger, "Configuration reloaded")
 
-        # Verifica se o timeline viewer está aberto
+        # Check if timeline viewer is open
         timeline_open = is_timeline_viewer_open()
 
-        # Log mudanças de estado do timeline viewer
+        # Log timeline viewer state changes
         if timeline_open and not timeline_was_open:
-            print(f"[Playback] Timeline viewer aberto - pausando gravação")
+            log_info(logger, "Timeline viewer opened - pausing recording")
             timeline_was_open = True
         elif not timeline_open and timeline_was_open:
-            print(f"[Playback] Timeline viewer fechado - retomando gravação")
+            log_info(logger, "Timeline viewer closed - resuming recording")
             timeline_was_open = False
 
-        # Se o timeline viewer está aberto, não gravamos nada neste ciclo
+        # Skip capture if timeline viewer is open
         if timeline_open:
-            print(f"[Playback] DEBUG: Pulando captura (timeline viewer aberto), aguardando {interval_seconds}s...")
+            log_debug(logger, "Skipping capture - timeline viewer open")
             time.sleep(interval_seconds)
             continue
 
-        # Se a tela estiver em protetor de tela / bloqueada / desligada,
-        # não gravamos nada neste ciclo.
+        # Check if screen is unavailable (screensaver, locked, off)
         screen_unavailable = is_screen_unavailable()
-        print(f"[Playback] DEBUG: screen_unavailable = {screen_unavailable}")
 
         if screen_unavailable:
-            print(f"[Playback] DEBUG: Pulando captura (tela indisponível), aguardando {interval_seconds}s...")
+            log_debug(logger, "Skipping capture - screen unavailable")
             time.sleep(interval_seconds)
             continue
-
-        print(f"[Playback] DEBUG: Tela disponível, prosseguindo com captura...")
 
         # Get frontmost app bundle ID
         app_id = get_frontmost_app_bundle_id()
@@ -220,12 +292,15 @@ O serviço será encerrado agora.
         # Check if app is excluded
         if config.is_app_excluded(app_id):
             if config.exclusion_mode == "skip":
-                print(f"[Playback] Pulando captura (app excluído: {app_id}), aguardando {interval_seconds}s...")
+                log_debug(
+                    logger, "Skipping capture - app excluded", app_id=app_id or "unknown"
+                )
                 time.sleep(interval_seconds)
                 continue
-            # If exclusion_mode is "invisible", we still capture but could blur or black out the content
-            # For now, we just continue with normal capture (implement blurring in future if needed)
+            # If exclusion_mode is "invisible", still capture
+            # (future: implement blurring/redaction)
 
+        # Prepare capture directory
         day_dir = ensure_chunk_dir(now)
 
         # Generate chunk name with timestamp and app ID
@@ -233,15 +308,50 @@ O serviço será encerrado agora.
         chunk_path = day_dir / chunk_name
 
         try:
-            capture_screen(chunk_path)
-            print(f"[Playback] Captura salva em: {chunk_path}")
-        except subprocess.CalledProcessError as e:
-            print(f"[Playback] ERRO ao capturar tela: {e}")
+            capture_screen(chunk_path, logger)
+            total_captures += 1
 
-        time.sleep(interval_seconds)
+            file_size_kb = chunk_path.stat().st_size / 1024
+
+            log_info(
+                logger,
+                "Screenshot captured",
+                path=str(chunk_path),
+                size_kb=round(file_size_kb, 1),
+                app_id=app_id or "unknown",
+            )
+
+        except subprocess.CalledProcessError as e:
+            log_error_with_context(
+                logger,
+                "Screenshot capture failed",
+                exception=e,
+                path=str(chunk_path),
+                return_code=e.returncode,
+            )
+
+        except Exception as e:
+            log_error_with_context(
+                logger,
+                "Unexpected error during capture",
+                exception=e,
+                path=str(chunk_path),
+            )
+
+        # Log resource metrics every 100 captures (~200 seconds at 2s interval)
+        if PSUTIL_AVAILABLE and total_captures > 0 and total_captures % 100 == 0:
+            if time.time() - last_metrics_log > 30:  # At most once per 30 seconds
+                metrics = collect_metrics(start_time, total_captures)
+                if metrics:
+                    log_resource_metrics(logger, **metrics)
+                    last_metrics_log = time.time()
+
+        # Sleep for remainder of interval
+        elapsed = time.time() - cycle_start
+        sleep_time = max(0, interval_seconds - elapsed)
+        if sleep_time > 0:
+            time.sleep(sleep_time)
 
 
 if __name__ == "__main__":
-    # Para PoC, intervalo padrão de 2s.
-    # Você pode mudar para 1–5s se quiser algo mais frequente.
     main(interval_seconds=2)
