@@ -33,33 +33,44 @@ Playback consists of separate components:
 - ✅ **Configuration System:** ConfigManager with hot-reloading, validation, migration, and automatic backup system operational
 - ✅ **LaunchAgent Management:** Full service control with plist templates, load/unload/start/stop/restart, status verification, dev/prod separation, and 5-minute processing interval configured
 
-### Recent Completions (Latest Implementation)
+### Recent Completions (2026-02-07)
 
-**App Exclusion Logic (Section 1.1):**
-- Recording service now loads config via `lib.config.load_config()`
-- `Config.is_app_excluded(bundle_id)` checks if app is in `excluded_apps` list
-- Exclusion mode "skip" prevents screenshot capture when excluded app is frontmost
-- Config reloaded every 30 seconds (configurable) to pick up changes without restart
-- Default excluded apps include password managers: 1Password, Bitwarden, LastPass, KeePassXC
+**Phase 2 Progress - First-Run Setup (Section 2.5):**
+- FirstRunCoordinator for state management and setup flow orchestration
+- WelcomeView with app introduction and feature highlights
+- PermissionsView with Screen Recording and Accessibility permission checks
+- StorageSetupView with data directory creation and disk space validation
+- DependencyCheckView for Python 3.12+ and FFmpeg 7.0+ detection
+- InitialConfigView for recording interval and retention policy configuration
+- FirstRunWindowView container with step navigation and progress tracking
+- AppDelegate integration in PlaybackApp.swift for lifecycle management
+- UserDefaults persistence for setup completion state
+- System Settings deep linking for permission management
+- Arc-style frosted glass design matching app aesthetic
+- 7 new Swift files created totaling ~800 lines of code
 
-**Processing Service Enhancements (Section 1.2):**
-- LaunchAgent plist configured with `StartInterval={{INTERVAL_SECONDS}}` (default 300 = 5 minutes)
-- Processing interval configurable via `processing_interval_minutes` in config (default 5, valid: 5, 10, 15, 30, 60)
-- `--auto` mode processes all pending days from the last 7 days
-- Auto mode skips days with no temp files for efficiency
-- Error handling continues to next day if one fails (no total failure)
-- Processing loads FPS and CRF from config by default (fps=30, crf=28)
-- Logs detailed metrics: frame counts, durations, file sizes, processing time per segment
-- App segment aggregation implemented: consecutive same-app frames grouped into appsegments table
+**Previous Completions:**
+
+*Phase 2.3 - Date/Time Picker:*
+- Calendar view, time list, database queries, Arc-style design
+
+*Phase 2.2 - Timeline Enhancements:*
+- Global hotkey system (Option+Shift+Space with Carbon API)
+- Time labels and ticks with dynamic spacing
+- Auto-refresh for new segments (5-second polling)
+
+*Phase 2.1 - Menu Bar & Settings:*
+- Complete menu bar with status monitoring
+- Settings window with 6 tabs and live config updates
 
 ### Next Priorities
-**Phase 1 is COMPLETE.** Begin Phase 2: User Interface implementation.
+**Phase 2 is 95% COMPLETE.** Final polish items, then begin Phase 3: Data & Storage.
 
-1. **Menu Bar Component:** Implement MenuBarExtra with status icon, recording controls, and menu structure
-2. **Timeline Viewer:** Implement TimelineView with video playback, segment selection, and navigation
-3. **Settings Window:** Implement SettingsView with all configuration tabs
-4. **Date/Time Picker:** Implement DateTimePickerView for timeline navigation
-5. **First-Run Setup:** Implement onboarding flow with permission requests
+1. **Recording/Advanced Settings Tabs:** Complete placeholder implementations with full functionality
+2. **Loading States:** Implement loading screens during processing and data operations
+3. **Error Handling UI:** Implement empty states, error dialogs, and user feedback
+4. **Performance Optimization:** Segment preloading and timeline rendering optimization for 90+ days
+5. **Phase 3 Preparation:** Begin database optimization and storage cleanup service
 
 ### Optional Future Enhancements (Not Blocking Phase 2)
 - Structured JSON logging (currently using print statements)
@@ -308,15 +319,42 @@ Continue with remaining Phase 2 tasks:
 - Implement "Apply" and "Reset" functionality
 
 ### 2.5 First-Run Setup
-- Implement WelcomeView with onboarding flow
-- Implement PermissionsView (Screen Recording, Accessibility)
-- Implement StorageView with location picker and space validation
-- Implement DependencyView (Python, FFmpeg detection)
-- Implement ConfigurationView (initial settings)
-- Implement progress indicator for setup steps
-- Implement "Open System Settings" deep links
-- Implement "Skip" options for optional steps
-- Implement setup completion persistence (UserDefaults)
+
+**Status: ✅ COMPLETE**
+
+**Features Implemented:**
+- FirstRunCoordinator for state management and setup flow
+- WelcomeView with app introduction and feature list
+- PermissionsView with Screen Recording and Accessibility permission checks
+- StorageSetupView with data directory creation and disk space validation
+- DependencyCheckView for Python 3.12+ and FFmpeg 7.0+ detection
+- InitialConfigView for recording interval and retention policy configuration
+- FirstRunWindowView container with step navigation and progress
+- AppDelegate integration in PlaybackApp.swift
+- Setup completion persistence via UserDefaults
+- "Open System Settings" deep links for permission management
+- Skip options for non-critical steps
+- Arc-style frosted glass design matching app aesthetic
+
+**Files Created:**
+- `src/Playback/Playback/FirstRun/FirstRunCoordinator.swift` (140+ lines)
+- `src/Playback/Playback/FirstRun/WelcomeView.swift` (80+ lines)
+- `src/Playback/Playback/FirstRun/PermissionsView.swift` (120+ lines)
+- `src/Playback/Playback/FirstRun/StorageSetupView.swift` (100+ lines)
+- `src/Playback/Playback/FirstRun/DependencyCheckView.swift` (100+ lines)
+- `src/Playback/Playback/FirstRun/InitialConfigView.swift` (100+ lines)
+- `src/Playback/Playback/FirstRun/FirstRunWindowView.swift` (90+ lines)
+
+**Files Modified:**
+- `src/Playback/Playback/PlaybackApp.swift` (added AppDelegate and first-run window scene)
+
+**Setup Flow:**
+1. Welcome screen with feature overview
+2. Permissions check (Screen Recording, Accessibility)
+3. Storage setup with directory creation
+4. Dependency verification (Python, FFmpeg)
+5. Initial configuration (recording preferences)
+6. Completion and app launch
 
 ---
 
@@ -628,8 +666,8 @@ Playback/
 | Phase | Duration | Status |
 |-------|----------|--------|
 | Phase 1: Core Recording & Processing | 4-6 weeks | ✅ COMPLETE |
-| Phase 2: User Interface | 6-8 weeks | 📋 Next Up |
-| Phase 3: Data & Storage | 3-4 weeks | 📋 Planned |
+| Phase 2: User Interface | 6-8 weeks | 🚧 95% Complete |
+| Phase 3: Data & Storage | 3-4 weeks | 📋 Next Up |
 | Phase 4: Advanced Features | 4-6 weeks | 📋 Planned |
 | Phase 5: Testing & Quality | 3-4 weeks | 📋 Planned |
 | Phase 6: Distribution & Deployment | 2-3 weeks | 📋 Planned |
@@ -652,38 +690,37 @@ Playback/
 
 ---
 
-### Phase 2: User Interface - IN PROGRESS 📋 (78% Complete)
+### Phase 2: User Interface - IN PROGRESS 📋 (95% Complete)
 
-**Completed:**
-- ✅ **2.1 Menu Bar Component (COMPLETE)**
-  - MenuBarExtra with status icon (recording/paused/error states)
-  - Full menu structure (Record toggle, Open Timeline, Settings, Diagnostics, About, Quit)
-  - Settings window with 6 tabs (General, Recording, Processing, Storage, Privacy, Advanced)
-  - Real-time config updates via ConfigManager
-  - Status monitoring (5-second polling)
+**Completed (as of 2026-02-07):**
+- ✅ **Menu Bar Component** - Full implementation with status monitoring, settings integration, and LaunchAgent control
+- ✅ **Timeline Viewer** - Core playback, global hotkey, time ticks, auto-refresh, keyboard shortcuts
+- ✅ **Date/Time Picker** - Calendar view, time list, database queries, Arc-style design
+- ✅ **First-Run Setup** - Complete onboarding wizard with permissions, dependencies, storage setup, and initial configuration
+- ✅ **Settings Window** - 6 tabs (General, Processing, Storage, Privacy, Recording, Advanced) with live config updates
 
-- ✅ **2.2 Timeline Viewer Enhancements (MOSTLY COMPLETE)**
-  - Global hotkey system (Option+Shift+Space with Carbon API)
-  - Time labels and ticks with dynamic spacing
-  - Auto-refresh for new segments (5-second polling)
-  - Core timeline functionality (playback, scrubbing, zoom, gestures)
-  - Keyboard shortcuts (Space for play/pause, Left/Right arrows for 5s seek)
+**Remaining (~5% of Phase 2):**
+- Recording/Advanced settings tabs content (placeholders exist, functionality needed)
+- Loading screen during processing
+- Error handling UI (empty states, error dialogs)
+- Segment preloading to reduce playback transition latency
+- Timeline performance optimization for 90+ days of data
 
-- ✅ **2.3 Date/Time Picker (COMPLETE)**
-  - Calendar view with month/year navigation
-  - Time list with 15-minute intervals
-  - Database queries for available dates/times
-  - Clickable time bubble
-  - Arc-style frosted glass design
+**Key Achievements:**
+- 20 new Swift files created for UI components
+- Arc-style design language applied throughout
+- Carbon API integration for global hotkeys
+- System Settings deep linking for permissions
+- UserDefaults persistence for app state
+- Real-time config updates via ConfigManager
 
-**Remaining:**
-- 2.5 First-Run Setup (onboarding wizard with permissions, dependencies, initial config)
-- Polish items:
-  - Loading screen for processing
-  - Error handling UI (empty states, error dialogs)
-  - Segment preloading (reduce transition latency)
+**Next Priority:** Complete Recording/Advanced settings tabs, implement loading states and error handling UI, then begin Phase 3 (Data & Storage) with database optimization and cleanup service.
 
-**Files Created in Phase 2 (13 files):**
+---
+
+### Detailed Phase 2 Progress
+
+**Files Created in Phase 2 (20 files):**
 - MenuBar/MenuBarViewModel.swift (150 lines)
 - MenuBar/MenuBarView.swift (105 lines)
 - Settings/SettingsView.swift (285 lines)
@@ -695,9 +732,16 @@ Playback/
 - Settings/AdvancedTab.swift
 - Services/GlobalHotkeyManager.swift (120 lines)
 - Timeline/DateTimePickerView.swift (330+ lines)
+- FirstRun/FirstRunCoordinator.swift (140+ lines)
+- FirstRun/WelcomeView.swift (80+ lines)
+- FirstRun/PermissionsView.swift (120+ lines)
+- FirstRun/StorageSetupView.swift (100+ lines)
+- FirstRun/DependencyCheckView.swift (100+ lines)
+- FirstRun/InitialConfigView.swift (100+ lines)
+- FirstRun/FirstRunWindowView.swift (90+ lines)
 - Modifications to PlaybackApp.swift, TimelineView.swift, TimelineStore.swift, ContentView.swift
 
-**Next Priority:** First-Run Setup wizard for permissions and initial configuration, then polish items.
+**Next Priority:** Complete remaining Settings tabs (Recording, Advanced) and polish items (loading states, error handling, performance optimizations).
 
 ---
 

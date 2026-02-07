@@ -1,7 +1,9 @@
 import SwiftUI
+import AppKit
 
 @main
 struct PlaybackApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @StateObject private var timelineStore = TimelineStore()
     @StateObject private var playbackController = PlaybackController()
     @StateObject private var signalManager = SignalFileManagerWrapper()
@@ -41,6 +43,43 @@ struct PlaybackApp: App {
         }
         .windowResizability(.contentSize)
         .defaultPosition(.center)
+
+        Window("Welcome to Playback", id: "firstrun") {
+            FirstRunWindowView()
+        }
+        .windowStyle(.hiddenTitleBar)
+        .windowResizability(.contentSize)
+        .defaultPosition(.center)
+    }
+}
+
+class AppDelegate: NSObject, NSApplicationDelegate {
+    private var firstRunWindow: NSWindow?
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        if !FirstRunCoordinator.hasCompletedFirstRun {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                self.showFirstRunWindow()
+            }
+        }
+    }
+
+    private func showFirstRunWindow() {
+        let contentView = FirstRunWindowView()
+        let hostingController = NSHostingController(rootView: contentView)
+
+        let window = NSWindow(contentViewController: hostingController)
+        window.title = "Welcome to Playback"
+        window.styleMask = [.titled, .closable]
+        window.isReleasedWhenClosed = false
+        window.center()
+        window.setFrame(NSRect(x: 0, y: 0, width: 600, height: 500), display: true)
+        window.center()
+
+        NSApp.activate(ignoringOtherApps: true)
+        window.makeKeyAndOrderFront(nil)
+
+        self.firstRunWindow = window
     }
 }
 
