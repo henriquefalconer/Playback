@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>{{LABEL}}</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/bin/python3</string>
+        <string>{{SCRIPT_PATH}}/cleanup_old_chunks.py</string>
+        <string>--auto</string>
+        <string>--orphaned</string>
+    </array>
+
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>2</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
+
+    <key>StandardOutPath</key>
+    <string>{{LOG_PATH}}/cleanup.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>{{LOG_PATH}}/cleanup-error.log</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PLAYBACK_CONFIG</key>
+        <string>{{CONFIG_PATH}}</string>
+        <key>PLAYBACK_DATA_DIR</key>
+        <string>{{DATA_DIR}}</string>
+        <key>PLAYBACK_DEV_MODE</key>
+        <string>{{DEV_MODE}}</string>
+    </dict>
+
+    <key>ProcessType</key>
+    <string>Background</string>
+
+    <key>Nice</key>
+    <integer>15</integer>
+
+    <key>LowPriorityIO</key>
+    <true/>
+
+    <key>LimitLoadToSessionType</key>
+    <string>Aqua</string>
+</dict>
+</plist>

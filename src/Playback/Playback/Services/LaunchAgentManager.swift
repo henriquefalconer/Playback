@@ -13,6 +13,7 @@ enum LaunchAgentError: Error {
 enum AgentType: String, CaseIterable {
     case recording
     case processing
+    case cleanup
 
     var label: String {
         let isDev = Paths.isDevelopment
