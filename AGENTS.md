@@ -11,6 +11,7 @@ Key operational learnings from Phase 2 development (2026-02-07):
 - **Database queries:** Run on background queue with `DispatchQueue.global(qos: .userInitiated)` to avoid blocking UI
 - **Keyboard shortcuts:** Use `NSEvent.addLocalMonitorForEvents` with keyCode comparison for timeline-local shortcuts
 - **DatePicker binding:** Requires separate `@State var selectedTime` binding to avoid mutating published state directly
+- **Git authentication in containers:** When running in Linux/Docker environments, git push may fail due to authentication issues - commits/tags are created locally but require manual push from macOS host
 
 ## Specifications
 
