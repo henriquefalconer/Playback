@@ -27,6 +27,7 @@ Playback consists of separate components:
 - ✅ Implement frontmost app detection via AppleScript
 - ✅ Implement timeline viewer detection (check for `.timeline_open` file) - uses `lib.paths.get_timeline_open_signal_path()`
 - ✅ Implement automatic pause when timeline viewer open - recording script pauses when signal file exists
+- ✅ Swift timeline viewer creates/deletes signal file - SignalFileManager handles .timeline_open lifecycle
 - ✅ Implement screen unavailability detection (screensaver, display off)
 - ✅ Implement file naming convention (YYYYMMDD-HHMMSS-uuid-app_id) - now using timestamps.py
 - ✅ Implement date-based directory structure (YYYYMM/DD/) - now using paths.py
@@ -35,8 +36,6 @@ Playback consists of separate components:
 - Implement permission checks (Screen Recording, Accessibility)
 - Implement graceful error handling and recovery
 - Implement metrics tracking (frames captured, errors, CPU/memory usage)
-
-**Note:** Swift timeline viewer still needs to create/delete the signal file when opening/closing (TODO).
 
 ### 1.2 Processing Service (Python)
 - ✅ Implement temp file scanning and grouping
@@ -60,13 +59,20 @@ Playback consists of separate components:
 - ✅ Migrate duplicated logic from recording/processing services
 - ✅ Implement unit tests for all shared utilities (test_macos.py created)
 
+### 1.3.1 Shared Swift Utilities (src/Playback/Playback/Utilities/)
+- ✅ Implement Paths.swift for environment-aware path resolution (mirrors Python lib/paths.py)
+- ✅ Implement SignalFileManager for .timeline_open file lifecycle management
+- ✅ Integrate Paths utility into PlaybackApp and TimelineStore
+- ✅ Development mode detection via PLAYBACK_DEV_MODE environment variable
+- ✅ Automatic signal file creation on app launch, deletion on quit
+
 ### 1.4 Configuration System
 - Implement ConfigManager in Swift
 - Implement config.json schema with validation
 - Implement default configuration generation
 - Implement hot-reloading with FileSystemWatcher
 - Implement config migration for version updates
-- Implement environment-aware paths (dev vs production)
+- ✅ Implement environment-aware paths (dev vs production) - Paths.swift with PLAYBACK_DEV_MODE detection
 - Implement configuration UI bindings (@Published properties)
 - Implement config backup before migrations
 - Implement validation rules for all settings
@@ -163,8 +169,9 @@ Playback consists of separate components:
 - Implement migration system with version tracking
 
 ### 3.2 File Management
-- Implement Paths.swift for environment-aware path resolution
-- Implement Environment.swift for dev vs production detection
+- ✅ Implement Paths.swift for environment-aware path resolution
+- ✅ Implement Environment.swift for dev vs production detection (via PLAYBACK_DEV_MODE)
+- ✅ Implement SignalFileManager for .timeline_open lifecycle management
 - Implement DirectoryManager for creating data directories
 - Implement file permission enforcement (0600 for sensitive files)
 - Implement date-based directory creation and cleanup
@@ -472,6 +479,10 @@ Playback/
 - Basic processing service (video generation)
 - Database schema design
 - Specifications for all major features
+- Shared Python utilities (paths, database, video, macos, timestamps)
+- Environment-aware path resolution (Swift and Python)
+- Signal file management for timeline viewer pause detection
+- Timeline viewer uses Paths utility for data access
 
 ### In Progress 🚧
 - Configuration system

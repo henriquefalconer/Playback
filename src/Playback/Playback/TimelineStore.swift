@@ -95,9 +95,17 @@ final class TimelineStore: ObservableObject {
     private let baseDir: URL
 
     init() {
-        // Ajuste este caminho se o projeto for movido
-        self.baseDir = URL(fileURLWithPath: "/Users/henriquefalconer/Documents/Personal/Playback/com.playback.Playback")
-        self.dbPath = baseDir.appendingPathComponent("meta.sqlite3").path
+        // Use environment-aware paths from Paths utility
+        self.baseDir = Paths.baseDataDirectory
+        self.dbPath = Paths.databasePath.path
+
+        // Ensure directories exist before loading data
+        do {
+            try Paths.ensureDirectoriesExist()
+        } catch {
+            print("[TimelineStore] Error creating directories: \(error)")
+        }
+
         loadSegments()
     }
 
