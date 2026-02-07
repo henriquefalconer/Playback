@@ -8,27 +8,30 @@
 
 ### Project Structure Setup
 - [ ] Create Xcode project structure
-  - Location: `Playback/Playback.xcodeproj`
+  - Location: `src/Playback/Playback.xcodeproj`
   - Target: Playback (unified app with menu bar + timeline)
   - Minimum deployment: macOS 26.0 (Tahoe)
   - Architecture: Apple Silicon only (arm64)
   - Bundle ID: `com.playback.Playback`
   - SwiftUI lifecycle with App protocol
 
-- [ ] Set up source directory structure
-  - `Playback/MenuBar/` - Menu bar component
-  - `Playback/Timeline/` - Timeline viewer component
-  - `Playback/Settings/` - Settings window component
-  - `Playback/Services/` - LaunchAgent management
-  - `Playback/Config/` - Configuration management
-  - `Playback/Database/` - SQLite database access
+- [ ] Set up Swift source directory structure
+  - `src/Playback/Playback/MenuBar/` - Menu bar component
+  - `src/Playback/Playback/Timeline/` - Timeline viewer component
+  - `src/Playback/Playback/Settings/` - Settings window component
+  - `src/Playback/Playback/Services/` - LaunchAgent management
+  - `src/Playback/Playback/Config/` - Configuration management
+  - `src/Playback/Playback/Database/` - SQLite database access
 
 - [ ] Set up Python scripts directory
-  - `scripts/record_screen.py` - Recording service (captures screenshots)
-  - `scripts/build_chunks_from_temp.py` - Processing service (creates videos)
-  - `scripts/cleanup_old_chunks.py` - Retention cleanup service
-  - `scripts/requirements.txt` - Python dependencies (Pillow, ffmpeg-python)
-  - `scripts/tests/` - Python test files
+  - `src/scripts/record_screen.py` - Recording service (captures screenshots)
+  - `src/scripts/build_chunks_from_temp.py` - Processing service (creates videos)
+  - `src/scripts/cleanup_old_chunks.py` - Retention cleanup service
+  - `src/scripts/requirements.txt` - Python dependencies (Pillow, ffmpeg-python)
+  - `src/scripts/tests/` - Python test files
+
+- [ ] Create shared Python library directory (planned)
+  - `src/lib/` - Shared utilities (paths, database, video, macos, timestamps)
 
 - [ ] Create development data directory (gitignored)
   - `dev_data/temp/` - Development screenshots
@@ -37,7 +40,7 @@
 
 ### Application Entry Point
 - [ ] Implement main app structure
-  - Source: `Playback/PlaybackApp.swift`
+  - Source: `src/Playback/Playback/PlaybackApp.swift`
   - Components: MenuBarExtra, Window (Timeline), Settings
   - MenuBarExtra: Always visible system tray icon
   - Timeline Window: On-demand viewer for recorded content
@@ -45,14 +48,14 @@
 
 ### Component Communication
 - [ ] Implement shared state management
-  - Source: `Playback/Config/ConfigManager.swift`
+  - Source: `src/Playback/Playback/Config/ConfigManager.swift`
   - Uses: SwiftUI @EnvironmentObject for state sharing
   - Config persists to: `~/Library/Application Support/Playback/config.json`
   - Shared state includes: recording enabled, interval, retention days
   - Updates propagate to all UI components automatically
 
 - [ ] Set up LaunchAgent control
-  - Source: `Playback/Services/LaunchAgentManager.swift`
+  - Source: `src/Playback/Playback/Services/LaunchAgentManager.swift`
   - Methods: load/unload recording and processing agents
   - Controls: `com.playback.record` and `com.playback.process` LaunchAgents
   - Uses `launchctl` commands: load, unload, start, stop

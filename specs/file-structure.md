@@ -12,32 +12,42 @@
   - Create `README.md` and `LICENSE` files
   - Initialize Git repository if not already present
 
+- [ ] Create source directory structure
+  - Root: `src/` - All source code
+  - Swift app: `src/Playback/` - Xcode project and Swift source
+  - Python services: `src/scripts/` - Recording and processing services
+  - Shared utilities: `src/lib/` - Shared Python modules (planned)
+
 - [ ] Create Xcode project hierarchy
-  - Directory: `Playback/Playback.xcodeproj`
-  - Main target: `Playback/Playback/`
-  - Test targets: `PlaybackTests/` and `PlaybackUITests/`
+  - Directory: `src/Playback/Playback.xcodeproj`
+  - Main target: `src/Playback/Playback/`
+  - Test targets: `src/Playback/PlaybackTests/` and `src/Playback/PlaybackUITests/`
   - Minimum deployment: macOS 26.0 (Tahoe)
   - Architecture: Apple Silicon only
 
-- [ ] Set up source directory organization
-  - `Playback/PlaybackApp.swift` - Single app entry point
-  - `Playback/MenuBar/` - Menu bar component
-  - `Playback/Timeline/` - Timeline viewer component
-  - `Playback/Settings/` - Settings window with UninstallView
-  - `Playback/Diagnostics/` - Diagnostics and logging
-  - `Playback/Services/` - Recording, processing, LaunchAgent management
-  - `Playback/Search/` - Search controller and OCR service
-  - `Playback/Config/` - ConfigManager, Environment, Paths
-  - `Playback/Database/` - Database access layer
-  - `Playback/Resources/` - Assets, Info.plist, embedded_scripts/
+- [ ] Set up Swift source directory organization
+  - `src/Playback/Playback/PlaybackApp.swift` - Single app entry point
+  - `src/Playback/Playback/MenuBar/` - Menu bar component
+  - `src/Playback/Playback/Timeline/` - Timeline viewer component
+  - `src/Playback/Playback/Settings/` - Settings window with UninstallView
+  - `src/Playback/Playback/Diagnostics/` - Diagnostics and logging
+  - `src/Playback/Playback/Services/` - Recording, processing, LaunchAgent management
+  - `src/Playback/Playback/Search/` - Search controller and OCR service
+  - `src/Playback/Playback/Config/` - ConfigManager, Environment, Paths
+  - `src/Playback/Playback/Database/` - Database access layer
+  - `src/Playback/Playback/Resources/` - Assets, Info.plist, embedded_scripts/
 
 - [ ] Create Python scripts directory
-  - `scripts/record_screen.py` - Screenshot capture service
-  - `scripts/build_chunks_from_temp.py` - Video processing service
-  - `scripts/validate_config.py` - Config validation utility
-  - `scripts/tests/` - Python unit tests
-  - `scripts/pkg/postinstall` - Installer post-install script
-  - `scripts/pkg/preinstall` - Installer pre-install script
+  - `src/scripts/record_screen.py` - Screenshot capture service
+  - `src/scripts/build_chunks_from_temp.py` - Video processing service
+  - `src/scripts/validate_config.py` - Config validation utility
+  - `src/scripts/tests/` - Python unit tests
+  - `src/scripts/pkg/postinstall` - Installer post-install script
+  - `src/scripts/pkg/preinstall` - Installer pre-install script
+
+- [ ] Create shared Python library directory (planned)
+  - `src/lib/.gitkeep` - Placeholder for future shared utilities
+  - Planned modules: paths.py, database.py, video.py, macos.py, timestamps.py
 
 - [ ] Create development data directories (gitignored)
   - `dev_data/temp/` - Development screenshots with date structure
@@ -51,12 +61,12 @@
 
 - [ ] Create specs directory structure
   - `specs/README.md` - Specification index
-  - `specs/01-architecture.md` through `specs/14-build-process.md`
+  - `specs/*.md` - Implementation plans for all components
 
 - [ ] Create build scripts directory
-  - `scripts/build_release.sh` - Production build automation
-  - `scripts/install_dev_launchagents.sh` - Dev LaunchAgent setup
-  - `scripts/validate_config.py` - Config validation
+  - `src/scripts/build_release.sh` - Production build automation
+  - `src/scripts/install_dev_launchagents.sh` - Dev LaunchAgent setup
+  - `src/scripts/validate_config.py` - Config validation
 
 - [ ] Create build configuration files
   - `exportOptions.plist` - Xcode export configuration
@@ -93,13 +103,13 @@
 
 ### Path Resolution (Dev vs Prod)
 - [ ] Implement Environment.swift
-  - Source: `Playback/Config/Environment.swift`
+  - Source: `src/Playback/Playback/Config/Environment.swift`
   - Detection: Check for `PLAYBACK_DEV_MODE=1` environment variable
   - Build flag: Use `#if DEVELOPMENT` conditional compilation
   - See: "Key Differences: Development vs Production" section below
 
 - [ ] Implement Paths.swift
-  - Source: `Playback/Config/Paths.swift`
+  - Source: `src/Playback/Playback/Config/Paths.swift`
   - Methods: dataDirectory(), configPath(), logsDirectory()
   - Dev paths: Relative to project root (Bundle-based resolution)
   - Prod paths: Standard macOS locations (FileManager API)
@@ -132,13 +142,13 @@
   - Format: `YYYYMMDD-HHMMSS-<uuid>-<app_id>`
   - Example: `20251222-143050-a1b2c3d4-com.apple.Safari`
   - No extension (raw PNG data)
-  - Source: `scripts/record_screen.py`
+  - Source: `src/scripts/record_screen.py`
 
 - [ ] Implement video segment naming
   - Format: `<segment_id>.mp4`
   - ID generation: `os.urandom(10).hex()` (20 hex characters)
   - Example: `a3f8b29c4d1e5f67890a.mp4`
-  - Source: `scripts/build_chunks_from_temp.py`
+  - Source: `src/scripts/build_chunks_from_temp.py`
 
 - [ ] Implement log file naming
   - Format: `<component>.log[.N]`
@@ -153,7 +163,7 @@
 
 ### App Bundle Structure
 - [ ] Configure build phase for script embedding
-  - Copy Phase: `scripts/*.py` → `Resources/scripts/`
+  - Copy Phase: `src/scripts/*.py` → `Resources/scripts/`
   - Timing: Build time (immutable in production)
   - Preserve permissions: Executable scripts
   - See: "Scripts Embedding in Bundle" section below
@@ -178,7 +188,7 @@
 
 - [ ] Set up script path resolution
   - Production: `Bundle.main.resourceURL/scripts/`
-  - Development: Project source `scripts/` directory
+  - Development: Project source `src/scripts/` directory
   - Environment-aware: Switch based on PLAYBACK_DEV_MODE
 
 - [ ] Handle script permissions
@@ -197,7 +207,7 @@
 
 ### Backup Script Creation
 - [ ] Create backup_playback_data.sh
-  - Location: `scripts/backup_playback_data.sh`
+  - Location: `src/scripts/backup_playback_data.sh`
   - Backup target: Date-stamped directory (`~/Backups/Playback-YYYYMMDD`)
   - Essential data: chunks/, meta.sqlite3, config.json
   - Method: rsync for chunks (efficient), cp for config/database
@@ -211,7 +221,7 @@
 
 ### Migration from Old Structure
 - [ ] Create migration script
-  - Location: `scripts/migrate_to_unified_app.sh`
+  - Location: `src/scripts/migrate_to_unified_app.sh`
   - Remove: Old separate apps (`Playback Menu.app`, `Uninstall Playback.app`)
   - Update: LaunchAgent plists to point to unified app
   - Reload: LaunchAgents with new configuration
@@ -274,90 +284,81 @@
 #### Development Directory Tree
 ```
 .
-├── Playback/
-│   ├── Playback.xcodeproj/
-│   │   ├── project.pbxproj
-│   │   └── project.xcworkspace/
-│   ├── Playback/
-│   │   ├── PlaybackApp.swift              # Single unified app entry point
-│   │   ├── MenuBar/
-│   │   │   ├── MenuBarView.swift
-│   │   │   ├── MenuBarController.swift
-│   │   │   └── StatusItemManager.swift
-│   │   ├── Timeline/
-│   │   │   ├── TimelineView.swift
-│   │   │   ├── TimelineController.swift
-│   │   │   ├── VideoPlayer.swift
-│   │   │   └── TimelineScrollView.swift
-│   │   ├── Settings/
-│   │   │   ├── SettingsView.swift
-│   │   │   ├── SettingsController.swift
-│   │   │   ├── UninstallView.swift          # Uninstall UI (no separate app)
-│   │   │   └── PrivacySettingsView.swift
-│   │   ├── Diagnostics/
-│   │   │   ├── DiagnosticsView.swift
-│   │   │   ├── LogViewer.swift
-│   │   │   └── SystemInfoCollector.swift
-│   │   ├── Services/
-│   │   │   ├── RecordingService.swift
-│   │   │   ├── ProcessingService.swift
-│   │   │   ├── LaunchAgentManager.swift
-│   │   │   └── PermissionsManager.swift
-│   │   ├── Search/
-│   │   │   ├── SearchController.swift
-│   │   │   ├── OCRService.swift
-│   │   │   └── SearchResultsView.swift
-│   │   ├── Config/
-│   │   │   ├── ConfigManager.swift
-│   │   │   ├── Environment.swift            # Dev vs Prod detection
-│   │   │   └── Paths.swift                  # Path resolution
-│   │   ├── Database/
-│   │   │   ├── DatabaseManager.swift
-│   │   │   ├── SchemaManager.swift
-│   │   │   └── Queries/
-│   │   └── Resources/
-│   │       ├── Assets.xcassets/
-│   │       ├── Info.plist
-│   │       └── embedded_scripts/
-│   ├── PlaybackTests/
-│   │   ├── ConfigTests.swift
-│   │   ├── PathsTests.swift
-│   │   └── ServicesTests.swift
-│   └── PlaybackUITests/
-│       ├── TimelineUITests.swift
-│       └── SettingsUITests.swift
-├── scripts/
-│   ├── record_screen.py                     # Screenshot capture service
-│   ├── build_chunks_from_temp.py            # Video processing service
-│   ├── validate_config.py                   # Config validation utility
-│   ├── build_release.sh                     # Production build automation
-│   ├── install_dev_launchagents.sh          # Dev LaunchAgent setup
-│   ├── backup_playback_data.sh              # User data backup utility
-│   ├── migrate_to_unified_app.sh            # Migration script
-│   ├── tests/
-│   │   ├── test_record_screen.py
-│   │   └── test_build_chunks.py
-│   └── pkg/
-│       ├── postinstall                      # Installer post-install
-│       └── preinstall                       # Installer pre-install
-├── specs/
-│   ├── README.md
-│   ├── 01-architecture.md
-│   ├── 02-recording.md
-│   ├── 03-processing.md
-│   ├── 04-database.md
-│   ├── 05-search.md
-│   ├── 06-ui-timeline.md
-│   ├── 07-ui-menu.md
-│   ├── 08-settings.md
-│   ├── 09-config.md
-│   ├── 10-launchagents.md
-│   ├── 11-file-structure.md                 # This document
-│   ├── 12-privacy.md
-│   ├── 13-permissions.md
-│   └── 14-build-process.md
-├── dev_data/                                # GITIGNORED
-│   ├── temp/                                # Development screenshots
+├── src/                                     # All source code
+│   ├── Playback/                           # Swift app
+│   │   ├── Playback.xcodeproj/
+│   │   │   ├── project.pbxproj
+│   │   │   └── project.xcworkspace/
+│   │   ├── Playback/
+│   │   │   ├── PlaybackApp.swift          # Single unified app entry point
+│   │   │   ├── MenuBar/
+│   │   │   │   ├── MenuBarView.swift
+│   │   │   │   ├── MenuBarController.swift
+│   │   │   │   └── StatusItemManager.swift
+│   │   │   ├── Timeline/
+│   │   │   │   ├── TimelineView.swift
+│   │   │   │   ├── TimelineController.swift
+│   │   │   │   ├── VideoPlayer.swift
+│   │   │   │   └── TimelineScrollView.swift
+│   │   │   ├── Settings/
+│   │   │   │   ├── SettingsView.swift
+│   │   │   │   ├── SettingsController.swift
+│   │   │   │   ├── UninstallView.swift    # Uninstall UI (no separate app)
+│   │   │   │   └── PrivacySettingsView.swift
+│   │   │   ├── Diagnostics/
+│   │   │   │   ├── DiagnosticsView.swift
+│   │   │   │   ├── LogViewer.swift
+│   │   │   │   └── SystemInfoCollector.swift
+│   │   │   ├── Services/
+│   │   │   │   ├── RecordingService.swift
+│   │   │   │   ├── ProcessingService.swift
+│   │   │   │   ├── LaunchAgentManager.swift
+│   │   │   │   └── PermissionsManager.swift
+│   │   │   ├── Search/
+│   │   │   │   ├── SearchController.swift
+│   │   │   │   ├── OCRService.swift
+│   │   │   │   └── SearchResultsView.swift
+│   │   │   ├── Config/
+│   │   │   │   ├── ConfigManager.swift
+│   │   │   │   ├── Environment.swift      # Dev vs Prod detection
+│   │   │   │   └── Paths.swift            # Path resolution
+│   │   │   ├── Database/
+│   │   │   │   ├── DatabaseManager.swift
+│   │   │   │   ├── SchemaManager.swift
+│   │   │   │   └── Queries/
+│   │   │   └── Resources/
+│   │   │       ├── Assets.xcassets/
+│   │   │       ├── Info.plist
+│   │   │       └── embedded_scripts/
+│   │   ├── PlaybackTests/
+│   │   │   ├── ConfigTests.swift
+│   │   │   ├── PathsTests.swift
+│   │   │   └── ServicesTests.swift
+│   │   └── PlaybackUITests/
+│   │       ├── TimelineUITests.swift
+│   │       └── SettingsUITests.swift
+│   ├── scripts/                            # Python services
+│   │   ├── record_screen.py               # Screenshot capture service
+│   │   ├── build_chunks_from_temp.py      # Video processing service
+│   │   ├── validate_config.py             # Config validation utility
+│   │   ├── build_release.sh               # Production build automation
+│   │   ├── install_dev_launchagents.sh    # Dev LaunchAgent setup
+│   │   ├── backup_playback_data.sh        # User data backup utility
+│   │   ├── migrate_to_unified_app.sh      # Migration script
+│   │   ├── tests/
+│   │   │   ├── test_record_screen.py
+│   │   │   └── test_build_chunks.py
+│   │   └── pkg/
+│   │       ├── postinstall                # Installer post-install
+│   │       └── preinstall                 # Installer pre-install
+│   └── lib/                                # Shared Python utilities (planned)
+│       └── .gitkeep                       # Placeholder for future modules
+├── specs/                                 # Implementation plans
+│   ├── README.md                         # Specification index
+│   ├── file-structure.md                 # This document
+│   └── *.md                              # Component specifications
+├── dev_data/                              # GITIGNORED
+│   ├── temp/                              # Development screenshots
 │   │   ├── 202512/
 │   │   │   ├── 22/
 │   │   │   │   ├── 20251222-143050-a1b2c3d4-com.apple.Safari
@@ -365,7 +366,7 @@
 │   │   │   │   └── ...
 │   │   │   └── 23/
 │   │   └── 202601/
-│   ├── chunks/                              # Development video segments
+│   ├── chunks/                            # Development video segments
 │   │   ├── 202512/
 │   │   │   ├── 22/
 │   │   │   │   ├── a3f8b29c4d1e5f67890a.mp4
@@ -373,14 +374,14 @@
 │   │   │   │   └── ...
 │   │   │   └── 23/
 │   │   └── 202601/
-│   └── meta.sqlite3                         # Development database
-├── dev_logs/                                # GITIGNORED
+│   └── meta.sqlite3                       # Development database
+├── dev_logs/                              # GITIGNORED
 │   ├── recording.log
 │   ├── recording.log.1
 │   ├── processing.log
 │   ├── processing.log.1
 │   └── app.log
-├── dev_config.json                          # GITIGNORED
+├── dev_config.json                        # GITIGNORED
 ├── .gitignore
 ├── .swiftlint.yml
 ├── .pre-commit-config.yaml
@@ -448,6 +449,72 @@
 └── app.log                                  # Main app log
 ```
 
+### Shared Python Utilities (src/lib/)
+
+The `src/lib/` directory is planned for shared Python utilities that consolidate common functionality across recording and processing services. Currently empty (`.gitkeep` placeholder), the following modules are designed based on patterns found in existing scripts:
+
+#### Planned Modules
+
+**`src/lib/paths.py`** - Centralized path resolution
+- `PROJECT_ROOT` - Auto-detect project root from script location
+- `resolve_data_dir()` - Return dev_data/ or ~/Library/Application Support/Playback/data/
+- `resolve_config_path()` - Return dev_config.json or ~/Library/Application Support/Playback/config.json
+- `CHUNKS_ROOT`, `TEMP_ROOT`, `META_DB_PATH` - Path constants for data directories
+- Environment-aware resolution based on `PLAYBACK_DEV_MODE` environment variable
+
+**`src/lib/database.py`** - SQLite operations for meta.sqlite3
+- `init_meta_db(db_path)` - Initialize database schema and tables
+- `insert_segment_meta(db_path, segment_data)` - Insert video segment metadata
+- `insert_appsegment_meta(db_path, app_data)` - Insert app activity segment
+- `query_segments(db_path, start_time, end_time)` - Query helper for segments table
+- Connection pooling and transaction management
+
+**`src/lib/video.py`** - FFmpeg wrappers and video processing
+- `get_image_size(image_path)` - Get PNG dimensions via ffprobe
+- `run_ffmpeg_make_segment(input_pattern, output_path, fps, crf)` - Generate video from image sequence
+- FFmpeg command builders with standard parameters (H.264, CRF 28, veryfast preset)
+- Error handling and logging for video generation failures
+
+**`src/lib/macos.py`** - macOS-specific utilities
+- `_load_coregraphics()` - CoreGraphics framework loader via ctypes
+- `_check_display_active()` - Check if display is powered on
+- `_get_active_display_index()` - Detect active monitor index
+- `_get_frontmost_app_bundle_id()` - Get active app bundle ID via AppleScript
+- `is_screen_unavailable()` - Combined check for screen lock, sleep, or screensaver
+- macOS system integration utilities
+
+**`src/lib/timestamps.py`** - Timestamp parsing and formatting
+- `DATE_RE` - Regex pattern for YYYYMMDD-HHMMSS format
+- `parse_timestamp_from_name(filename)` - Extract timestamp from screenshot filename
+- `parse_app_from_name(filename)` - Extract app bundle ID from screenshot filename
+- `generate_chunk_name()` - Create standardized video segment filename
+- Timestamp conversion utilities (Unix epoch ↔ YYYYMMDD-HHMMSS)
+
+#### Integration with Services
+
+Recording and processing services will migrate duplicated logic to these shared utilities:
+
+**Recording Service (`src/scripts/record_screen.py`):**
+- Use `src/lib/paths.py` for data directory resolution
+- Use `src/lib/macos.py` for screen availability checks and app detection
+- Use `src/lib/timestamps.py` for screenshot filename generation
+
+**Processing Service (`src/scripts/build_chunks_from_temp.py`):**
+- Use `src/lib/paths.py` for data directory resolution
+- Use `src/lib/database.py` for segment metadata insertion
+- Use `src/lib/video.py` for FFmpeg operations
+- Use `src/lib/timestamps.py` for parsing screenshot timestamps
+
+#### Implementation Notes
+
+- Modules designed to be **stateless** and **side-effect free** where possible
+- All path resolution uses environment variables (`PLAYBACK_DEV_MODE`) for dev/prod detection
+- Error handling with structured logging (JSON format for machine readability)
+- Type hints on all public functions for better IDE support and documentation
+- Unit tests in `src/scripts/tests/lib/` for each module
+
+**Status:** Planned - modules not yet implemented. Services currently contain inline implementations of this functionality.
+
 ### File Naming Patterns
 
 #### Screenshots (temp/)
@@ -473,7 +540,7 @@
 - Unique per second (UUID prevents collision)
 - App context preserved in filename
 
-**Generation:** Python `scripts/record_screen.py`
+**Generation:** Python `src/scripts/record_screen.py`
 
 #### Video Segments (chunks/)
 **Format:** `<segment_id>.mp4`
@@ -495,7 +562,7 @@ c5e0f4bg6j3k7m89012c.mp4
 - ~500-750 MB per file
 - Database stores: chunk_id, start_time, end_time, file_path
 
-**Generation:** Python `scripts/build_chunks_from_temp.py`
+**Generation:** Python `src/scripts/build_chunks_from_temp.py`
 
 #### Log Files
 **Format:** `<component>.log[.N]`
@@ -630,7 +697,7 @@ if Environment.isDevelopment {
 #### Path Resolution
 **Paths.swift Implementation:**
 ```swift
-// Playback/Config/Paths.swift
+// src/Playback/Playback/Config/Paths.swift
 import Foundation
 
 struct Paths {
@@ -712,10 +779,12 @@ struct Paths {
     /// Returns the embedded scripts directory
     static func scriptsDirectory() -> URL {
         if Environment.isDevelopment {
-            // Development: project_root/scripts/
+            // Development: project_root/src/scripts/
             return Bundle.main.bundleURL
                 .deletingLastPathComponent()
                 .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .appendingPathComponent("src")
                 .appendingPathComponent("scripts")
         } else {
             // Production: Playback.app/Contents/Resources/scripts/
@@ -801,7 +870,7 @@ drwxr-xr-x  ~/Library/Logs/Playback/      # 0755
 
 #### Permission Checking Code
 ```swift
-// Playback/Services/PermissionsManager.swift
+// src/Playback/Playback/Services/PermissionsManager.swift
 import Foundation
 import ApplicationServices
 
@@ -839,7 +908,7 @@ class PermissionsManager {
 #### Migration from Old Structure
 **Scenario:** User has old separate apps (Playback Menu.app, Uninstall Playback.app)
 
-**Migration Script:** `scripts/migrate_to_unified_app.sh`
+**Migration Script:** `src/scripts/migrate_to_unified_app.sh`
 ```bash
 #!/bin/bash
 # Migrate from old separate apps to unified Playback.app
@@ -1093,7 +1162,7 @@ dist/
 
 ### Backup Script Details
 
-**Complete Backup Script:** `scripts/backup_playback_data.sh`
+**Complete Backup Script:** `src/scripts/backup_playback_data.sh`
 ```bash
 #!/bin/bash
 # Backup Playback user data to specified location
@@ -1232,7 +1301,7 @@ echo "See backup_info.txt for restore instructions"
 
 **Swift Integration:**
 ```swift
-// Settings/BackupView.swift
+// src/Playback/Playback/Settings/BackupView.swift
 func performBackup(destination: URL) {
     let scriptPath = Paths.scriptsDirectory()
         .appendingPathComponent("backup_playback_data.sh")
@@ -1270,11 +1339,11 @@ func performBackup(destination: URL) {
 
 | Aspect | Development | Production |
 |--------|------------|------------|
-| **App Location** | `.Playback/` (source) | `/Applications/Playback.app/` |
-| **Data Directory** | `.dev_data/` | `~/Library/Application Support/Playback/data/` |
-| **Config File** | `.dev_config.json` | `~/Library/Application Support/Playback/config.json` |
-| **Logs Directory** | `.dev_logs/` | `~/Library/Logs/Playback/` |
-| **Scripts Location** | `.scripts/` (source) | `Playback.app/Contents/Resources/scripts/` |
+| **App Location** | `src/Playback/` (source) | `/Applications/Playback.app/` |
+| **Data Directory** | `dev_data/` | `~/Library/Application Support/Playback/data/` |
+| **Config File** | `dev_config.json` | `~/Library/Application Support/Playback/config.json` |
+| **Logs Directory** | `dev_logs/` | `~/Library/Logs/Playback/` |
+| **Scripts Location** | `src/scripts/` (source) | `Playback.app/Contents/Resources/scripts/` |
 | **LaunchAgent Labels** | `com.playback.dev.recording` | `com.playback.recording` |
 | **Environment Variable** | `PLAYBACK_DEV_MODE=1` | Not set |
 | **Build Flag** | `#if DEVELOPMENT` | Not defined |
@@ -1282,11 +1351,11 @@ func performBackup(destination: URL) {
 | **Hot Reload** | Yes (config changes immediate) | No (restart required) |
 
 **Source Files to Create:**
-- `Playback/Config/Environment.swift` - Environment detection (dev vs prod)
-- `Playback/Config/Paths.swift` - Path resolution for all environments
+- `src/Playback/Playback/Config/Environment.swift` - Environment detection (dev vs prod)
+- `src/Playback/Playback/Config/Paths.swift` - Path resolution for all environments
 - `.gitignore` - Git exclusions for development data
-- `scripts/backup_playback_data.sh` - User data backup utility
-- `scripts/migrate_to_unified_app.sh` - Migration from old structure
+- `src/scripts/backup_playback_data.sh` - User data backup utility
+- `src/scripts/migrate_to_unified_app.sh` - Migration from old structure
 
 ## Testing Checklist
 

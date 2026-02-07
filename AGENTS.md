@@ -27,26 +27,26 @@ Run tests early and often to catch regressions.
 - **Fast tests only:** `xcodebuild test -scheme Playback-Development -only-testing:PlaybackTests/FastTests`
 - **Single test:** `xcodebuild test -scheme Playback-Development -only-testing:PlaybackTests/<TestName>`
 - **UI tests:** `xcodebuild test -scheme Playback-Development -only-testing:PlaybackUITests`
-- **Python tests:** `python3 -m pytest scripts/tests/ -v`
-- **Python linting:** `flake8 scripts/ --max-line-length=120`
+- **Python tests:** `python3 -m pytest src/scripts/tests/ -v`
+- **Python linting:** `flake8 src/scripts/ --max-line-length=120`
 - **Swift linting:** `swiftlint --strict`
 
 ### Python Scripts Development
 Python scripts handle recording and processing. Develop with hot-reloading enabled.
 
-- **Run recording service:** `PLAYBACK_DEV_MODE=1 python3 scripts/record_screen.py`
-- **Run processing service:** `PLAYBACK_DEV_MODE=1 python3 scripts/build_chunks_from_temp.py`
-- **Validate config:** `python3 scripts/validate_config.py dev_config.json`
-- **Install dependencies:** `pip3 install -r scripts/requirements.txt`
+- **Run recording service:** `PLAYBACK_DEV_MODE=1 python3 src/scripts/record_screen.py`
+- **Run processing service:** `PLAYBACK_DEV_MODE=1 python3 src/scripts/build_chunks_from_temp.py`
+- **Validate config:** `python3 src/scripts/validate_config.py dev_config.json`
+- **Install dependencies:** `pip3 install -r src/scripts/requirements.txt`
 - **Check dependencies:** `python3 --version` (requires 3.12+), `ffmpeg -version` (requires 7.0+)
 
 ### Development Environment Setup
 Set up the development environment for first-time setup or after clean checkout.
 
-- **Setup script:** `./scripts/setup_dev_env.sh`
-- **Install dependencies:** `./scripts/install_deps.sh` (installs FFmpeg, Python packages via Homebrew)
+- **Setup script:** `./src/scripts/setup_dev_env.sh`
+- **Install dependencies:** `./src/scripts/install_deps.sh` (installs FFmpeg, Python packages via Homebrew)
 - **Create dev directories:** Creates `dev_data/`, `dev_logs/`, generates `dev_config.json`
-- **Install dev LaunchAgents:** `./scripts/install_dev_launchagents.sh`
+- **Install dev LaunchAgents:** `./src/scripts/install_dev_launchagents.sh`
 
 ### LaunchAgents Management
 LaunchAgents run background services. Development agents use separate labels from production.
@@ -65,7 +65,7 @@ Playback uses Arc-style .zip distribution. No automatic deployment - releases ar
 ### Creating a Release Build
 Use the build script for production-ready builds with code signing and notarization.
 
-- **Build release:** `./scripts/build_release.sh <version>` (e.g., `./scripts/build_release.sh 1.0.0`)
+- **Build release:** `./src/scripts/build_release.sh <version>` (e.g., `./src/scripts/build_release.sh 1.0.0`)
 - **Output:** `dist/Playback-<version>.zip` and `dist/Playback-<version>.zip.sha256`
 - **Steps:** Clean → Build → Test → Sign → Notarize → Package → Checksum
 - **Requirements:** Valid "Developer ID Application" certificate, Apple notarization credentials in keychain
@@ -97,16 +97,16 @@ Before publishing, verify the release build on a clean system:
 **All database migrations are in SQL files applied by Python scripts.**
 
 - **Convention:** Migrations use numbered SQL files or versioned schema checks
-- **Location:** `scripts/migrations/` (if using separate migration files)
+- **Location:** `src/scripts/migrations/` (if using separate migration files)
 - **Schema version:** Tracked in `schema_version` table in `meta.sqlite3`
 - **Application:** Migrations run automatically by processing service on startup
 - **Check current version:** `sqlite3 ~/Library/Application\ Support/Playback/data/meta.sqlite3 "SELECT * FROM schema_version ORDER BY applied_at DESC LIMIT 1;"`
 
 ### Adding a Migration
-1. Create migration function in `scripts/migrations.py` (e.g., `migrate_1_0_to_1_1()`)
+1. Create migration function in `src/scripts/migrations.py` (e.g., `migrate_1_0_to_1_1()`)
 2. Add migration SQL with schema changes
 3. Update `schema_version` table after successful migration
-4. Test migration on development database first: `PLAYBACK_DEV_MODE=1 python3 scripts/migrations.py`
+4. Test migration on development database first: `PLAYBACK_DEV_MODE=1 python3 src/scripts/migrations.py`
 5. Backup production database before applying: `cp meta.sqlite3 meta.sqlite3.backup.$(date +%Y%m%d)`
 
 ### IMPORTANT: Backup Before Migration
@@ -128,7 +128,7 @@ Before releasing or deploying changes, test locally to verify behavior:
 ### Testing Recording Pipeline
 1. **Start recording:** Launch app, enable recording from menu bar
 2. **Verify screenshots:** Check `dev_data/temp/YYYYMM/DD/` for new screenshot files
-3. **Trigger processing:** Run `PLAYBACK_DEV_MODE=1 python3 scripts/build_chunks_from_temp.py`
+3. **Trigger processing:** Run `PLAYBACK_DEV_MODE=1 python3 src/scripts/build_chunks_from_temp.py`
 4. **Verify segments:** Check `dev_data/chunks/YYYYMM/DD/` for new video files
 5. **Check database:** `sqlite3 dev_data/meta.sqlite3 "SELECT * FROM segments ORDER BY start_ts DESC LIMIT 5;"`
 6. **Test playback:** Open timeline viewer, verify video segments play correctly
@@ -212,18 +212,25 @@ PRAGMA integrity_check;
 Swift app with Python background services. Key components:
 
 - **Playback.app:** Single unified SwiftUI app with menu bar + timeline viewer
-  - `Playback/MenuBar/` - Menu bar interface and controls
-  - `Playback/Timeline/` - Timeline viewer with video playback
-  - `Playback/Settings/` - Settings window with all configuration tabs
-  - `Playback/Config/` - Configuration management (ConfigManager, Environment, Paths)
-  - `Playback/Database/` - SQLite database access layer
-  - `Playback/Services/` - LaunchAgent management and service control
-  - `Playback/Search/` - OCR and text search functionality
+  - `src/Playback/Playback/MenuBar/` - Menu bar interface and controls
+  - `src/Playback/Playback/Timeline/` - Timeline viewer with video playback
+  - `src/Playback/Playback/Settings/` - Settings window with all configuration tabs
+  - `src/Playback/Playback/Config/` - Configuration management (ConfigManager, Environment, Paths)
+  - `src/Playback/Playback/Database/` - SQLite database access layer
+  - `src/Playback/Playback/Services/` - LaunchAgent management and service control
+  - `src/Playback/Playback/Search/` - OCR and text search functionality
 
 - **Python Scripts:** Background services for recording and processing
-  - `scripts/record_screen.py` - Screenshot capture (runs every 2 seconds)
-  - `scripts/build_chunks_from_temp.py` - Video segment generation (runs every 5 minutes)
-  - `scripts/cleanup_old_chunks.py` - Retention policy enforcement
+  - `src/scripts/record_screen.py` - Screenshot capture (runs every 2 seconds)
+  - `src/scripts/build_chunks_from_temp.py` - Video segment generation (runs every 5 minutes)
+  - `src/scripts/cleanup_old_chunks.py` - Retention policy enforcement
+
+- **Shared Python Utilities:** Common functionality for services
+  - `src/lib/paths.py` - Environment-aware path resolution
+  - `src/lib/database.py` - SQLite operations and schema management
+  - `src/lib/video.py` - FFmpeg wrappers for video processing
+  - `src/lib/macos.py` - CoreGraphics and AppleScript integration
+  - `src/lib/timestamps.py` - Filename parsing and generation
 
 - **Data Storage:**
   - Development: `dev_data/temp/`, `dev_data/chunks/`, `dev_data/meta.sqlite3`
@@ -362,19 +369,19 @@ def capture_screenshot(output_path: Path, app_id: Optional[str] = None) -> bool:
 ## Testing Guidelines
 
 ### Unit Tests
-- **Location:** `PlaybackTests/`
+- **Location:** `src/Playback/PlaybackTests/`
 - **Naming:** `test<FeatureName>` (e.g., `testSegmentSelection`)
 - **Fast tests:** Tag with `@fast` for pre-commit hook
 - **Coverage:** Test configuration loading, path resolution, database queries, state management
 
 ### Integration Tests
-- **Location:** `PlaybackTests/IntegrationTests.swift`
+- **Location:** `src/Playback/PlaybackTests/IntegrationTests.swift`
 - **Purpose:** Test end-to-end workflows (recording → processing → playback)
 - **Use dev mode:** Tests should use development data directories
 - **Cleanup:** Clean up test data after each test
 
 ### UI Tests
-- **Location:** `PlaybackUITests/`
+- **Location:** `src/Playback/PlaybackUITests/`
 - **Purpose:** Test user interactions (menu bar clicks, timeline navigation, settings)
 - **XCUITest:** Use XCUIApplication for UI automation
 - **Accessibility:** Use accessibility identifiers for finding UI elements
@@ -389,30 +396,30 @@ Fast tests that run before each commit:
 ## Common Tasks
 
 ### Adding a New Setting
-1. Add property to `Config` struct in `Config/ConfigManager.swift`
-2. Add UI control in `Settings/GeneralTab.swift` with binding
+1. Add property to `Config` struct in `src/Playback/Playback/Config/ConfigManager.swift`
+2. Add UI control in `src/Playback/Playback/Settings/GeneralTab.swift` with binding
 3. Add default value in config schema
 4. Update `config.json` schema validation
 5. Test: Change setting in UI, verify persisted to config file
 6. Test: Restart app, verify setting loaded correctly
 
 ### Adding a LaunchAgent
-1. Create plist template in `Resources/launchagents/<name>.plist.template`
-2. Add installation logic in `Services/LaunchAgentInstaller.swift`
-3. Add control methods in `Services/LaunchAgentManager.swift`
+1. Create plist template in `src/Playback/Playback/Resources/launchagents/<name>.plist.template`
+2. Add installation logic in `src/Playback/Playback/Services/LaunchAgentInstaller.swift`
+3. Add control methods in `src/Playback/Playback/Services/LaunchAgentManager.swift`
 4. Update first-run setup to install the agent
 5. Test: Install agent, verify loaded: `launchctl list | grep <name>`
 
 ### Adding a Database Table
-1. Update schema in `database-schema.md` spec
+1. Update schema in `specs/database-schema.md` spec
 2. Add table creation SQL in initialization function
-3. Add Swift model struct in `Database/Models.swift`
-4. Add query functions in `Database/DatabaseManager.swift`
+3. Add Swift model struct in `src/Playback/Playback/Database/Models.swift`
+4. Add query functions in `src/Playback/Playback/Database/DatabaseManager.swift`
 5. Test: Verify table created, insert test data, query and verify
 
 ### Adding a Timeline Feature
-1. Update `timeline-graphical-interface.md` spec with design
-2. Add UI components in `Timeline/` directory
+1. Update `specs/timeline-graphical-interface.md` spec with design
+2. Add UI components in `src/Playback/Playback/Timeline/` directory
 3. Add data models and state management
 4. Add database queries if needed
 5. Test: Open timeline, verify feature works, test edge cases

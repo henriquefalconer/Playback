@@ -10,18 +10,18 @@
 
 #### Skip Screenshot Mode
 - [ ] Implement frontmost app detection
-  - Source: `scripts/record_screen.py` (extend `_get_frontmost_app_bundle_id()`)
+  - Source: `src/scripts/record_screen.py` (extend `_get_frontmost_app_bundle_id()`)
   - Method: AppleScript via System Events (requires Accessibility permission)
   - Return: Bundle identifier string (e.g., "com.apple.Safari")
 
 - [ ] Implement skip logic in recording service
-  - Source: `scripts/record_screen.py` (add `should_skip_screenshot()` function)
+  - Source: `src/scripts/record_screen.py` (add `should_skip_screenshot()` function)
   - Check: Compare frontmost app against exclusion list from config
   - Action: Skip screenshot capture entirely, log the skip event
   - See: "Privacy & Security Details" section below for Mode 1 implementation details
 
 - [ ] Add exclusion logging
-  - Source: `scripts/record_screen.py` (in recording loop)
+  - Source: `src/scripts/record_screen.py` (in recording loop)
   - Log: `{"timestamp": "...", "event": "screenshot_skipped", "reason": "excluded_app", "app": "com.1password.1password"}`
   - Level: INFO (not WARNING, since this is expected behavior)
 
@@ -32,7 +32,7 @@
   - Return: List of rectangles (x, y, width, height) for each window
 
 - [ ] Implement screenshot redaction
-  - Source: `scripts/record_screen.py` (new function `_redact_excluded_windows()`)
+  - Source: `src/scripts/record_screen.py` (new function `_redact_excluded_windows()`)
   - Method: Use PIL/Pillow to draw black rectangles over excluded window areas
   - See: "Privacy & Security Details" section below for Mode 2 implementation details
 
@@ -43,7 +43,7 @@
 ### Default Exclusions Configuration
 
 - [ ] Define recommended exclusion list
-  - Location: `scripts/config.py` (constant `RECOMMENDED_EXCLUSIONS`)
+  - Location: `src/scripts/config.py` (constant `RECOMMENDED_EXCLUSIONS`)
   - Apps:
     - `com.apple.keychainaccess` - Keychain Access
     - `com.1password.1password` - 1Password
@@ -58,7 +58,7 @@
   - Rationale: Explicit user consent, avoid surprise behavior
 
 - [ ] Add UI for recommended apps
-  - Source: `Playback/Settings/PrivacyTab.swift`
+  - Source: `src/Playback/Playback/Settings/PrivacyTab.swift`
   - UI: List of recommended apps with "Add" buttons
   - Display: App name, bundle ID, reason (e.g., "Password Manager")
 
@@ -66,24 +66,24 @@
 
 #### Screen Recording Permission
 - [ ] Implement permission check function
-  - Source: `scripts/record_screen.py` (add `_has_screen_recording_permission()`)
+  - Source: `src/scripts/record_screen.py` (add `_has_screen_recording_permission()`)
   - Method: Attempt `screencapture` to temp location, check if it succeeds
   - Alternative: Check CGWindowListCreateImage capability
 
 - [ ] Enforce permission on startup
-  - Location: `scripts/record_screen.py` main()
+  - Location: `src/scripts/record_screen.py` main()
   - Behavior: Exit with error code 1 if permission denied
   - Notification: Show macOS notification with instructions to grant permission
   - See: "macOS Permissions" section below for permission handling details
 
 - [ ] Add permission status UI
-  - Source: `Playback/Settings/PrivacyTab.swift`
+  - Source: `src/Playback/Playback/Settings/PrivacyTab.swift`
   - Display: Permission status (granted/denied) with visual indicator
   - Action: "Open System Settings" button to jump to Screen Recording settings
 
 #### Accessibility Permission
 - [ ] Implement permission check function
-  - Source: `scripts/record_screen.py` (add `_has_accessibility_permission()`)
+  - Source: `src/scripts/record_screen.py` (add `_has_accessibility_permission()`)
   - Method: Try to call AppleScript System Events, check for errors
   - Fallback: Continue without app tracking if denied
 
@@ -93,14 +93,14 @@
   - See: "macOS Permissions" section below for graceful degradation details
 
 - [ ] Add permission status UI
-  - Source: `Playback/Settings/PrivacyTab.swift`
+  - Source: `src/Playback/Playback/Settings/PrivacyTab.swift`
   - Display: Permission status with explanation of impact if denied
   - Note: "App tracking unavailable - timeline colors will be generic"
 
 ### File Permissions Security
 
 - [ ] Set correct permissions on file creation
-  - Source: `scripts/record_screen.py`, `scripts/build_chunks_from_temp.py`
+  - Source: `src/scripts/record_screen.py`, `src/scripts/build_chunks_from_temp.py`
   - Method: `os.chmod(path, 0o600)` immediately after creating file
   - Apply to:
     - Screenshots (temp files): 0600
@@ -110,12 +110,12 @@
     - Log files: 0644
 
 - [ ] Implement secure file creation helper
-  - Source: `scripts/utils.py` (new function `create_secure_file()`)
+  - Source: `src/scripts/utils.py` (new function `create_secure_file()`)
   - Method: Create file with umask 0077, then explicitly chmod
   - Usage: Wrapper for all sensitive file creation
 
 - [ ] Verify permissions on startup
-  - Source: `scripts/record_screen.py` (add `_verify_data_permissions()`)
+  - Source: `src/scripts/record_screen.py` (add `_verify_data_permissions()`)
   - Check: Scan existing data directory, warn about incorrect permissions
   - Action: Optionally auto-fix permissions with user consent
 
@@ -127,7 +127,7 @@
   - Exception: Only local subprocess calls (screencapture, osascript)
 
 - [ ] Add network access test
-  - Source: `scripts/tests/test_network.py`
+  - Source: `src/scripts/tests/test_network.py`
   - Test: Static analysis of imports
   - Test: Runtime check for network sockets (none should exist)
   - CI: Fail build if network code detected
@@ -181,7 +181,7 @@
     3. Manual cleanup (if needed): Paths to logs and cached data
 
 - [ ] Create data export function (before uninstall)
-  - Source: `scripts/export_data.py`
+  - Source: `src/scripts/export_data.py`
   - Export: Copy all chunks and database to user-specified location
   - Format: ZIP archive with manifest file
   - UI: Settings → Privacy → "Export All Data"
@@ -189,7 +189,7 @@
 ### Privacy Settings UI
 
 - [ ] Create PrivacyTab component
-  - Source: `Playback/Settings/PrivacyTab.swift`
+  - Source: `src/Playback/Playback/Settings/PrivacyTab.swift`
   - Sections:
     - Permission Status (Screen Recording, Accessibility)
     - App Exclusion (list of excluded apps, add/remove)
@@ -210,17 +210,17 @@
 ### Screen Unavailability Detection
 
 - [ ] Verify screensaver detection
-  - Source: `scripts/record_screen.py` (already implemented `_check_screensaver_via_applescript()`)
+  - Source: `src/scripts/record_screen.py` (already implemented `_check_screensaver_via_applescript()`)
   - Test: Trigger screensaver manually, verify recording stops
   - Implementation: Uses AppleScript to check ScreenSaverEngine process status
 
 - [ ] Verify display off detection
-  - Source: `scripts/record_screen.py` (already implemented `_check_display_active()`)
+  - Source: `src/scripts/record_screen.py` (already implemented `_check_display_active()`)
   - Test: Put display to sleep, verify recording stops
   - Implementation: Uses CoreGraphics CGGetActiveDisplayList() API
 
 - [ ] Add Playback app visibility detection
-  - Source: `scripts/record_screen.py` (add to `is_screen_unavailable()`)
+  - Source: `src/scripts/record_screen.py` (add to `is_screen_unavailable()`)
   - Method: Check if frontmost app is Playback itself
   - Config: `pause_on_timeline_open` (default: true)
   - See: "Screen Unavailability Detection" section below for complete detection logic
@@ -228,7 +228,7 @@
 ### Data Retention and Cleanup
 
 - [ ] Implement automatic cleanup policy
-  - Source: `scripts/cleanup.py` (new script)
+  - Source: `src/scripts/cleanup.py` (new script)
   - Config keys:
     - `cleanup_temp_after_days` (default: 7)
     - `cleanup_chunks_after_days` (default: never/0)
@@ -237,10 +237,10 @@
 - [ ] Create cleanup LaunchAgent
   - Location: `~/Library/LaunchAgents/com.playback.cleanup.plist`
   - Schedule: Daily at 3 AM
-  - Script: `scripts/cleanup.py`
+  - Script: `src/scripts/cleanup.py`
 
 - [ ] Add manual cleanup UI
-  - Source: `Playback/Settings/StorageTab.swift`
+  - Source: `src/Playback/Playback/Settings/StorageTab.swift`
   - Preview: Show file counts and disk space before deletion
   - Buttons: "Clean Temp Files Now", "Delete All Recordings"
   - Confirmation: Require user confirmation with file count display
@@ -269,7 +269,7 @@
   - CI: Add automated check in build pipeline
 
 - [ ] Audit file permissions
-  - Tool: `scripts/tests/test_security.py`
+  - Tool: `src/scripts/tests/test_security.py`
   - Check: All sensitive files have 0600 permissions
   - Test: Create files and verify permissions
 
@@ -444,12 +444,12 @@ PRAGMA journal_mode = WAL;
 **Verification:**
 ```bash
 # Static analysis - should find ZERO matches
-grep -r "import requests" scripts/
-grep -r "import urllib" scripts/
-grep -r "import http" scripts/
-grep -r "import socket" scripts/
-grep -r "urllib.request" scripts/
-grep -r "http.client" scripts/
+grep -r "import requests" src/scripts/
+grep -r "import urllib" src/scripts/
+grep -r "import http" src/scripts/
+grep -r "import socket" src/scripts/
+grep -r "urllib.request" src/scripts/
+grep -r "http.client" src/scripts/
 
 # Runtime verification - no network connections
 lsof -p <recording_pid> | grep -i tcp
@@ -522,7 +522,7 @@ def _has_accessibility_permission() -> bool:
 
 **Cleanup Implementation:**
 ```python
-# scripts/cleanup.py
+# src/scripts/cleanup.py
 def cleanup_old_files(directory: str, days: int) -> int:
     """Delete files older than specified days. Returns count deleted."""
     now = time.time()
@@ -551,7 +551,7 @@ def cleanup_old_files(directory: str, days: int) -> int:
     <key>ProgramArguments</key>
     <array>
         <string>/usr/local/bin/python3</string>
-        <string>/path/to/scripts/cleanup.py</string>
+        <string>/path/to/src/scripts/cleanup.py</string>
     </array>
     <key>StartCalendarInterval</key>
     <dict>
@@ -566,7 +566,7 @@ def cleanup_old_files(directory: str, days: int) -> int:
 
 ### Uninstallation Procedures
 
-**Uninstall Script (`scripts/uninstall.sh`):**
+**Uninstall Script (`src/scripts/uninstall.sh`):**
 ```bash
 #!/bin/bash
 set -e
@@ -600,7 +600,7 @@ fi
 
 **Data Export (Before Uninstall):**
 ```python
-# scripts/export_data.py
+# src/scripts/export_data.py
 def export_all_data(output_path: str) -> None:
     """Export all recordings and database to ZIP archive."""
     data_dir = os.path.expanduser('~/Library/Application Support/Playback/data')

@@ -8,18 +8,18 @@
 
 ### Vision Framework Integration
 - [ ] Add Vision framework import to project
-  - Source: `Playback/Playback/Services/OCRService.swift` (new)
+  - Source: `src/Playback/Playback/Services/OCRService.swift` (new)
   - Framework: `import Vision`
   - Minimum macOS: 12.0+
 
 - [ ] Implement OCR service in Swift
-  - Source: `Playback/Playback/Services/OCRService.swift`
+  - Source: `src/Playback/Playback/Services/OCRService.swift`
   - Method: `performOCR(on image: NSImage) -> OCRResult`
   - Recognition level: `.accurate`
   - Language correction: enabled
 
 - [ ] Add Python OCR wrapper for processing service
-  - Source: `scripts/ocr_processor.py` (new)
+  - Source: `src/scripts/ocr_processor.py` (new)
   - Dependencies: `pyobjc-framework-Vision`, `pyobjc-framework-Quartz`
   - Method: `perform_ocr(image_path: str) -> OCRResult`
 
@@ -30,7 +30,7 @@
 
 ### OCR Processing Pipeline
 - [ ] Integrate OCR into build_chunks_from_temp.py
-  - Source: `scripts/build_chunks_from_temp.py`
+  - Source: `src/scripts/build_chunks_from_temp.py`
   - Location: During frame processing loop
   - Store results in ocr_text table
 
@@ -52,7 +52,7 @@
 
 ### Database Schema for Search (FTS5)
 - [ ] Create ocr_text table
-  - Source: `scripts/build_chunks_from_temp.py` (schema)
+  - Source: `src/scripts/build_chunks_from_temp.py` (schema)
   - Columns: id, frame_path, segment_id, timestamp, text_content, confidence, language
   - Indexes: timestamp, segment_id
 
@@ -74,7 +74,7 @@
 
 ### Search UI (Command+F)
 - [ ] Create search bar component
-  - Source: `Playback/Playback/Search/SearchBar.swift` (new)
+  - Source: `src/Playback/Playback/Search/SearchBar.swift` (new)
   - Design: Frosted glass overlay, top-right corner
   - Dimensions: 400x44px, 20px margins
   - Animation: Slide down with spring animation
@@ -92,20 +92,20 @@
   - Result counter: "1 of 15" display
 
 - [ ] Create search results list
-  - Source: `Playback/Playback/Search/SearchResultsList.swift` (new)
+  - Source: `src/Playback/Playback/Search/SearchResultsList.swift` (new)
   - Display: Max 10 visible results, scrollable
   - Row design: App icon, timestamp, highlighted snippet
   - Selection: Highlight selected row
 
 - [ ] Implement result item component
-  - Source: `Playback/Playback/Search/SearchResultRow.swift` (new)
+  - Source: `src/Playback/Playback/Search/SearchResultRow.swift` (new)
   - Display: App icon (20x20), app name, timestamp, snippet
   - Snippet: 2 lines max, match highlighted
   - Click handler: Jump to timestamp
 
 ### Search Indexing (Batch vs Realtime)
 - [ ] Implement batch indexing during processing
-  - Location: `scripts/build_chunks_from_temp.py`
+  - Location: `src/scripts/build_chunks_from_temp.py`
   - Strategy: Process all frames for day, then bulk insert to FTS5
   - Performance: Optimize with transactions (BEGIN/COMMIT)
 
@@ -115,13 +115,13 @@
   - Monitor index lag (should stay <1 hour behind)
 
 - [ ] Optional: Background OCR service
-  - Source: `scripts/background_ocr.py` (future)
+  - Source: `src/scripts/background_ocr.py` (future)
   - Separate process for large backlogs
   - Doesn't block video generation
 
 ### Query Parsing and Matching
 - [ ] Implement search controller
-  - Source: `Playback/Playback/Search/SearchController.swift` (new)
+  - Source: `src/Playback/Playback/Search/SearchController.swift` (new)
   - Method: `search(query: String) -> [SearchResult]`
   - Database: Query FTS5 index with prepared statements
 
@@ -144,7 +144,7 @@
 
 ### Result Highlighting in Timeline
 - [ ] Implement timeline match markers
-  - Source: `Playback/Playback/Timeline/TimelineWithHighlights.swift` (new)
+  - Source: `src/Playback/Playback/Timeline/TimelineWithHighlights.swift` (new)
   - Design: Yellow vertical lines at match timestamps
   - Dimensions: 2px wide, 30px tall
   - Z-index: Above timeline, below scrubber
@@ -155,13 +155,13 @@
   - Update on search query change
 
 - [ ] Integrate with existing timeline view
-  - Source: `Playback/Playback/TimelineView.swift`
+  - Source: `src/Playback/Playback/TimelineView.swift`
   - Pass match timestamps from SearchController
   - Render markers in ZStack overlay
 
 ### Navigation Between Matches
 - [ ] Implement result navigation
-  - Source: `Playback/Playback/Search/SearchController.swift`
+  - Source: `src/Playback/Playback/Search/SearchController.swift`
   - Methods: `jumpToNext()`, `jumpToPrevious()`
   - Wrap around: Last result → first result
   - Update selected index in UI
@@ -670,14 +670,14 @@ def initialize_database(db_path: str):
 
 ### Key Source Files
 
-- `Playback/Playback/Services/OCRService.swift` - Vision framework OCR implementation
-- `Playback/Playback/Search/SearchController.swift` - Search logic and database queries
-- `Playback/Playback/Search/SearchBar.swift` - Search input UI component
-- `Playback/Playback/Search/SearchResultsList.swift` - Search results display
-- `Playback/Playback/Search/SearchResultRow.swift` - Individual result row component
-- `Playback/Playback/Timeline/TimelineWithHighlights.swift` - Timeline match markers
-- `scripts/ocr_processor.py` - Python OCR wrapper for processing service
-- `scripts/build_chunks_from_temp.py` - Integration point for batch OCR processing
+- `src/Playback/Playback/Services/OCRService.swift` - Vision framework OCR implementation
+- `src/Playback/Playback/Search/SearchController.swift` - Search logic and database queries
+- `src/Playback/Playback/Search/SearchBar.swift` - Search input UI component
+- `src/Playback/Playback/Search/SearchResultsList.swift` - Search results display
+- `src/Playback/Playback/Search/SearchResultRow.swift` - Individual result row component
+- `src/Playback/Playback/Timeline/TimelineWithHighlights.swift` - Timeline match markers
+- `src/scripts/ocr_processor.py` - Python OCR wrapper for processing service
+- `src/scripts/build_chunks_from_temp.py` - Integration point for batch OCR processing
 
 ## Testing Checklist
 

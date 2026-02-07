@@ -8,7 +8,7 @@
 
 ### Core Recording Loop
 - [ ] Implement main recording loop with 2-second interval
-  - Source: `scripts/record_screen.py`
+  - Source: `src/scripts/record_screen.py`
   - Fixed interval: 2 seconds (not configurable)
   - Check recording enabled status each iteration
   - Loop structure: `while True: check_config() → check_screen_availability() → capture() → sleep(2)`
@@ -122,7 +122,7 @@
 - [ ] Create LaunchAgent plist file
   - Location: `~/Library/LaunchAgents/com.playback.recording.plist`
   - Label: `com.playback.recording`
-  - ProgramArguments: `['/usr/bin/python3', '/path/to/scripts/record_screen.py']`
+  - ProgramArguments: `['/usr/bin/python3', '/path/to/src/scripts/record_screen.py']`
   - RunAtLoad: `false` (do NOT start automatically on login, only via explicit `launchctl start`)
   - KeepAlive: `{'SuccessfulExit': false}` (restart on crash/non-zero exit, NOT on clean exit 0)
   - Full plist structure:
@@ -135,7 +135,7 @@
         <key>ProgramArguments</key>
         <array>
             <string>/usr/bin/python3</string>
-            <string>/path/to/scripts/record_screen.py</string>
+            <string>/path/to/src/scripts/record_screen.py</string>
         </array>
         <key>RunAtLoad</key><false/>
         <key>KeepAlive</key>
@@ -299,6 +299,17 @@
 ## Core Implementation Details
 
 This section provides all essential technical details needed for implementation. The recording service is fully self-contained with no external specification dependencies.
+
+### Shared Utilities
+
+Recording service uses common functionality from `src/lib/`:
+
+- **Path resolution** (`src/lib/paths.py`) - Environment-aware path resolution for dev/prod
+- **Database operations** (`src/lib/database.py`) - SQLite access and schema management
+- **macOS integration** (`src/lib/macos.py`) - CoreGraphics, AppleScript utilities for screen capture
+- **Timestamp handling** (`src/lib/timestamps.py`) - Filename parsing and generation
+
+These utilities consolidate logic previously duplicated across scripts, providing consistent behavior across recording and processing services.
 
 ### Screenshot Capture Command
 
@@ -537,7 +548,7 @@ def ensure_chunk_dir(now: datetime) -> Path:
     <key>ProgramArguments</key>
     <array>
         <string>/usr/bin/python3</string>
-        <string>/Users/username/path/to/scripts/record_screen.py</string>
+        <string>/Users/username/path/to/src/scripts/record_screen.py</string>
     </array>
 
     <!-- Do NOT start automatically on login -->

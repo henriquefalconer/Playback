@@ -8,7 +8,7 @@
 
 ### Xcode Project Configuration
 - [ ] Create Xcode project with unified app target
-  - Location: `Playback/Playback.xcodeproj`
+  - Location: `src/Playback/Playback.xcodeproj`
   - Target: Playback (single app bundle)
   - Minimum deployment: macOS 26.0 (Tahoe)
   - Architecture: Apple Silicon only
@@ -42,14 +42,14 @@
   - `ENABLE_HARDENED_RUNTIME` = true
 
 - [ ] Configure copy resources build phase
-  - Copy Python scripts from `scripts/` to `Resources/`
+  - Copy Python scripts from `src/scripts/` to `Contents/Resources/scripts/`
   - Include: record_screen.py, build_chunks_from_temp.py
   - Preserve directory structure
 
 ### Development Build Setup
 - [ ] Create development build script
-  - Location: `scripts/build_dev.sh`
-  - Command: `xcodebuild -scheme Playback-Development`
+  - Location: `src/scripts/build_dev.sh`
+  - Command: `xcodebuild -scheme Playback-Development -project src/Playback/Playback.xcodeproj`
   - Output: `build/Debug/Playback.app`
 
 - [ ] Implement development data directory creation
@@ -63,7 +63,7 @@
 
 ### Production Build Setup
 - [ ] Create production build script
-  - Location: `scripts/build_release.sh`
+  - Location: `src/scripts/build_release.sh`
   - Commands: archive, export, sign, package, notarize
   - Output: `build/Playback-{VERSION}.pkg`
 
@@ -81,7 +81,7 @@
   - Tool: `pkgbuild`
   - Bundle ID: `com.playback.Playback`
   - Install location: `/Applications`
-  - Post-install scripts: `scripts/pkg/`
+  - Post-install scripts: `src/scripts/pkg/`
 
 - [ ] Implement notarization workflow
   - Tool: `xcrun notarytool`
@@ -102,7 +102,7 @@
 
 ### Unit Test Setup
 - [ ] Create unit test target
-  - Location: `PlaybackTests/`
+  - Location: `src/Playback/PlaybackTests/`
   - Host application: Playback
   - Test configuration coverage and database logic
 
@@ -110,7 +110,7 @@
   - Test: Segment selection logic
   - Test: Time mapping (absolute ↔ video offset)
   - Test: Gap handling
-  - Source: `PlaybackTests/TimelineStoreTests.swift`
+  - Source: `src/Playback/PlaybackTests/TimelineStoreTests.swift`
 
 - [ ] Implement ConfigManager tests
   - Test: Configuration loading/saving
@@ -130,7 +130,7 @@
 
 ### Integration Test Setup
 - [ ] Create integration test suite
-  - Location: `PlaybackTests/IntegrationTests.swift`
+  - Location: `src/Playback/PlaybackTests/IntegrationTests.swift`
   - Test end-to-end workflows
 
 - [ ] Implement recording-to-processing flow test
@@ -155,7 +155,7 @@
 
 ### UI Test Setup
 - [ ] Create UI test target
-  - Location: `PlaybackUITests/`
+  - Location: `src/Playback/PlaybackUITests/`
   - Test application: Playback
 
 - [ ] Implement menu bar UI tests
@@ -168,7 +168,7 @@
   - Test: Video playback starts
   - Test: Date/time picker navigation
   - Test: Search (Command+F) → results appear
-  - Source: `PlaybackUITests/TimelineUITests.swift`
+  - Source: `src/Playback/PlaybackUITests/TimelineUITests.swift`
 
 - [ ] Implement settings UI tests
   - Test: Open settings from menu bar
@@ -194,7 +194,7 @@
 - [ ] Implement Python linting
   - Tool: flake8
   - Config: `--max-line-length=120`
-  - Target: `scripts/`
+  - Target: `src/scripts/`
   - Install: `pip install flake8`
 
 - [ ] Implement fast unit test subset
@@ -204,11 +204,11 @@
 
 - [ ] Implement Python test execution
   - Tool: pytest
-  - Target: `scripts/tests/`
-  - Command: `python3 -m pytest scripts/tests/ -v --tb=short`
+  - Target: `src/scripts/tests/`
+  - Command: `python3 -m pytest src/scripts/tests/ -v --tb=short`
 
 - [ ] Implement configuration validation
-  - Script: `scripts/validate_config.py`
+  - Script: `src/scripts/validate_config.py`
   - Validate: config.json schema
 
 - [ ] Make pre-commit hook executable
@@ -255,7 +255,7 @@
   - FFmpeg 4.0+
 
 - [ ] Create dependency installation script
-  - Location: `scripts/install_deps.sh`
+  - Location: `src/scripts/install_deps.sh`
   - Commands: `brew install ffmpeg python@3.10`
   - Python packages: pyobjc-framework-Vision, pyobjc-framework-Quartz
 
@@ -266,7 +266,7 @@
   - Install: `brew install swiftlint`, etc.
 
 - [ ] Create development environment setup script
-  - Location: `scripts/setup_dev_env.sh`
+  - Location: `src/scripts/setup_dev_env.sh`
   - Install: Optional dependencies
   - Create: dev_data/ directories
   - Generate: dev_config.json
@@ -283,7 +283,7 @@
   - Log level: INFO
 
 - [ ] Implement environment detection
-  - Source: `Config/Environment.swift`
+  - Source: `src/Playback/Playback/Config/Environment.swift`
   - Enum: development, production
   - Preprocessor: `#if DEVELOPMENT`
 
@@ -297,7 +297,7 @@ This section contains complete build commands, configuration examples, CI/CD wor
 
 ### Development Build Script
 
-**File:** `scripts/build_dev.sh`
+**File:** `src/scripts/build_dev.sh`
 
 ```bash
 #!/bin/bash
@@ -307,6 +307,7 @@ echo "Building Playback (Development)..."
 
 # Build for development
 xcodebuild \
+  -project src/Playback/Playback.xcodeproj \
   -scheme Playback-Development \
   -configuration Debug \
   -derivedDataPath build \
@@ -345,7 +346,7 @@ echo "Development environment ready!"
 
 ### Production Build Script
 
-**File:** `scripts/build_release.sh`
+**File:** `src/scripts/build_release.sh`
 
 ```bash
 #!/bin/bash
@@ -365,6 +366,7 @@ rm -rf build/${APP_NAME}.xcarchive
 # Archive the app
 echo "Archiving..."
 xcodebuild \
+  -project src/Playback/Playback.xcodeproj \
   -scheme Playback-Production \
   -configuration Release \
   -archivePath build/${APP_NAME}.xcarchive \
@@ -400,7 +402,7 @@ pkgbuild \
   --install-location /Applications \
   --identifier ${BUNDLE_ID} \
   --version ${VERSION} \
-  --scripts scripts/pkg \
+  --scripts src/scripts/pkg \
   build/${APP_NAME}-${VERSION}.pkg
 
 # Sign the package
@@ -487,7 +489,7 @@ fi
 
 # Run flake8 on Python scripts
 echo "Running flake8..."
-flake8 scripts/ --max-line-length=120 --exclude=scripts/venv
+flake8 src/scripts/ --max-line-length=120 --exclude=src/scripts/venv
 if [ $? -ne 0 ]; then
     echo "flake8 failed. Fix the issues before committing."
     exit 1
@@ -507,7 +509,7 @@ fi
 
 # Run Python tests
 echo "Running Python tests..."
-python3 -m pytest scripts/tests/ -v --tb=short
+python3 -m pytest src/scripts/tests/ -v --tb=short
 if [ $? -ne 0 ]; then
     echo "Python tests failed. Fix the issues before committing."
     exit 1
@@ -515,7 +517,7 @@ fi
 
 # Validate configuration schema
 echo "Validating configuration..."
-python3 scripts/validate_config.py
+python3 src/scripts/validate_config.py
 if [ $? -ne 0 ]; then
     echo "Configuration validation failed. Fix the schema before committing."
     exit 1
@@ -564,20 +566,21 @@ jobs:
       run: swiftlint --strict
 
     - name: Run flake8
-      run: flake8 scripts/ --max-line-length=120 --exclude=scripts/venv
+      run: flake8 src/scripts/ --max-line-length=120 --exclude=src/scripts/venv
 
     - name: Run unit tests
       run: |
         xcodebuild test \
+          -project src/Playback/Playback.xcodeproj \
           -scheme Playback-Development \
           -destination 'platform=macOS' \
           -enableCodeCoverage YES
 
     - name: Run Python tests
-      run: python3 -m pytest scripts/tests/ -v
+      run: python3 -m pytest src/scripts/tests/ -v
 
     - name: Build development
-      run: ./scripts/build_dev.sh
+      run: ./src/scripts/build_dev.sh
 
     - name: Upload test results
       if: always()
@@ -619,7 +622,7 @@ jobs:
       env:
         NOTARIZATION_USERNAME: ${{ secrets.NOTARIZATION_USERNAME }}
         NOTARIZATION_PASSWORD: ${{ secrets.NOTARIZATION_PASSWORD }}
-      run: ./scripts/build_release.sh
+      run: ./src/scripts/build_release.sh
 
     - name: Upload build artifact
       uses: actions/upload-artifact@v4
@@ -690,7 +693,7 @@ class PythonScriptRunner {
         #if DEVELOPMENT
         // In development, run from source directory for hot-reloading
         let projectRoot = FileManager.default.currentDirectoryPath
-        scriptPath = "\(projectRoot)/scripts/\(name).py"
+        scriptPath = "\(projectRoot)/src/scripts/\(name).py"
         #else
         // In production, run from app bundle
         guard let bundlePath = Bundle.main.resourcePath else {
@@ -811,7 +814,7 @@ PLAYBACK_DATA_DIR=$(SOURCE_ROOT)/dev_data
 
 ### Development Environment Setup Script
 
-**File:** `scripts/setup_dev_env.sh`
+**File:** `src/scripts/setup_dev_env.sh`
 
 ```bash
 #!/bin/bash
@@ -865,14 +868,14 @@ fi
 
 # Install pre-commit hook
 echo "Installing pre-commit hook..."
-cp scripts/pre-commit .git/hooks/pre-commit
+cp src/scripts/pre-commit .git/hooks/pre-commit
 chmod +x .git/hooks/pre-commit
 
 echo ""
 echo "Development environment setup complete!"
 echo ""
 echo "Next steps:"
-echo "1. Open Playback.xcodeproj in Xcode"
+echo "1. Open src/Playback/Playback.xcodeproj in Xcode"
 echo "2. Select 'Playback-Development' scheme"
 echo "3. Build and run (Cmd+R)"
 echo ""
@@ -883,7 +886,7 @@ echo "- Python: Scripts run from source directory automatically"
 
 ### Dependency Installation Script
 
-**File:** `scripts/install_deps.sh`
+**File:** `src/scripts/install_deps.sh`
 
 ```bash
 #!/bin/bash
@@ -910,7 +913,7 @@ echo "Dependencies installed successfully!"
 
 ### Configuration Validation Script
 
-**File:** `scripts/validate_config.py`
+**File:** `src/scripts/validate_config.py`
 
 ```python
 #!/usr/bin/env python3
@@ -995,33 +998,33 @@ if __name__ == "__main__":
 
 ```bash
 # Development build
-xcodebuild -scheme Playback-Development -configuration Debug build
+xcodebuild -project src/Playback/Playback.xcodeproj -scheme Playback-Development -configuration Debug build
 
 # Run development build
 open build/Debug/Playback.app
 
 # Run unit tests
-xcodebuild test -scheme Playback-Development -destination 'platform=macOS'
+xcodebuild test -project src/Playback/Playback.xcodeproj -scheme Playback-Development -destination 'platform=macOS'
 
 # Run only fast tests
-xcodebuild test -scheme Playback-Development -only-testing:PlaybackTests/FastTests
+xcodebuild test -project src/Playback/Playback.xcodeproj -scheme Playback-Development -only-testing:PlaybackTests/FastTests
 
 # Production build
-./scripts/build_release.sh
+./src/scripts/build_release.sh
 
 # Clean build
-xcodebuild clean -scheme Playback-Development
+xcodebuild clean -project src/Playback/Playback.xcodeproj -scheme Playback-Development
 rm -rf build/
 
 # Lint code
 swiftlint --strict
-flake8 scripts/ --max-line-length=120
+flake8 src/scripts/ --max-line-length=120
 
 # Run Python tests
-python3 -m pytest scripts/tests/ -v
+python3 -m pytest src/scripts/tests/ -v
 
 # Validate configuration
-python3 scripts/validate_config.py
+python3 src/scripts/validate_config.py
 ```
 
 ### Troubleshooting Common Build Issues
@@ -1041,7 +1044,7 @@ security unlock-keychain ~/Library/Keychains/login.keychain
 echo $PLAYBACK_DEV_MODE
 
 # Check script paths
-ls -la scripts/
+ls -la src/scripts/
 ```
 
 **Issue: FFmpeg not found**
@@ -1057,6 +1060,7 @@ ffmpeg -version
 ```bash
 # Run tests locally with same configuration
 xcodebuild test \
+  -project src/Playback/Playback.xcodeproj \
   -scheme Playback-Development \
   -destination 'platform=macOS' \
   -enableCodeCoverage YES

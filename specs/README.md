@@ -14,45 +14,45 @@ Playback continuously captures screenshots, processes them into video segments, 
 
 | Spec | Code | Purpose |
 |------|------|---------|
-| [architecture.md](./architecture.md) | [Playback/](../Playback/) | System architecture, component communication, file organization |
-| [file-structure.md](./file-structure.md) | [Playback/Config/](../Playback/Playback/Config/) | Dev vs production structure, path resolution, app bundle organization |
-| [configuration.md](./configuration.md) | [Playback/Config/ConfigManager.swift](../Playback/Playback/Config/ConfigManager.swift) | Configuration file format, hot-reloading, settings management |
+| [architecture.md](./architecture.md) | [src/Playback/](../src/Playback/) | System architecture, component communication, file organization |
+| [file-structure.md](./file-structure.md) | [src/Playback/Playback/Config/](../src/Playback/Playback/Config/) | Dev vs production structure, path resolution, app bundle organization |
+| [configuration.md](./configuration.md) | [src/Playback/Playback/Config/ConfigManager.swift](../src/Playback/Playback/Config/ConfigManager.swift) | Configuration file format, hot-reloading, settings management |
 
 ## Recording & Processing
 
 | Spec | Code | Purpose |
 |------|------|---------|
-| [recording-service.md](./recording-service.md) | [scripts/record_screen.py](../scripts/record_screen.py) | Screenshot capture service with 2-second intervals |
-| [processing-service.md](./processing-service.md) | [scripts/build_chunks_from_temp.py](../scripts/build_chunks_from_temp.py) | Video generation, scheduled processing, and cleanup |
-| [storage-cleanup.md](./storage-cleanup.md) | [scripts/cleanup_old_chunks.py](../scripts/cleanup_old_chunks.py) | File organization, retention policies, disk space management |
+| [recording-service.md](./recording-service.md) | [src/scripts/record_screen.py](../src/scripts/record_screen.py) | Screenshot capture service with 2-second intervals |
+| [processing-service.md](./processing-service.md) | [src/scripts/build_chunks_from_temp.py](../src/scripts/build_chunks_from_temp.py) | Video generation, scheduled processing, and cleanup |
+| [storage-cleanup.md](./storage-cleanup.md) | [src/scripts/cleanup_old_chunks.py](../src/scripts/cleanup_old_chunks.py) | File organization, retention policies, disk space management |
 
 ## User Interface
 
 | Spec | Code | Purpose |
 |------|------|---------|
-| [menu-bar.md](./menu-bar.md) | [Playback/MenuBar/](../Playback/Playback/MenuBar/) | Menu bar UI, controls, settings window, crash notifications |
-| [timeline-graphical-interface.md](./timeline-graphical-interface.md) | [Playback/Timeline/](../Playback/Playback/Timeline/) | Timeline viewer with Arc-inspired design, date/time picker, scrubbing |
-| [logging-diagnostics.md](./logging-diagnostics.md) | [Playback/Diagnostics/](../Playback/Playback/Diagnostics/) | Logging standards, diagnostics viewer, health monitoring |
+| [menu-bar.md](./menu-bar.md) | [src/Playback/Playback/MenuBar/](../src/Playback/Playback/MenuBar/) | Menu bar UI, controls, settings window, crash notifications |
+| [timeline-graphical-interface.md](./timeline-graphical-interface.md) | [src/Playback/Playback/Timeline/](../src/Playback/Playback/Timeline/) | Timeline viewer with Arc-inspired design, date/time picker, scrubbing |
+| [logging-diagnostics.md](./logging-diagnostics.md) | [src/Playback/Playback/Diagnostics/](../src/Playback/Playback/Diagnostics/) | Logging standards, diagnostics viewer, health monitoring |
 
 ## Data & Storage
 
 | Spec | Code | Purpose |
 |------|------|---------|
-| [database-schema.md](./database-schema.md) | [Playback/Database/](../Playback/Playback/Database/) | SQLite schema for segments and app activity |
-| [search-ocr.md](./search-ocr.md) | [Playback/Search/](../Playback/Playback/Search/) | Text search and OCR functionality using Vision framework |
+| [database-schema.md](./database-schema.md) | [src/Playback/Playback/Database/](../src/Playback/Playback/Database/) | SQLite schema for segments and app activity |
+| [search-ocr.md](./search-ocr.md) | [src/Playback/Playback/Search/](../src/Playback/Playback/Search/) | Text search and OCR functionality using Vision framework |
 
 ## Privacy & Security
 
 | Spec | Code | Purpose |
 |------|------|---------|
-| [privacy-security.md](./privacy-security.md) | [Playback/Services/](../Playback/Playback/Services/) | App exclusion, permission management, security measures |
+| [privacy-security.md](./privacy-security.md) | [src/Playback/Playback/Services/](../src/Playback/Playback/Services/) | App exclusion, permission management, security measures |
 
 ## Installation & Distribution
 
 | Spec | Code | Purpose |
 |------|------|---------|
-| [installation-deployment.md](./installation-deployment.md) | [scripts/package_release.sh](../scripts/package_release.sh) | Arc-style .zip distribution, first-run setup, LaunchAgent installation |
-| [build-process.md](./build-process.md) | [scripts/build_release.sh](../scripts/build_release.sh) | Build system, testing pipeline, CI/CD |
+| [installation-deployment.md](./installation-deployment.md) | [src/scripts/package_release.sh](../src/scripts/package_release.sh) | Arc-style .zip distribution, first-run setup, LaunchAgent installation |
+| [build-process.md](./build-process.md) | [src/scripts/build_release.sh](../src/scripts/build_release.sh) | Build system, testing pipeline, CI/CD |
 
 ## Key Features
 
@@ -115,7 +115,7 @@ Each implementation plan follows this structure:
 Example task format:
 ```markdown
 - [ ] Implement menu bar icon with status states
-  - Source: `Playback/MenuBar/MenuBarView.swift`
+  - Source: `src/Playback/Playback/MenuBar/MenuBarView.swift`
   - States: Recording (red), Paused (gray), Error (red with exclamation)
   - See: "UI Implementation Details" section below
 ```
@@ -159,24 +159,25 @@ Example task format:
 ## Source Code Organization
 
 ```
-Playback/
-├── Playback.xcodeproj         # Xcode project
-├── Playback/                  # Single unified app source
-│   ├── PlaybackApp.swift      # Main entry point
-│   ├── MenuBar/               # Menu bar component
-│   ├── Timeline/              # Timeline viewer component
-│   ├── Settings/              # Settings window
-│   ├── Services/              # LaunchAgent management
-│   ├── Config/                # Configuration system
-│   ├── Database/              # SQLite access
-│   └── Resources/
-├── PlaybackTests/             # Unit tests
-└── PlaybackUITests/           # UI tests
-
-scripts/
-├── record_screen.py           # Recording service
-├── build_chunks_from_temp.py  # Processing service
-└── tests/                     # Python tests
+src/
+├── Playback/                  # Swift app
+│   ├── Playback.xcodeproj     # Xcode project
+│   ├── Playback/              # Single unified app source
+│   │   ├── PlaybackApp.swift  # Main entry point
+│   │   ├── MenuBar/           # Menu bar component
+│   │   ├── Timeline/          # Timeline viewer component
+│   │   ├── Settings/          # Settings window
+│   │   ├── Services/          # LaunchAgent management
+│   │   ├── Config/            # Configuration system
+│   │   ├── Database/          # SQLite access
+│   │   └── Resources/
+│   ├── PlaybackTests/         # Unit tests
+│   └── PlaybackUITests/       # UI tests
+├── scripts/                   # Python services
+│   ├── record_screen.py       # Recording service
+│   ├── build_chunks_from_temp.py  # Processing service
+│   └── tests/                 # Python tests
+└── lib/                       # Shared Python utilities (planned)
 
 dev_data/                      # Development data (gitignored)
 ├── temp/
@@ -196,6 +197,7 @@ When updating implementation plans:
 
 ## References
 
-- [Prototype Implementation](../Playback/)
-- [Python Scripts](../scripts/)
+- [Swift App Source](../src/Playback/)
+- [Python Services](../src/scripts/)
+- [Shared Utilities](../src/lib/) - Planned shared Python modules
 - [CLAUDE.md](../CLAUDE.md) - Project guidance and environment setup

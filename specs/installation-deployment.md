@@ -8,7 +8,7 @@
 
 ### .zip Distribution Package (Arc-Style)
 - [ ] Create package_release.sh script
-  - Location: `scripts/package_release.sh`
+  - Location: `src/scripts/package_release.sh`
   - Inputs: Version number, build directory
   - Outputs: `Playback-{VERSION}.zip`
   - Contents: Playback.app, README.txt
@@ -27,14 +27,14 @@
 
 ### First-Run Setup
 - [ ] Implement welcome screen
-  - Source: `Playback/FirstRun/WelcomeView.swift`
+  - Source: `src/Playback/Playback/FirstRun/WelcomeView.swift`
   - Display on first launch only (check UserDefaults)
   - Brief explanation of Playback
   - "Get Started" button
   - Reference: See original spec § "First Run Experience"
 
 - [ ] Implement permissions request flow
-  - Source: `Playback/FirstRun/PermissionsView.swift`
+  - Source: `src/Playback/Playback/FirstRun/PermissionsView.swift`
   - Screen Recording permission (required)
     - Show explanation with screenshot example
     - "Open System Preferences" button
@@ -45,7 +45,7 @@
     - Check status: `AXIsProcessTrusted()`
 
 - [ ] Implement storage location setup
-  - Source: `Playback/FirstRun/StorageView.swift`
+  - Source: `src/Playback/Playback/FirstRun/StorageView.swift`
   - Default: `~/Library/Application Support/Playback/data/`
   - Allow custom location selection (NSOpenPanel)
   - Validate:
@@ -55,7 +55,7 @@
   - Store location in config
 
 - [ ] Create data directory structure
-  - Source: `Playback/Config/DirectoryManager.swift`
+  - Source: `src/Playback/Playback/Config/DirectoryManager.swift`
   - Create directories:
     - `data/temp/` - Temporary screenshots
     - `data/chunks/` - Processed video segments
@@ -64,7 +64,7 @@
   - Initialize empty database: `data/meta.sqlite3`
 
 - [ ] Generate default configuration
-  - Source: `Playback/Config/ConfigManager.swift`
+  - Source: `src/Playback/Playback/Config/ConfigManager.swift`
   - File: `~/Library/Application Support/Playback/config.json`
   - Defaults:
     - Recording enabled: false (user must opt-in)
@@ -74,7 +74,7 @@
   - Validate JSON schema
 
 - [ ] Implement initial configuration screen
-  - Source: `Playback/FirstRun/ConfigurationView.swift`
+  - Source: `src/Playback/Playback/FirstRun/ConfigurationView.swift`
   - Prompts:
     - "Start recording now?" (Yes/No toggle)
     - Processing interval slider (default: 5 minutes)
@@ -82,7 +82,7 @@
   - Save choices to config file
 
 - [ ] Install LaunchAgents on first run
-  - Source: `Playback/Services/LaunchAgentInstaller.swift`
+  - Source: `src/Playback/Playback/Services/LaunchAgentInstaller.swift`
   - Create plist files in `~/Library/LaunchAgents/`:
     - `com.playback.recording.plist`
     - `com.playback.processing.plist`
@@ -93,14 +93,14 @@
 
 ### Dependency Detection & Validation
 - [ ] Implement Python version check
-  - Source: `Playback/Dependencies/PythonChecker.swift`
+  - Source: `src/Playback/Playback/Dependencies/PythonChecker.swift`
   - Run: `python3 --version`
   - Parse output, verify >= 3.12
   - Show error with installation instructions if not found
   - Reference: See original spec § "Dependency Management → Python"
 
 - [ ] Implement FFmpeg detection
-  - Source: `Playback/Dependencies/FFmpegChecker.swift`
+  - Source: `src/Playback/Playback/Dependencies/FFmpegChecker.swift`
   - Check locations:
     - `/usr/local/bin/ffmpeg` (Intel Homebrew)
     - `/opt/homebrew/bin/ffmpeg` (Apple Silicon Homebrew)
@@ -111,7 +111,7 @@
   - Reference: See original spec § "Dependency Management → FFmpeg"
 
 - [ ] Create dependency validation flow
-  - Source: `Playback/FirstRun/DependencyView.swift`
+  - Source: `src/Playback/Playback/FirstRun/DependencyView.swift`
   - Run checks on first launch
   - Display status for each dependency (checkmark or error)
   - Block setup if critical dependencies missing
@@ -126,14 +126,14 @@
 - [ ] Configure production signing
   - Certificate: "Developer ID Application: Your Name"
   - Enable Hardened Runtime
-  - Entitlements: `Playback/Playback.entitlements`
+  - Entitlements: `src/Playback/Playback/Playback.entitlements`
   - Required entitlements:
     - `com.apple.security.device.camera` (for screen recording)
     - `com.apple.security.automation.apple-events` (for system events)
   - Reference: See original spec § "Distribution → Code Signing"
 
 - [ ] Add code signing to build script
-  - Location: `scripts/package_release.sh`
+  - Location: `src/scripts/package_release.sh`
   - Sign app bundle: `codesign --sign "Developer ID Application" --deep --force`
   - Sign embedded frameworks
   - Verify: `codesign --verify --verbose Playback.app`
@@ -141,7 +141,7 @@
 
 ### Notarization
 - [ ] Implement notarization workflow
-  - Location: `scripts/notarize.sh`
+  - Location: `src/scripts/notarize.sh`
   - Create submission zip: `ditto -c -k --keepParent Playback.app Playback.zip`
   - Submit to Apple: `xcrun notarytool submit`
     - Apple ID from keychain
@@ -164,7 +164,7 @@
 
 ### Package Creation Script
 - [ ] Create comprehensive package_release.sh
-  - Location: `scripts/package_release.sh`
+  - Location: `src/scripts/package_release.sh`
   - Parameters:
     - VERSION (required): Version string (e.g., "1.0.0")
     - BUILD_CONFIG (optional): Debug or Release (default: Release)
@@ -196,13 +196,13 @@
 
 ### Uninstaller
 - [ ] Create uninstaller app bundle
-  - Location: `Uninstaller/` (separate Xcode target)
+  - Location: `src/Playback/Uninstaller/` (separate Xcode target)
   - App name: "Uninstall Playback.app"
   - Bundle ID: `com.playback.uninstaller`
   - Simple SwiftUI interface
 
 - [ ] Implement uninstallation logic
-  - Source: `Uninstaller/UninstallerApp.swift`
+  - Source: `src/Playback/Uninstaller/UninstallerApp.swift`
   - Steps:
     1. Show confirmation dialog
     2. Stop all running services:
@@ -223,14 +223,14 @@
   - Opens uninstaller app when clicked
 
 - [ ] Create standalone uninstall script
-  - Location: `scripts/uninstall.sh`
+  - Location: `src/scripts/uninstall.sh`
   - For users who deleted app manually
   - Cleans up LaunchAgents and data
   - Can be run from Terminal
 
 ### Update Mechanism
 - [ ] Implement update check
-  - Source: `Playback/Updates/UpdateChecker.swift`
+  - Source: `src/Playback/Playback/Updates/UpdateChecker.swift`
   - Check on launch (once per day)
   - Fetch latest version from URL: `https://falconer.com/playback/version.json`
   - Compare with current version (CFBundleShortVersionString)
@@ -238,7 +238,7 @@
   - Reference: See original spec § "Update Strategy"
 
 - [ ] Create update installation flow
-  - Source: `Playback/Updates/UpdateInstaller.swift`
+  - Source: `src/Playback/Playback/Updates/UpdateInstaller.swift`
   - Steps:
     1. Download new version to temp directory
     2. Verify code signature
@@ -255,14 +255,14 @@
   - Use NSWorkspace for app replacement
 
 - [ ] Implement config migration
-  - Source: `Playback/Config/ConfigMigrator.swift`
+  - Source: `src/Playback/Playback/Config/ConfigMigrator.swift`
   - Version schema in config.json
   - Migration functions for each schema version
   - Backup old config before migration
   - Validate after migration
 
 - [ ] Implement database migration
-  - Source: `Playback/Database/DatabaseMigrator.swift`
+  - Source: `src/Playback/Playback/Database/DatabaseMigrator.swift`
   - Use SQL migrations (numbered files)
   - Track current schema version in database
   - Run migrations sequentially
@@ -278,7 +278,7 @@
 
 ### Build Script Integration
 - [ ] Create master build script
-  - Location: `scripts/build.sh`
+  - Location: `src/scripts/build.sh`
   - Modes:
     - `development`: Debug build, no signing, local testing
     - `release`: Release build, full signing, distribution ready
@@ -350,7 +350,7 @@
 
 ```bash
 #!/bin/bash
-# scripts/package_release.sh
+# src/scripts/package_release.sh
 
 set -e
 
@@ -371,7 +371,7 @@ mkdir -p "${DIST_DIR}"
 
 # Build with xcodebuild
 xcodebuild clean build \
-  -project "${APP_NAME}.xcodeproj" \
+  -project "src/${APP_NAME}/${APP_NAME}.xcodeproj" \
   -scheme "${APP_NAME}" \
   -configuration "${BUILD_CONFIG}" \
   -derivedDataPath "${BUILD_DIR}" \
@@ -397,7 +397,7 @@ codesign --sign "Developer ID Application: Your Name" \
   --force \
   --options runtime \
   --timestamp \
-  --entitlements "${APP_NAME}/${APP_NAME}.entitlements" \
+  --entitlements "src/${APP_NAME}/${APP_NAME}/${APP_NAME}.entitlements" \
   "${APP_BUNDLE}"
 
 # Verify signature
@@ -406,7 +406,7 @@ spctl --assess --verbose "${APP_BUNDLE}"
 
 # Notarize
 echo "Notarizing app..."
-./scripts/notarize.sh "${APP_BUNDLE}"
+./src/scripts/notarize.sh "${APP_BUNDLE}"
 
 # Create README.txt
 cat > "${BUILD_DIR}/README.txt" <<EOF
@@ -464,7 +464,7 @@ echo "Size: $(du -h ${DIST_ZIP} | cut -f1)"
 
 ```bash
 #!/bin/bash
-# scripts/notarize.sh
+# src/scripts/notarize.sh
 
 set -e
 
@@ -1458,7 +1458,7 @@ codesign --sign "Developer ID Application: Your Name (TEAM_ID)" \
   --force \
   --options runtime \
   --timestamp \
-  --entitlements Playback/Playback.entitlements \
+  --entitlements src/Playback/Playback/Playback.entitlements \
   build/Playback.app
 
 # Verify signature

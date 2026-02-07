@@ -6,7 +6,7 @@
 
 ### Core Script Setup
 - [ ] Create main script structure
-  - Source: `scripts/build_chunks_from_temp.py`
+  - Source: `src/scripts/build_chunks_from_temp.py`
   - Entry point: `main()` function with argparse
   - Modes: `--auto` (scheduled) and `--day YYYYMMDD` (manual)
   - Exit codes: 0 (success), 1 (partial), 2 (failure)
@@ -57,6 +57,7 @@
 - [ ] Implement frame loading
   - Function: `load_frames_for_day(day: str) -> List[FrameInfo]`
   - Source: Read from `temp/YYYYMM/DD/`
+  - Implementation: Use `src/lib/paths.py` for path resolution
   - Filename format: `<timestamp_ms>_<app_id>.png` or `<timestamp_ms>.png`
   - Parse filename:
     - Extract timestamp: First part before underscore or dot
@@ -128,6 +129,7 @@
 ### FFmpeg Video Generation
 - [ ] Implement video encoding
   - Function: `run_ffmpeg_make_segment(frames: List[FrameInfo], fps: int, crf: int, preset: str, dest_without_ext: Path) -> Tuple[int, int, int]`
+  - Implementation: Use `src/lib/video.py` FFmpeg wrappers
   - Process:
     1. Create temporary directory for sequential frames
     2. Copy/symlink frames to temp dir with sequential names: `frame_00001.png`, `frame_00002.png`, etc.
@@ -188,6 +190,7 @@
 ### Database Operations
 - [ ] Initialize database schema
   - Function: `init_meta_db(path: Path) -> sqlite3.Connection`
+  - Implementation: Use `src/lib/database.py` schema initialization
   - Location: `meta.sqlite3` in data root
   - Schema - segments table (video metadata):
     ```sql
@@ -230,6 +233,7 @@
 
 - [ ] Implement segment insertion
   - Function: `insert_segment_meta(conn: sqlite3.Connection, segment_id: str, date: str, frames: List[FrameInfo], fps: int, file_size: int, video_path: Path)`
+  - Implementation: Use `src/lib/database.py` insertion functions
   - SQL: `INSERT OR REPLACE INTO segments (id, date, start_ts, end_ts, frame_count, fps, width, height, file_size_bytes, video_path) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   - Field values:
     - id: segment_id (random hex from output organization)
@@ -295,6 +299,7 @@
 ### Cleanup Policies
 - [ ] Implement temp file cleanup
   - Function: `cleanup_temp_files(day: str, policy: str, conn: sqlite3.Connection, data_root: Path)`
+  - Implementation: Use `src/lib/paths.py` for directory traversal
   - Policies:
     - "never": No cleanup, keep all temp files
     - "1_day": Delete temp files older than 24 hours
@@ -381,7 +386,7 @@
       <key>ProgramArguments</key>
       <array>
         <string>/usr/bin/python3</string>
-        <string>/path/to/scripts/build_chunks_from_temp.py</string>
+        <string>/path/to/src/scripts/build_chunks_from_temp.py</string>
         <string>--auto</string>
       </array>
 
@@ -788,6 +793,17 @@
 ## Processing Pipeline Details
 
 This section provides comprehensive technical details about the processing pipeline implementation.
+
+### Shared Utilities
+
+Processing service uses common functionality from `src/lib/`:
+
+- **Path resolution** (`src/lib/paths.py`) - Environment-aware path resolution for dev/prod
+- **Database operations** (`src/lib/database.py`) - SQLite access and schema management
+- **Video processing** (`src/lib/video.py`) - FFmpeg wrappers for video generation
+- **Timestamp handling** (`src/lib/timestamps.py`) - Filename parsing and generation
+
+These utilities consolidate logic previously duplicated across scripts, ensuring consistent behavior across recording and processing services.
 
 ### Frame Scanning and Validation Logic
 
@@ -1372,7 +1388,7 @@ def cleanup_old_recordings(policy: str, conn: sqlite3.Connection, data_root: Pat
 
 ### Manual Testing
 - [ ] Test manual mode
-  - Run with --day argument
+  - Run: `python3 src/scripts/build_chunks_from_temp.py --day YYYYMMDD`
   - Verify only specified day processed
   - Verify temp files NOT deleted
   - Verify database updated

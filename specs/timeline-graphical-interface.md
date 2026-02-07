@@ -7,7 +7,7 @@
 
 ### Global Hotkey Registration
 - [ ] Implement Carbon-based global hotkey manager
-  - Source: `Playback/Services/GlobalHotkeyManager.swift`
+  - Source: `src/Playback/Playback/Services/GlobalHotkeyManager.swift`
   - Shortcut: Option+Shift+Space (key code 49)
   - Handler: Activates app and shows timeline window
 
@@ -43,7 +43,7 @@
 
 ### Loading Screen
 - [ ] Implement loading screen UI
-  - Source: `Playback/Timeline/LoadingScreenView.swift`
+  - Source: `src/Playback/Playback/Timeline/LoadingScreenView.swift`
   - Design: Centered modal with app name, spinner, status text
   - Semi-transparent black background
 
@@ -58,7 +58,7 @@
 
 ### Fullscreen Timeline Window
 - [ ] Implement fullscreen window configuration
-  - Source: `Playback/Timeline/TimelineWindow.swift`
+  - Source: `src/Playback/Playback/Timeline/TimelineWindow.swift`
   - No title bar, no window chrome
   - Black letterboxing for non-matching aspect ratios
   - Disable three-finger swipe gestures
@@ -77,7 +77,7 @@
 
 ### Video Playback System
 - [ ] Implement video player integration (AVPlayer)
-  - Source: `Playback/Timeline/VideoPlayer.swift` (EXISTING)
+  - Source: `src/Playback/Playback/Timeline/VideoPlayer.swift` (EXISTING)
   - Use AVPlayerLayer for discrete playback (no Control Center integration)
   - Hardware-accelerated decode via VideoToolbox
   - Smooth segment transitions
@@ -85,7 +85,7 @@
   - Use KVO on AVPlayer.status and AVPlayerItem.status for state management
 
 - [ ] Implement frozen frame system
-  - Source: `Playback/Timeline/PlaybackController.swift` (EXISTING)
+  - Source: `src/Playback/Playback/Timeline/PlaybackController.swift` (EXISTING)
   - Capture last frame before segment transition using AVAssetImageGenerator
   - Display frozen frame as overlay image during loading
   - Hide when new segment ready and playing
@@ -93,13 +93,13 @@
   - Smooth crossfade transition (200ms) from frozen to live video
 
 - [ ] Enhance PlaybackController
-  - Source: `Playback/Timeline/PlaybackController.swift` (EXISTING)
+  - Source: `src/Playback/Playback/Timeline/PlaybackController.swift` (EXISTING)
   - Methods: `update(for:store:)`, `scrub(to:store:)`, `scheduleUpdate(for:store:)`
   - State: currentSegment, currentTime, frozenFrame, showFrozenFrame
   - Time observer for synchronization
 
 - [ ] Implement segment selection logic
-  - Source: `Playback/Timeline/TimelineStore.swift`
+  - Source: `src/Playback/Playback/Timeline/TimelineStore.swift`
   - Function: `segment(for:direction:) -> (Segment, TimeInterval)?`
   - Algorithm: Binary search for efficient lookup in sorted segments array
   - Handle gaps between segments (use direction: forward = next segment, backward = previous segment)
@@ -109,7 +109,7 @@
 
 ### Timeline Rendering
 - [ ] Implement timeline view component
-  - Source: `Playback/Timeline/TimelineView.swift` (EXISTING)
+  - Source: `src/Playback/Playback/Timeline/TimelineView.swift` (EXISTING)
   - Position: Bottom of screen, 120px height, 40px margin
   - Gradient overlay for visibility
 
@@ -149,7 +149,7 @@
 
 ### Trackpad/Mouse Gestures
 - [ ] Implement horizontal scroll for scrubbing
-  - Source: `Playback/Timeline/ContentView.swift`
+  - Source: `src/Playback/Playback/Timeline/ContentView.swift`
   - Natural scrolling inverted (right = future, left = past)
   - Dynamic speed based on visible window size
   - Formula: `secondsPerPoint = visibleWindowSeconds / 1000.0`
@@ -173,20 +173,20 @@
   - Update playhead and video immediately
 
 - [ ] Implement scroll event monitoring
-  - Source: `Playback/Timeline/VideoBackgroundView.swift` (EXISTING)
+  - Source: `src/Playback/Playback/Timeline/VideoBackgroundView.swift` (EXISTING)
   - Use NSEvent.addLocalMonitorForEvents for scroll events
   - Consume events to prevent system handling
   - Pass to PlaybackController for scrubbing
 
 ### Date/Time Picker
 - [ ] Implement date/time picker popup
-  - Source: `Playback/Timeline/DateTimePicker.swift`
+  - Source: `src/Playback/Playback/Timeline/DateTimePicker.swift`
   - Trigger: Click on time bubble
   - Arc-inspired design (frosted glass, minimal)
   - Centered on screen, 600x400px
 
 - [ ] Implement calendar view
-  - Source: `Playback/Timeline/DateTimePicker.swift`
+  - Source: `src/Playback/Playback/Timeline/DateTimePicker.swift`
   - Left panel: Calendar grid
   - Month/year header with navigation arrows
   - "Today" button
@@ -194,7 +194,7 @@
   - Dates without recordings: Greyed out, disabled
 
 - [ ] Implement time list view
-  - Source: `Playback/Timeline/DateTimePicker.swift`
+  - Source: `src/Playback/Playback/Timeline/DateTimePicker.swift`
   - Right panel: Scrollable time list
   - 15-minute intervals (09:00, 09:15, 09:30, ...)
   - Times with recordings: Normal, clickable
@@ -220,28 +220,28 @@
   - Instant jump (no scroll animation)
 ### Text Search (OCR)
 - [ ] Implement search UI
-  - Source: `Playback/Timeline/SearchView.swift`
+  - Source: `src/Playback/Playback/Timeline/SearchView.swift`
   - Trigger: Command+F
   - Floating search bar (top-right corner)
   - Arc-style minimal design
 - [ ] Implement OCR search integration
-  - Defer to separate OCR Search specification (13-search-ocr.md)
+  - Defer to separate OCR Search specification (search-ocr.md)
   - Highlight matching segments in timeline
   - Jump to next/previous match (Enter/Shift+Enter)
   - Show match count ("3 of 15 matches")
   - Real-time search results (debounced)
 ### - [ ] Implement database connection
-  - Source: `Playback/Database/DatabaseManager.swift`
+  - Source: `src/Playback/Playback/Database/DatabaseManager.swift`
   - File: `~/Library/Application Support/Playback/data/meta.sqlite3`
   - Query segments: `SELECT id, start_ts, end_ts, frame_count, fps, video_path FROM segments ORDER BY start_ts ASC`
   - Query app segments: `SELECT id, app_id, start_ts, end_ts FROM appsegments ORDER BY start_ts ASC`
 - [ ] Implement Segment model
-  - Source: `Playback/Models/Segment.swift`
+  - Source: `src/Playback/Playback/Models/Segment.swift`
   - Properties: id, startTS, endTS, frameCount, fps, videoURL
   - Computed: duration, videoDuration
   - Methods: `videoOffset(forAbsoluteTime:)`, `absoluteTime(forVideoOffset:)`
 - [ ] Implement AppSegment model
-  - Source: `Playback/Models/AppSegment.swift`
+  - Source: `src/Playback/Playback/Models/AppSegment.swift`
   - Properties: id, startTS, endTS, appId
   - Computed: duration
 - [ ] Implement auto-refresh mechanism
@@ -600,22 +600,22 @@ struct FrozenFrameOverlay: View {
 
 ### Referenced Source Files
 
-- `Playback/Timeline/TimelineView.swift` - Timeline rendering and gestures
-- `Playback/Timeline/VideoBackgroundView.swift` - Video player view with scroll capture
-- `Playback/Timeline/PlaybackController.swift` - Video playback and scrubbing logic
-- `Playback/Timeline/TimelineStore.swift` - Segment data management
-- `Playback/Timeline/ContentView.swift` - Main timeline view composition
-- `Playback/Services/GlobalHotkeyManager.swift` - Global hotkey registration
-- `Playback/Timeline/DateTimePicker.swift` - Date/time picker modal
-- `Playback/Timeline/LoadingScreenView.swift` - Processing loading screen
-- `Playback/Database/DatabaseManager.swift` - SQLite database interface
-- `Playback/Models/Segment.swift` - Video segment model
-- `Playback/Models/AppSegment.swift` - App usage segment model
+- `src/Playback/Playback/Timeline/TimelineView.swift` - Timeline rendering and gestures
+- `src/Playback/Playback/Timeline/VideoBackgroundView.swift` - Video player view with scroll capture
+- `src/Playback/Playback/Timeline/PlaybackController.swift` - Video playback and scrubbing logic
+- `src/Playback/Playback/Timeline/TimelineStore.swift` - Segment data management
+- `src/Playback/Playback/Timeline/ContentView.swift` - Main timeline view composition
+- `src/Playback/Playback/Services/GlobalHotkeyManager.swift` - Global hotkey registration
+- `src/Playback/Playback/Timeline/DateTimePicker.swift` - Date/time picker modal
+- `src/Playback/Playback/Timeline/LoadingScreenView.swift` - Processing loading screen
+- `src/Playback/Playback/Database/DatabaseManager.swift` - SQLite database interface
+- `src/Playback/Playback/Models/Segment.swift` - Video segment model
+- `src/Playback/Playback/Models/AppSegment.swift` - App usage segment model
 
 ### Related Specifications
 
 - `architecture.md` - System architecture and component communication
-- `13-search-ocr.md` - OCR-based text search implementation
+- `search-ocr.md` - OCR-based text search implementation
 - `build-process.md` - Build configuration and code signing
 - `installation-deployment.md` - Deployment and installation procedures
 

@@ -8,7 +8,7 @@
 ### Python Logging Infrastructure
 
 - [ ] Implement structured JSON logging format
-  - Source: `scripts/logging.py` (new module)
+  - Source: `src/scripts/logging.py` (new module)
   - Format: `{"timestamp": "ISO8601", "level": "INFO", "component": "recording", "message": "...", "metadata": {...}}`
   - Example:
     ```json
@@ -16,7 +16,7 @@
     ```
 
 - [ ] Create JSONFormatter class
-  - Source: `scripts/logging.py`
+  - Source: `src/scripts/logging.py`
   - Output: Newline-delimited JSON (one entry per line)
   - Timestamp: ISO 8601 with milliseconds
   - Example implementation:
@@ -49,7 +49,7 @@
     - Example: `"Screen recording permission denied"`, `"Disk space critically low, stopping recording"`
 
 - [ ] Configure logging for recording service
-  - Source: `scripts/record_screen.py`
+  - Source: `src/scripts/record_screen.py`
   - Log file: `~/Library/Logs/Playback/recording.log`
   - Events: Service lifecycle, screenshot capture, skipped frames, failures
   - Example setup:
@@ -72,7 +72,7 @@
     ```
 
 - [ ] Configure logging for processing service
-  - Source: `scripts/build_chunks_from_temp.py`
+  - Source: `src/scripts/build_chunks_from_temp.py`
   - Log file: `~/Library/Logs/Playback/processing.log`
   - Events: Processing runs, day processing, segment generation, cleanup
   - Example log entries:
@@ -192,7 +192,7 @@
 ### Swift Diagnostics Window
 
 - [ ] Create DiagnosticsWindow.swift
-  - Location: `Playback/Diagnostics/DiagnosticsWindow.swift`
+  - Location: `src/Playback/Playback/Diagnostics/DiagnosticsWindow.swift`
   - SwiftUI view with tabs: Logs, Health, Export
   - Example structure:
     ```swift
@@ -227,7 +227,7 @@
     ```
 
 - [ ] Implement log parsing
-  - Source: `Playback/Diagnostics/LogParser.swift`
+  - Source: `src/Playback/Playback/Diagnostics/LogParser.swift`
   - Parse JSON logs into `LogEntry` structs
   - Handle malformed entries gracefully
   - Example implementation:
@@ -364,7 +364,7 @@
     ```
 
 - [ ] Create log viewer UI
-  - Source: `Playback/Diagnostics/LogViewer.swift`
+  - Source: `src/Playback/Playback/Diagnostics/LogViewer.swift`
   - List view with color-coded levels
   - Search bar with live filtering
   - Level and time range pickers
@@ -453,7 +453,7 @@
 ### Health Monitoring
 
 - [ ] Implement resource metrics extraction
-  - Source: `Playback/Diagnostics/MetricsParser.swift`
+  - Source: `src/Playback/Playback/Diagnostics/MetricsParser.swift`
   - Parse "Resource metrics" log entries
   - Build time series data for charts
   - Example:
@@ -492,7 +492,7 @@
     ```
 
 - [ ] Create resource charts
-  - Source: `Playback/Diagnostics/ResourceChartsView.swift`
+  - Source: `src/Playback/Playback/Diagnostics/ResourceChartsView.swift`
   - Framework: SwiftUI Charts
   - Charts: CPU %, memory MB, processing duration, screenshots/hour
   - Example:
@@ -624,7 +624,7 @@
     ```
 
 - [ ] Create health dashboard
-  - Source: `Playback/Diagnostics/HealthView.swift`
+  - Source: `src/Playback/Playback/Diagnostics/HealthView.swift`
   - Display: Current status, last error, service uptimes
   - Actions: Restart services, clear errors, open logs folder
   - Example:
@@ -723,7 +723,7 @@
 ### Export Functionality
 
 - [ ] Implement log export
-  - Source: `Playback/Diagnostics/LogExporter.swift`
+  - Source: `src/Playback/Playback/Diagnostics/LogExporter.swift`
   - Formats: JSON (original), Plain Text (human-readable), CSV (spreadsheet)
   - Date range selection
   - Save location picker (NSOpenPanel)
@@ -787,7 +787,7 @@
     ```
 
 - [ ] Create diagnostics package export
-  - Source: `Playback/Diagnostics/DiagnosticsExporter.swift`
+  - Source: `src/Playback/Playback/Diagnostics/DiagnosticsExporter.swift`
   - Contents: All logs, config.json, database schema, system info
   - Format: ZIP file named `Playback-Diagnostics-<timestamp>.zip`
   - Optional: Password protection
@@ -894,7 +894,7 @@
 ### Menu Bar Integration
 
 - [ ] Add diagnostics menu item
-  - Location: `Playback/MenuBar/MenuBarView.swift`
+  - Location: `src/Playback/Playback/MenuBar/MenuBarView.swift`
   - Action: Open diagnostics window
   - Shortcut: Cmd+D
   - Example:

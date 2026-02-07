@@ -13,7 +13,8 @@
 
 - [ ] Implement date-based folder hierarchy
   - Structure: `temp/YYYYMM/DD/` and `chunks/YYYYMM/DD/`
-  - Source: `scripts/build_chunks_from_temp.py` (lines 121-122, 467-468)
+  - Source: `src/scripts/build_chunks_from_temp.py`
+  - Implementation: Use `src/lib/paths.py` for path resolution
   - Ensures organized storage and efficient cleanup by date ranges
 
 - [ ] Set up development directory structure
@@ -31,21 +32,24 @@
   - Format: `<segment_id>.mp4`
   - Example: `a3f8b29c.mp4`
   - Segment ID: 20-character hex string from `os.urandom(10).hex()`
-  - Source: `scripts/build_chunks_from_temp.py` (lines 249-254)
+  - Source: `src/scripts/build_chunks_from_temp.py`
 
 - [ ] Parse timestamp from filename
-  - Source: `scripts/build_chunks_from_temp.py` (lines 79-91)
+  - Source: `src/scripts/build_chunks_from_temp.py`
+  - Implementation: Use `src/lib/timestamps.py` parsing functions
   - Pattern: `YYYYMMDD-HHMMSS` prefix extraction
   - Used for: Age calculation in retention policies
 
 - [ ] Parse app_id from filename
-  - Source: `scripts/build_chunks_from_temp.py` (lines 93-113)
+  - Source: `src/scripts/build_chunks_from_temp.py`
+  - Implementation: Use `src/lib/timestamps.py` parsing functions
   - Pattern: Extract app bundle ID after UUID
   - Used for: App-specific filtering and analytics
 
 ### Storage Usage Calculation
 - [ ] Implement temp directory size calculation
   - Function: `calculate_temp_usage() -> int`
+  - Implementation: Use `src/lib/paths.py` for directory traversal
   - Recursively walk `temp/` directory
   - Sum file sizes, skip hidden files (starting with `.`)
   - Return: Total bytes
@@ -76,7 +80,8 @@
 
 - [ ] Implement temp file cleanup function
   - Function: `cleanup_temp_files(policy: str)`
-  - Source: See original spec "Retention Policies" (lines 128-162)
+  - Source: See original spec "Retention Policies"
+  - Implementation: Use `src/lib/paths.py` and `src/lib/database.py`
   - Trigger: After successful video generation in processing service
   - Safety: Only delete files successfully processed (segment exists in database)
   - Verification: Check `is_processed(file)` before deletion
@@ -87,7 +92,7 @@
   - Format: Structured metadata JSON
 
 - [ ] Integrate temp cleanup into processing service
-  - Location: `scripts/build_chunks_from_temp.py`
+  - Location: `src/scripts/build_chunks_from_temp.py`
   - Call after: `process_day()` completes successfully
   - Config: Read `temp_retention_policy` from config.json
 
@@ -100,7 +105,8 @@
 
 - [ ] Implement recording cleanup function
   - Function: `cleanup_old_recordings(policy: str)`
-  - Source: See original spec "Retention Policies" (lines 186-231)
+  - Source: See original spec "Retention Policies"
+  - Implementation: Use `src/lib/database.py` for queries, `src/lib/paths.py` for file deletion
   - Query: `SELECT id, video_path FROM segments WHERE start_ts < ?`
   - Delete: Video files AND database entries (segments + appsegments)
   - Uses: `start_ts` field from segments table
@@ -111,7 +117,7 @@
   - Format: Structured metadata JSON
 
 - [ ] Integrate recording cleanup into processing service
-  - Location: `scripts/build_chunks_from_temp.py`
+  - Location: `src/scripts/build_chunks_from_temp.py`
   - Call after: `process_day()` completes successfully
   - Config: Read `recording_retention_policy` from config.json
 
@@ -159,7 +165,7 @@
 
 ### Automatic Cleanup on Processing
 - [ ] Add cleanup calls to processing service
-  - Location: `scripts/build_chunks_from_temp.py` (after `process_day()`)
+  - Location: `src/scripts/build_chunks_from_temp.py` (after `process_day()`)
   - Call: `cleanup_temp_files(config['temp_retention_policy'])`
   - Call: `cleanup_old_recordings(config['recording_retention_policy'])`
   - Timing: After successful video generation
@@ -187,16 +193,16 @@
   - Reference: See original spec "Disk Space Monitoring" (line 297)
 
 - [ ] Add disk space check to recording service
-  - Location: `scripts/record_screen.py`
+  - Location: `src/scripts/record_screen.py`
   - Frequency: Every 100 captures (~200 seconds at 2s interval)
   - Action on failure: Disable recording, show notification, exit
-  - Source: See original spec "Disk Full Handling" (lines 305-311)
+  - Source: See original spec "Disk Full Handling"
 
 - [ ] Add disk space check to processing service
-  - Location: `scripts/build_chunks_from_temp.py`
+  - Location: `src/scripts/build_chunks_from_temp.py`
   - Frequency: Before starting each day
   - Action on failure: Log error, show notification, skip work, exit with error
-  - Source: See original spec "Disk Full Handling" (lines 313-318)
+  - Source: See original spec "Disk Full Handling"
 
 - [ ] Implement disk space check function
   - Function: `check_disk_space() -> bool`
@@ -218,18 +224,20 @@
 ### Database Cleanup
 - [ ] Implement orphaned segment cleanup
   - Function: `cleanup_orphaned_segments()`
-  - Source: See original spec "Database Cleanup" (lines 427-449)
+  - Source: See original spec "Database Cleanup"
+  - Implementation: Use `src/lib/database.py` for queries and deletions
   - Detects: Segment entries where video file is missing
   - Deletes: Database entries (segments + appsegments)
 
 - [ ] Add orphaned segment cleanup to processing
-  - Location: `scripts/build_chunks_from_temp.py`
+  - Location: `src/scripts/build_chunks_from_temp.py`
   - Trigger: Weekly or on-demand
   - Timing: After retention policy cleanup
 
 - [ ] Implement database vacuum
   - Function: `vacuum_database()`
-  - Source: See original spec "Database Cleanup" (lines 459-464)
+  - Source: See original spec "Database Cleanup"
+  - Implementation: Use `src/lib/database.py` vacuum function
   - SQL: `VACUUM`
   - Purpose: Reclaim space from deleted rows
 
@@ -239,6 +247,16 @@
   - Logging: "Database vacuumed"
 
 ## Storage Management Details
+
+### Shared Utilities
+
+Storage and cleanup operations use common functionality from `src/lib/`:
+
+- **Path resolution** (`src/lib/paths.py`) - Environment-aware path resolution for dev/prod, directory traversal
+- **Database operations** (`src/lib/database.py`) - SQLite queries for segment verification and deletion
+- **Timestamp handling** (`src/lib/timestamps.py`) - Filename parsing for age calculation
+
+These utilities consolidate logic across recording, processing, and cleanup operations.
 
 ### Directory Structure
 

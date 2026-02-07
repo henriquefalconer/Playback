@@ -8,74 +8,74 @@
 
 ### Schema Version Table
 - [ ] Create schema_version table structure
-  - Source: `scripts/build_chunks_from_temp.py` (init_meta_db function, line 209)
+  - Source: `src/scripts/build_chunks_from_temp.py` (init_meta_db function, line 209)
   - Table: `schema_version (version TEXT PRIMARY KEY, applied_at TIMESTAMP)`
   - Reference: Original spec line 27-33
 
 - [ ] Implement version check function
-  - Source: New function in `scripts/database.py` (create file)
+  - Source: New function in `src/scripts/database.py` (create file)
   - Method: `get_schema_version() -> str`
   - Query: `SELECT version FROM schema_version ORDER BY applied_at DESC LIMIT 1`
   - Reference: Original spec line 304-316
 
 - [ ] Add version insert on database initialization
-  - Source: `scripts/build_chunks_from_temp.py` (init_meta_db function)
+  - Source: `src/scripts/build_chunks_from_temp.py` (init_meta_db function)
   - Statement: `INSERT OR IGNORE INTO schema_version (version) VALUES ('1.0')`
   - Reference: Original spec line 289-291
 
 ### Segments Table
 - [ ] Create segments table with all columns
-  - Source: `scripts/build_chunks_from_temp.py` (init_meta_db function, line 217-231)
+  - Source: `src/scripts/build_chunks_from_temp.py` (init_meta_db function, line 217-231)
   - Columns: id, date, start_ts, end_ts, frame_count, fps, width, height, file_size_bytes, video_path
   - Reference: Original spec line 42-54
 
 - [ ] Create indexes for segments table
-  - Source: `scripts/build_chunks_from_temp.py` (init_meta_db function, line 244)
+  - Source: `src/scripts/build_chunks_from_temp.py` (init_meta_db function, line 244)
   - Indexes: idx_segments_date, idx_segments_start_ts, idx_segments_end_ts
   - Reference: Original spec line 58-62
 
 - [ ] Implement segment insertion
-  - Source: `scripts/build_chunks_from_temp.py` (insert_segment_meta function, line 331-370)
+  - Source: `src/scripts/build_chunks_from_temp.py` (insert_segment_meta function, line 331-370)
   - Statement: `INSERT OR REPLACE INTO segments (...) VALUES (?...)`
   - Uses: Real timestamps from frame metadata (st_birthtime)
   - Reference: Original spec line 177-181
 
 - [ ] Create Segment model in Swift
-  - Source: `Playback/Playback/TimelineStore.swift` (Segment struct, line 5-65)
+  - Source: `src/Playback/Playback/TimelineStore.swift` (Segment struct, line 5-65)
   - Properties: id, startTS, endTS, frameCount, fps, videoURL
   - Methods: duration, videoDuration, videoOffset, absoluteTime
   - Status: Already implemented
 
 ### AppSegments Table
 - [ ] Create appsegments table with all columns
-  - Source: `scripts/build_chunks_from_temp.py` (init_meta_db function, line 233-242)
+  - Source: `src/scripts/build_chunks_from_temp.py` (init_meta_db function, line 233-242)
   - Columns: id, app_id, date, start_ts, end_ts
   - Reference: Original spec line 99-106
 
 - [ ] Create indexes for appsegments table
-  - Source: `scripts/build_chunks_from_temp.py` (init_meta_db function, line 244)
+  - Source: `src/scripts/build_chunks_from_temp.py` (init_meta_db function, line 244)
   - Indexes: idx_appsegments_date, idx_appsegments_app_id, idx_appsegments_start_ts, idx_appsegments_end_ts
   - Reference: Original spec line 110-115
 
 - [ ] Implement appsegment insertion
-  - Source: `scripts/build_chunks_from_temp.py` (insert_appsegment_meta function, line 373-399)
+  - Source: `src/scripts/build_chunks_from_temp.py` (insert_appsegment_meta function, line 373-399)
   - Statement: `INSERT OR REPLACE INTO appsegments (...) VALUES (?...)`
   - Uses: Aggregated app_id timeline from frames
   - Reference: Original spec line 184-188
 
 - [ ] Implement app segment aggregation logic
-  - Source: `scripts/build_chunks_from_temp.py` (build_appsegments_for_day function, line 402-438)
+  - Source: `src/scripts/build_chunks_from_temp.py` (build_appsegments_for_day function, line 402-438)
   - Logic: Group continuous frames by app_id, handle transitions
   - Reference: Original spec line 402-438
 
 - [ ] Create AppSegment model in Swift
-  - Source: `Playback/Playback/TimelineStore.swift` (AppSegment struct, line 67-76)
+  - Source: `src/Playback/Playback/TimelineStore.swift` (AppSegment struct, line 67-76)
   - Properties: id, startTS, endTS, appId
   - Status: Already implemented
 
 ### Database Initialization
 - [ ] Implement init_meta_db function
-  - Source: `scripts/build_chunks_from_temp.py` (init_meta_db function, line 209-246)
+  - Source: `src/scripts/build_chunks_from_temp.py` (init_meta_db function, line 209-246)
   - Creates: schema_version, segments, appsegments tables
   - Creates: All indexes
   - Reference: Original spec line 237-296
@@ -83,17 +83,17 @@
 - [ ] Set database file location
   - Production: `~/Library/Application Support/Playback/data/meta.sqlite3`
   - Development: `<project>/com.playback.Playback/meta.sqlite3`
-  - Source: `Playback/Playback/TimelineStore.swift` (line 94-100)
+  - Source: `src/Playback/Playback/TimelineStore.swift` (line 94-100)
   - Reference: Original spec line 13
 
 - [ ] Handle missing database gracefully
-  - Source: `Playback/Playback/TimelineStore.swift` (loadSegments function, line 104-117)
+  - Source: `src/Playback/Playback/TimelineStore.swift` (loadSegments function, line 104-117)
   - Behavior: Print error and return empty segments
   - Reference: Original spec line 70-73 (error handling)
 
 ### WAL Mode Configuration
 - [ ] Enable WAL mode for concurrent reads
-  - Source: New in `scripts/build_chunks_from_temp.py` (init_meta_db function)
+  - Source: New in `src/scripts/build_chunks_from_temp.py` (init_meta_db function)
   - Command: `PRAGMA journal_mode=WAL`
   - Purpose: Allow playback app to read while processing service writes
   - Reference: Original spec line 412-421
@@ -105,73 +105,73 @@
 
 ### Playback App Queries
 - [ ] Implement load all segments query
-  - Source: `Playback/Playback/TimelineStore.swift` (loadSegments function, line 120-160)
+  - Source: `src/Playback/Playback/TimelineStore.swift` (loadSegments function, line 120-160)
   - Query: `SELECT id, start_ts, end_ts, frame_count, fps, video_path FROM segments ORDER BY start_ts ASC`
   - Status: Already implemented
   - Reference: Original spec line 143-147
 
 - [ ] Implement load all appsegments query
-  - Source: `Playback/Playback/TimelineStore.swift` (loadSegments function, line 162-200)
+  - Source: `src/Playback/Playback/TimelineStore.swift` (loadSegments function, line 162-200)
   - Query: `SELECT id, app_id, start_ts, end_ts FROM appsegments ORDER BY start_ts ASC`
   - Status: Already implemented
   - Reference: Original spec line 149-154
 
 - [ ] Implement find segment for timestamp
-  - Source: `Playback/Playback/TimelineStore.swift` (segment function, line 212-310)
+  - Source: `src/Playback/Playback/TimelineStore.swift` (segment function, line 212-310)
   - Logic: Binary search or linear scan with direction handling
   - Status: Already implemented (complex logic with gap handling)
   - Reference: Original spec line 156-162
 
 - [ ] Implement get latest timestamp
-  - Source: `Playback/Playback/TimelineStore.swift` (latestTS property, line 90-92)
+  - Source: `src/Playback/Playback/TimelineStore.swift` (latestTS property, line 90-92)
   - Logic: `segments.last?.endTS`
   - Status: Already implemented
   - Reference: Original spec line 164-167
 
 ### Processing Service Queries
 - [ ] Implement check segment exists
-  - Source: New function in `scripts/database.py`
+  - Source: New function in `src/scripts/database.py`
   - Query: `SELECT id FROM segments WHERE id = ?`
   - Purpose: Avoid duplicate segment creation
   - Reference: Original spec line 171-174
 
 - [ ] Implement insert segment
-  - Source: `scripts/build_chunks_from_temp.py` (insert_segment_meta function, line 331-370)
+  - Source: `src/scripts/build_chunks_from_temp.py` (insert_segment_meta function, line 331-370)
   - Query: `INSERT OR REPLACE INTO segments (...) VALUES (?...)`
   - Status: Already implemented
   - Reference: Original spec line 177-181
 
 - [ ] Implement insert appsegment
-  - Source: `scripts/build_chunks_from_temp.py` (insert_appsegment_meta function, line 373-399)
+  - Source: `src/scripts/build_chunks_from_temp.py` (insert_appsegment_meta function, line 373-399)
   - Query: `INSERT OR REPLACE INTO appsegments (...) VALUES (?...)`
   - Status: Already implemented
   - Reference: Original spec line 184-188
 
 - [ ] Implement find old segments for cleanup
-  - Source: New function in `scripts/database.py`
+  - Source: New function in `src/scripts/database.py`
   - Query: `SELECT id, video_path FROM segments WHERE start_ts < ?`
   - Purpose: Retention policy enforcement
   - Reference: Original spec line 191-193
 
 - [ ] Implement delete old segments
-  - Source: New function in `scripts/database.py`
+  - Source: New function in `src/scripts/database.py`
   - Queries: `DELETE FROM segments WHERE id = ?; DELETE FROM appsegments WHERE id = ?`
   - Reference: Original spec line 196-199
 
 ### Migration System
 - [ ] Create migration function structure
-  - Source: New file `scripts/migrations.py`
+  - Source: New file `src/scripts/migrations.py`
   - Functions: get_schema_version(), apply_migration()
   - Reference: Original spec line 299-338
 
 - [ ] Implement version check before migration
-  - Source: `scripts/migrations.py`
+  - Source: `src/scripts/migrations.py`
   - Logic: Check current version, compare with target
   - Handle: Missing table (version 0.0), unknown version
   - Reference: Original spec line 304-316
 
 - [ ] Create example migration (1.0 to 1.1)
-  - Source: `scripts/migrations.py` (migrate_1_0_to_1_1 function)
+  - Source: `src/scripts/migrations.py` (migrate_1_0_to_1_1 function)
   - Example: Add codec column with ALTER TABLE
   - Updates: schema_version table
   - Reference: Original spec line 319-338
@@ -184,13 +184,13 @@
 
 ### Vacuum and Maintenance
 - [ ] Implement vacuum function
-  - Source: New function in `scripts/database.py`
+  - Source: New function in `src/scripts/database.py`
   - Command: `VACUUM`
   - Usage: After large deletions, monthly schedule
   - Reference: Original spec line 343-359
 
 - [ ] Implement integrity check function
-  - Source: New function in `scripts/database.py`
+  - Source: New function in `src/scripts/database.py`
   - Command: `PRAGMA integrity_check`
   - Returns: bool (True if ok)
   - Reference: Original spec line 362-381
@@ -202,18 +202,18 @@
 
 ### Backup Functionality
 - [ ] Implement database backup function
-  - Source: New function in `scripts/database.py`
+  - Source: New function in `src/scripts/database.py`
   - Method: `shutil.copy2(META_DB_PATH, backup_path)`
   - Naming: `meta.sqlite3.backup` with timestamp
   - Reference: Original spec line 384-395
 
 - [ ] Create backup before migrations
-  - Source: `scripts/migrations.py` (apply_migration function)
+  - Source: `src/scripts/migrations.py` (apply_migration function)
   - Timing: Before ALTER TABLE or schema changes
   - Reference: Original spec line 384-395
 
 - [ ] Implement backup retention policy
-  - Source: New function in `scripts/database.py`
+  - Source: New function in `src/scripts/database.py`
   - Policy: Keep last N backups, delete older
   - Reference: Not in original spec (enhancement)
 
@@ -788,9 +788,9 @@ def cleanup_old_backups(db_path, keep_count=5):
 ### Implementation Notes
 
 **Key Source Files:**
-- `Playback/Playback/TimelineStore.swift` - Segment/AppSegment models, database loading
-- `scripts/build_chunks_from_temp.py` - Database initialization, segment insertion
-- `scripts/record_screen.py` - Frame capture with app_id metadata
+- `src/Playback/Playback/TimelineStore.swift` - Segment/AppSegment models, database loading
+- `src/scripts/build_chunks_from_temp.py` - Database initialization, segment insertion
+- `src/scripts/record_screen.py` - Frame capture with app_id metadata
 - `~/Library/Application Support/Playback/data/meta.sqlite3` - Production database location
 
 **Timestamp Handling:**

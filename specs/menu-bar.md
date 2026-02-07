@@ -7,7 +7,7 @@
 
 ### Menu Bar Icon Component
 - [ ] Implement menu bar icon with status states
-  - Source: `Playback/MenuBar/MenuBarView.swift`
+  - Source: `src/Playback/Playback/MenuBar/MenuBarView.swift`
   - States: Recording active (red filled circle), Recording paused (gray outlined circle), Error state (exclamation mark)
   - SF Symbols: `record.circle.fill`, `record.circle`, `exclamationmark.circle.fill`
   - Icon size: 16×16 points (standard menu bar icon size)
@@ -16,7 +16,7 @@
   - Animation: Smooth 0.2s fade transition between states
 
 - [ ] Implement icon state management
-  - Source: `Playback/MenuBar/MenuBarController.swift`
+  - Source: `src/Playback/Playback/MenuBar/MenuBarController.swift`
   - Property: `@Published var iconState: IconState`
   - Enum values: `.recording`, `.paused`, `.error`
   - Auto-update based on recording service status
@@ -27,7 +27,7 @@
 
 ### Dropdown Menu Implementation
 - [ ] Create dropdown menu structure
-  - Source: `Playback/MenuBar/MenuBarView.swift`
+  - Source: `src/Playback/Playback/MenuBar/MenuBarView.swift`
   - Menu items: Record Screen toggle, Open Timeline, Settings, Diagnostics, About, Quit
   - Separators between logical groups
   - Menu width: Auto-sizing (minimum 220px)
@@ -77,7 +77,7 @@
 
 ### Settings Window - General Tab
 - [ ] Create settings window shell
-  - Source: `Playback/Settings/SettingsWindow.swift`
+  - Source: `src/Playback/Playback/Settings/SettingsWindow.swift`
   - Title: "Playback Settings"
   - Size: 600×500 points (fixed, non-resizable)
   - Sidebar navigation: 150px width, light gray background (#F5F5F5)
@@ -88,7 +88,7 @@
   - Minimum macOS: 12.0 (Monterey)
 
 - [ ] Implement General tab layout
-  - Source: `Playback/Settings/GeneralSettingsView.swift`
+  - Source: `src/Playback/Playback/Settings/GeneralSettingsView.swift`
   - Icon: SF Symbol `gearshape` in sidebar
   - Sections: Launch at Login, Global Shortcuts, Notifications, Permissions
   - Section headers: Bold 13pt San Francisco, 20px top margin
@@ -137,7 +137,7 @@
 
 ### Settings Window - Recording Tab
 - [ ] Implement Recording tab layout
-  - Source: `Playback/Settings/RecordingSettingsView.swift`
+  - Source: `src/Playback/Playback/Settings/RecordingSettingsView.swift`
   - Icon: SF Symbol `record.circle` in sidebar
   - Sections: Recording Behavior, Pause Recording When
   - Content padding: 20px all sides
@@ -165,7 +165,7 @@
 
 ### Settings Window - Processing Tab
 - [ ] Implement Processing tab layout
-  - Source: `Playback/Settings/ProcessingSettingsView.swift`
+  - Source: `src/Playback/Playback/Settings/ProcessingSettingsView.swift`
   - Icon: SF Symbol `gearshape.2` in sidebar
   - Sections: Processing Schedule, Last Processing Run, Manual trigger
   - Content padding: 20px all sides
@@ -202,7 +202,7 @@
 
 ### Settings Window - Storage Tab
 - [ ] Implement Storage tab layout
-  - Source: `Playback/Settings/StorageSettingsView.swift`
+  - Source: `src/Playback/Playback/Settings/StorageSettingsView.swift`
   - Icon: SF Symbol `internaldrive` in sidebar
   - Sections: Current Usage, Location, Cleanup Policies
   - Content padding: 20px all sides
@@ -264,7 +264,7 @@
 
 ### Settings Window - Privacy Tab
 - [ ] Implement Privacy tab layout
-  - Source: `Playback/Settings/PrivacySettingsView.swift`
+  - Source: `src/Playback/Playback/Settings/PrivacySettingsView.swift`
   - Icon: SF Symbol `hand.raised` in sidebar
   - Sections: App Exclusion Mode, Excluded Apps List
   - Content padding: 20px all sides
@@ -321,7 +321,7 @@
 
 ### Settings Window - Advanced Tab
 - [ ] Implement Advanced tab layout
-  - Source: `Playback/Settings/AdvancedSettingsView.swift`
+  - Source: `src/Playback/Playback/Settings/AdvancedSettingsView.swift`
   - Icon: SF Symbol `gearshape.2.fill` in sidebar
   - Sections: Video Encoding, System Information, Service Status, Maintenance
   - Content padding: 20px all sides
@@ -424,7 +424,7 @@
 
 ### Diagnostics Window
 - [ ] Create diagnostics window shell
-  - Source: `Playback/Diagnostics/DiagnosticsWindow.swift`
+  - Source: `src/Playback/Playback/Diagnostics/DiagnosticsWindow.swift`
   - Title: "Playback Diagnostics"
   - Size: 800×600 points (resizable, minimum 600×400)
   - Window style: Standard with toolbar
@@ -442,7 +442,7 @@
   - Separator: Before buttons group
 
 - [ ] Implement Overview tab
-  - Source: `Playback/Diagnostics/OverviewView.swift`
+  - Source: `src/Playback/Playback/Diagnostics/OverviewView.swift`
   - Tab icon: SF Symbol `chart.bar.fill`
   - Layout: 3 sections vertically stacked with 20px spacing
   - Section 1: "System Status" - 4 rows showing service status, permissions, dependencies
@@ -456,7 +456,7 @@
   - Empty state: "No issues detected" with green checkmark
 
 - [ ] Implement Recording Logs tab
-  - Source: `Playback/Diagnostics/RecordingLogsView.swift`
+  - Source: `src/Playback/Playback/Diagnostics/RecordingLogsView.swift`
   - Tab icon: SF Symbol `doc.text.fill`
   - Log source: `~/Library/Logs/Playback/recording.log`
   - Display: Scrollable text view with monospace font (Menlo, 11pt)
@@ -471,7 +471,7 @@
   - Max lines: Last 10,000 lines loaded (performance limit)
 
 - [ ] Implement Processing Logs tab
-  - Source: `Playback/Diagnostics/ProcessingLogsView.swift`
+  - Source: `src/Playback/Playback/Diagnostics/ProcessingLogsView.swift`
   - Tab icon: SF Symbol `doc.text.fill`
   - Log source: `~/Library/Logs/Playback/processing.log`
   - Display: Scrollable text view with monospace font (Menlo, 11pt)
@@ -486,7 +486,7 @@
   - Max lines: Last 10,000 lines loaded (performance limit)
 
 - [ ] Implement Resource Usage tab
-  - Source: `Playback/Diagnostics/ResourceUsageView.swift`
+  - Source: `src/Playback/Playback/Diagnostics/ResourceUsageView.swift`
   - Tab icon: SF Symbol `gauge.fill`
   - Layout: 3 charts vertically stacked with 16px spacing
   - Chart 1: "CPU Usage" - Line chart, last 60 seconds, 0-100% range
@@ -505,7 +505,7 @@
 
 ### LaunchAgent Control Methods
 - [ ] Implement LaunchAgent manager
-  - Source: `Playback/Services/LaunchAgentManager.swift`
+  - Source: `src/Playback/Playback/Services/LaunchAgentManager.swift`
   - Methods: load, unload, reload, status
   - Agents: com.playback.recording, com.playback.processing
 
@@ -556,7 +556,7 @@
 
 ### Configuration Management
 - [ ] Implement ConfigManager class
-  - Source: `Playback/Config/ConfigManager.swift`
+  - Source: `src/Playback/Playback/Config/ConfigManager.swift`
   - Protocol: ObservableObject for SwiftUI integration
   - Location: `~/Library/Application Support/Playback/config.json`
   - Reference: Original spec § "Configuration Management"
@@ -583,7 +583,7 @@
 
 ### Notification System
 - [ ] Implement notification manager
-  - Source: `Playback/Notifications/NotificationManager.swift`
+  - Source: `src/Playback/Playback/Notifications/NotificationManager.swift`
   - Uses: UserNotifications framework
   - Request authorization on first launch
 
@@ -611,7 +611,7 @@
 
 ### Launch at Login
 - [ ] Implement setLaunchAtLogin method
-  - Source: `Playback/Services/LoginItemManager.swift`
+  - Source: `src/Playback/Playback/Services/LoginItemManager.swift`
   - Uses: ServiceManagement framework
   - Platform check: macOS 13.0+ vs macOS 12
   - Reference: Original spec § "Launch at Login"
@@ -650,7 +650,7 @@
   - Automatic UI updates on state changes
 
 - [ ] Implement app delegate
-  - Source: `Playback/AppDelegate.swift`
+  - Source: `src/Playback/Playback/AppDelegate.swift`
   - Handle application lifecycle
   - Set up global shortcuts
   - Register notification handlers

@@ -359,7 +359,7 @@ Note: `$HOME` must be expanded to actual home directory path in LaunchAgent plis
 
 ### JSON Configuration File Structure
 - [ ] Define Config struct in Swift
-  - Source: `Playback/Config/Config.swift`
+  - Source: `src/Playback/Playback/Config/Config.swift`
   - Codable struct with all configuration fields
   - Nested struct for NotificationPreferences
   - **Example:**
@@ -404,7 +404,7 @@ Note: `$HOME` must be expanded to actual home directory path in LaunchAgent plis
     ```
 
 - [ ] Define Python config schema
-  - Source: `scripts/config.py` or embedded in services
+  - Source: `src/scripts/config.py` or embedded in services
   - DEFAULT_CONFIG dictionary with all fields
   - Type hints for configuration values
   - **Example:**
@@ -449,19 +449,19 @@ Note: `$HOME` must be expanded to actual home directory path in LaunchAgent plis
     ```
 
 - [ ] Implement JSON schema validation (optional)
-  - Source: `Playback/Config/ConfigSchema.swift`
+  - Source: `src/Playback/Playback/Config/ConfigSchema.swift`
   - Validates structure before loading
   - Provides helpful error messages for invalid configs
 
 ### Default Configuration
 - [ ] Create default configuration constant
-  - Source: `Playback/Config/Config.swift`
+  - Source: `src/Playback/Playback/Config/Config.swift`
   - Static property: `Config.default`
   - All fields initialized with defaults from schema
   - **Example:** See Config struct above with `static let default`
 
 - [ ] Implement first-launch initialization
-  - Source: `Playback/Config/ConfigManager.swift`
+  - Source: `src/Playback/Playback/Config/ConfigManager.swift`
   - Create config.json if it doesn't exist
   - Create parent directory if needed
   - Set file permissions to 0644
@@ -501,7 +501,7 @@ Note: `$HOME` must be expanded to actual home directory path in LaunchAgent plis
 ### Environment-Specific Configurations
 - [ ] Implement development mode detection
   - Check for `PLAYBACK_DEV_MODE=1` environment variable
-  - Source: `Playback/Config/ConfigManager.swift`
+  - Source: `src/Playback/Playback/Config/ConfigManager.swift`
   - **Example:**
     ```swift
     func isDevelopmentMode() -> Bool {
@@ -561,7 +561,7 @@ Note: `$HOME` must be expanded to actual home directory path in LaunchAgent plis
 
 ### Configuration Loading
 - [ ] Implement loadConfig() function
-  - Source: `Playback/Config/ConfigManager.swift`
+  - Source: `src/Playback/Playback/Config/ConfigManager.swift`
   - Handle missing file → create with defaults
   - Handle malformed JSON → backup and use defaults
   - Handle partial config → merge with defaults
@@ -603,7 +603,7 @@ Note: `$HOME` must be expanded to actual home directory path in LaunchAgent plis
     ```
 
 - [ ] Implement Python load_config() function
-  - Source: `scripts/config.py`
+  - Source: `src/scripts/config.py`
   - Same logic as Swift implementation
   - Used by recording and processing services
   - **Example:**
@@ -648,7 +648,7 @@ Note: `$HOME` must be expanded to actual home directory path in LaunchAgent plis
 
 ### Configuration Saving
 - [ ] Implement saveConfig() function
-  - Source: `Playback/Config/ConfigManager.swift`
+  - Source: `src/Playback/Playback/Config/ConfigManager.swift`
   - Atomic write using temp file + rename
   - Pretty-printed JSON with sorted keys
   - Create parent directory if needed
@@ -689,7 +689,7 @@ Note: `$HOME` must be expanded to actual home directory path in LaunchAgent plis
     ```
 
 - [ ] Implement Python save_config() function
-  - Source: `scripts/config.py`
+  - Source: `src/scripts/config.py`
   - Same atomic write pattern as Swift
   - Used when processing service updates config
   - **Example:**
@@ -752,7 +752,7 @@ Note: `$HOME` must be expanded to actual home directory path in LaunchAgent plis
 
 ### Configuration Validation
 - [ ] Implement validateConfig() function
-  - Source: `Playback/Config/ConfigManager.swift`
+  - Source: `src/Playback/Playback/Config/ConfigManager.swift`
   - Validate each field according to rules
   - Clamp invalid values to defaults
   - Return validated config
@@ -846,7 +846,7 @@ Note: `$HOME` must be expanded to actual home directory path in LaunchAgent plis
 
 ### Hot-Reloading/File Watching
 - [ ] Implement ConfigWatcher class
-  - Source: `Playback/Config/ConfigWatcher.swift`
+  - Source: `src/Playback/Playback/Config/ConfigWatcher.swift`
   - Use DispatchSourceFileSystemObject for file monitoring
   - Watch for write events on config.json
   - **Example:** See "Hot-Reloading Implementation" section above
@@ -905,7 +905,7 @@ Note: `$HOME` must be expanded to actual home directory path in LaunchAgent plis
 
 ### Configuration Migration
 - [ ] Implement version checking
-  - Source: `Playback/Config/ConfigMigration.swift`
+  - Source: `src/Playback/Playback/Config/ConfigMigration.swift`
   - Read version field from loaded config
   - Compare against current app version
   - Apply migrations if needed
@@ -940,7 +940,7 @@ Note: `$HOME` must be expanded to actual home directory path in LaunchAgent plis
   - Pass to recording and processing services
 
 - [ ] Add environment variables to LaunchAgent plists
-  - Source: `Playback/Services/LaunchAgentManager.swift`
+  - Source: `src/Playback/Playback/Services/LaunchAgentManager.swift`
   - Set in <EnvironmentVariables> section
   - Expand $HOME to actual home directory
   - **Example:** See "Usage in LaunchAgent" section above
@@ -953,7 +953,7 @@ Note: `$HOME` must be expanded to actual home directory path in LaunchAgent plis
   - **Example:** See saveConfig() section above
 
 - [ ] Implement manual export
-  - Source: `Playback/Settings/AdvancedSettingsView.swift`
+  - Source: `src/Playback/Playback/Settings/AdvancedSettingsView.swift`
   - "Export Settings" button in Advanced tab
   - Save dialog with suggested filename including timestamp
   - Copy current config.json to user-chosen location
@@ -977,7 +977,7 @@ Note: `$HOME` must be expanded to actual home directory path in LaunchAgent plis
     ```
 
 - [ ] Implement manual import
-  - Source: `Playback/Settings/AdvancedSettingsView.swift`
+  - Source: `src/Playback/Playback/Settings/AdvancedSettingsView.swift`
   - "Import Settings" button in Advanced tab
   - File picker for config.json file
   - Validate imported config
@@ -1010,7 +1010,7 @@ Note: `$HOME` must be expanded to actual home directory path in LaunchAgent plis
     ```
 
 - [ ] Add restore from backup feature
-  - Source: `Playback/Settings/AdvancedSettingsView.swift`
+  - Source: `src/Playback/Playback/Settings/AdvancedSettingsView.swift`
   - List available backups with timestamps
   - Preview backup contents
   - Restore button copies backup to config.json
@@ -1033,7 +1033,7 @@ Note: `$HOME` must be expanded to actual home directory path in LaunchAgent plis
 
 ### Configuration Access API
 - [ ] Create ConfigManager singleton
-  - Source: `Playback/Config/ConfigManager.swift`
+  - Source: `src/Playback/Playback/Config/ConfigManager.swift`
   - Shared instance: `ConfigManager.shared`
   - Thread-safe access to config
   - Observable for SwiftUI views

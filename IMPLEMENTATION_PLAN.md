@@ -37,7 +37,16 @@ Based on comprehensive technical specifications in `specs/`.
 - Implement batch processing for efficiency
 - Implement progress logging and metrics
 
-### 1.3 Configuration System
+### 1.3 Shared Python Utilities (src/lib/)
+- Implement paths.py for environment-aware path resolution
+- Implement database.py for SQLite operations and schema management
+- Implement video.py for FFmpeg wrappers and video processing
+- Implement macos.py for CoreGraphics and AppleScript integration
+- Implement timestamps.py for filename parsing and generation
+- Migrate duplicated logic from recording/processing services
+- Implement unit tests for all shared utilities
+
+### 1.4 Configuration System
 - Implement ConfigManager in Swift
 - Implement config.json schema with validation
 - Implement default configuration generation
@@ -48,7 +57,7 @@ Based on comprehensive technical specifications in `specs/`.
 - Implement config backup before migrations
 - Implement validation rules for all settings
 
-### 1.4 LaunchAgent Management
+### 1.5 LaunchAgent Management
 - Implement LaunchAgentManager in Swift
 - Implement plist template system with variable substitution
 - Implement load/unload/start/stop commands via launchctl
@@ -332,25 +341,32 @@ Based on comprehensive technical specifications in `specs/`.
 
 ```
 Playback/
-├── Playback/                       # Xcode project
-│   ├── Playback.xcodeproj         # Project configuration
-│   ├── Playback/                  # Main app target
-│   │   ├── PlaybackApp.swift     # App entry point
-│   │   ├── MenuBar/               # Menu bar component
-│   │   ├── Timeline/              # Timeline viewer
-│   │   ├── Settings/              # Settings window
-│   │   ├── Config/                # Configuration management
-│   │   ├── Database/              # SQLite access
-│   │   ├── Services/              # LaunchAgent management
-│   │   └── Search/                # OCR and search
-│   ├── PlaybackTests/             # Unit and integration tests
-│   └── PlaybackUITests/           # UI tests
-├── scripts/                        # Python background services
-│   ├── record_screen.py           # Screenshot capture
-│   ├── build_chunks_from_temp.py  # Video processing
-│   ├── cleanup_old_chunks.py      # Retention cleanup
-│   ├── migrations.py              # Database migrations
-│   └── tests/                     # Python tests
+├── src/                            # All source code
+│   ├── Playback/                  # Swift app
+│   │   ├── Playback.xcodeproj    # Xcode project configuration
+│   │   ├── Playback/              # Main app target
+│   │   │   ├── PlaybackApp.swift # App entry point
+│   │   │   ├── MenuBar/          # Menu bar component
+│   │   │   ├── Timeline/         # Timeline viewer
+│   │   │   ├── Settings/         # Settings window
+│   │   │   ├── Config/           # Configuration management
+│   │   │   ├── Database/         # SQLite access
+│   │   │   ├── Services/         # LaunchAgent management
+│   │   │   └── Search/           # OCR and search
+│   │   ├── PlaybackTests/        # Unit and integration tests
+│   │   └── PlaybackUITests/      # UI tests
+│   ├── scripts/                   # Python background services
+│   │   ├── record_screen.py      # Screenshot capture
+│   │   ├── build_chunks_from_temp.py  # Video processing
+│   │   ├── cleanup_old_chunks.py # Retention cleanup
+│   │   ├── migrations.py         # Database migrations
+│   │   └── tests/                # Python tests
+│   └── lib/                       # Shared Python utilities (planned)
+│       ├── paths.py               # Path resolution
+│       ├── database.py            # Database operations
+│       ├── video.py               # FFmpeg wrappers
+│       ├── macos.py               # macOS integration
+│       └── timestamps.py          # Filename parsing
 ├── specs/                          # Technical specifications
 ├── dev_data/                       # Development data (gitignored)
 ├── dev_logs/                       # Development logs (gitignored)
