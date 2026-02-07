@@ -652,9 +652,9 @@ Phase 4.1 delivers a complete full-text search system with OCR:
 
 ### 4.3 Logging & Diagnostics
 
-**Progress: 🟡 IN PROGRESS (70% - All service migrations complete, UI work remaining)**
+**Progress: 🟡 IN PROGRESS (75% - All Python service migrations complete, UI work remaining)**
 
-**Status: All 3 service migrations complete, UI work still pending**
+**Status: All 4 Python script migrations complete (recording, processing, cleanup, export), UI work still pending**
 
 **Completed:**
 - ✅ Structured JSON logging system (lib/logging_config.py)
@@ -663,6 +663,7 @@ Phase 4.1 delivers a complete full-text search system with OCR:
 - ✅ Recording service migration to structured logging
 - ✅ Processing service migration to structured logging
 - ✅ Cleanup service migration to structured logging
+- ✅ Export service migration to structured logging
 - ✅ Comprehensive test suite (28 tests in test_logging_config.py)
 - ✅ psutil dependency added to requirements.txt (>=6.1.1)
 
@@ -674,6 +675,7 @@ Phase 4.1 delivers a complete full-text search system with OCR:
 - `src/scripts/record_screen.py` (migrated to structured logging with metrics)
 - `src/scripts/build_chunks_from_temp.py` (migrated to structured logging with metrics)
 - `src/scripts/cleanup_old_chunks.py` (migrated to structured logging with metrics)
+- `src/scripts/export_data.py` (migrated to structured logging with metrics)
 - `src/scripts/requirements.txt` (added psutil>=6.1.1)
 
 **Test Results:**
@@ -698,6 +700,20 @@ Phase 4.1 delivers a complete full-text search system with OCR:
 - Dry-run awareness in all log messages
 - Log levels properly applied (info/warning/error/critical)
 - Storage statistics logging (deleted files, reclaimed space)
+
+**Export Service Migration (Completed 2026-02-07):**
+- All 25 print() statements replaced with structured logging
+- Resource metrics collection at 4 key points (start, before ZIP, during ZIP every 50 files, end)
+- Error context logging for all exceptions
+- Hybrid output approach (JSON logs + user-facing interactive output)
+- User interaction prompts preserved (input/output for overwrite confirmation)
+- Log levels properly applied (info/warning/error/critical)
+
+**Migration Statistics:**
+- Total Python services migrated: 4 (record_screen.py, build_chunks_from_temp.py, cleanup_old_chunks.py, export_data.py)
+- Total print() statements replaced: 105 (21 + 21 + 38 + 25)
+- All services now use structured JSON logging with resource metrics
+- Comprehensive error context logging across all services
 
 **Remaining Work:**
 - Implement log viewer UI in diagnostics tab

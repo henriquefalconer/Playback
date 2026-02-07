@@ -22,6 +22,7 @@ Key operational learnings from Phase 2 development (2026-02-07):
 - **Logging convenience functions:** log_info(), log_warning(), log_error(), log_critical(), log_debug() with metadata support, log_resource_metrics() for psutil integration, log_error_with_context() for exception logging
 - **Service logging migration pattern:** Import logging_config functions at top, setup logger in main() with component name, replace all print() with log_*() calls, add resource metrics collection with psutil (optional), log state changes and errors with context. Successfully applied to record_screen.py (21 print statements) and build_chunks_from_temp.py (21 print statements). Pattern includes: structured metadata in all logs, exception context in error logs, resource metrics at regular intervals (not every operation), graceful psutil degradation
 - **psutil integration:** Add psutil>=6.1.1 to requirements.txt, graceful degradation if not available (PSUTIL_AVAILABLE flag), collect metrics every N operations to avoid overhead
+- **Phase 4.3 service migrations complete:** All 3 Python background services (record_screen, build_chunks_from_temp, cleanup_old_chunks) now use structured JSON logging with 80 total print statements migrated. Resource metrics collection operational across all services. Phase 4.3 complete (70%) - service migrations done, UI integration remains
 
 ## Specifications
 
