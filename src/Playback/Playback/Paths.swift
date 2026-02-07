@@ -43,6 +43,25 @@ enum Paths {
         baseDataDirectory.appendingPathComponent("chunks")
     }
 
+    /// Config file path
+    static func configPath() -> URL {
+        if isDevelopment {
+            let projectRoot = Bundle.main.bundleURL
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+            return projectRoot.appendingPathComponent("dev_config.json")
+        } else {
+            let appSupport = FileManager.default.urls(
+                for: .applicationSupportDirectory,
+                in: .userDomainMask
+            ).first!
+            return appSupport
+                .appendingPathComponent("Playback")
+                .appendingPathComponent("config.json")
+        }
+    }
+
     /// Ensure all required directories exist
     static func ensureDirectoriesExist() throws {
         let fileManager = FileManager.default

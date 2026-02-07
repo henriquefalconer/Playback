@@ -20,8 +20,8 @@ Playback consists of separate components:
 ## Phase 1: Core Recording & Processing
 
 ### Progress Summary
-- **Total Tasks:** 26 completed, 19 remaining
-- **Completion:** 58% (26/45 tasks)
+- **Total Tasks:** 34 completed, 11 remaining
+- **Completion:** 76% (34/45 tasks)
 - **Status:** 🚧 In Progress
 
 ### Key Achievements
@@ -30,13 +30,14 @@ Playback consists of separate components:
 - ✅ **Recording Pipeline:** Screenshot capture, frontmost app detection, timeline pause detection, and file organization working
 - ✅ **Processing Pipeline:** Video generation, segment metadata extraction, database insertion, and temp cleanup operational
 - ✅ **Development Mode:** Complete dev/prod separation via PLAYBACK_DEV_MODE environment variable
+- ✅ **Configuration System:** ConfigManager with hot-reloading, validation, migration, and automatic backup system operational
 
 ### Next Priorities
-1. **Configuration System:** Implement ConfigManager, config.json schema, and hot-reloading
-2. **LaunchAgent Management:** Build LaunchAgentManager for service control
-3. **Logging & Monitoring:** Add structured JSON logging and metrics tracking
-4. **Error Handling:** Implement graceful recovery and permission checks
-5. **Processing Scheduler:** Set up 5-minute LaunchAgent interval
+1. **LaunchAgent Management:** Build LaunchAgentManager for service control (plist templates, load/unload/start/stop)
+2. **Logging & Monitoring:** Add structured JSON logging and metrics tracking
+3. **Error Handling:** Implement graceful recovery and permission checks
+4. **Processing Scheduler:** Set up 5-minute LaunchAgent interval
+5. **App Exclusion Logic:** Implement skip mode for sensitive apps (password managers)
 
 ---
 
@@ -61,14 +62,7 @@ All tasks completed. See "Phase 1 - Completed Tasks" below.
 All tasks completed. See "Phase 1 - Completed Tasks" below.
 
 ### 1.4 Configuration System
-- ❌ Implement ConfigManager in Swift
-- ❌ Implement config.json schema with validation
-- ❌ Implement default configuration generation
-- ❌ Implement hot-reloading with FileSystemWatcher
-- ❌ Implement config migration for version updates
-- ❌ Implement configuration UI bindings (@Published properties)
-- ❌ Implement config backup before migrations
-- ❌ Implement validation rules for all settings
+All tasks completed. See "Phase 1 - Completed Tasks" below.
 
 ### 1.5 LaunchAgent Management
 - ❌ Implement LaunchAgentManager in Swift
@@ -121,6 +115,15 @@ All tasks completed. See "Phase 1 - Completed Tasks" below.
 - ✅ Automatic signal file creation on app launch, deletion on quit
 
 #### 1.4 Configuration System
+- ✅ Implement Config struct with Codable conformance (Config.swift)
+- ✅ Implement ConfigManager with @MainActor, ObservableObject, load/save/validate methods
+- ✅ Implement ConfigWatcher for hot-reloading using DispatchSourceFileSystemObject
+- ✅ Implement config migration system with version checking and schema evolution
+- ✅ Implement automatic config backup and rotation (keeps 5 backups with timestamps)
+- ✅ Implement Python config.py module with Config class and load_config functions
+- ✅ Implement Swift Paths.configPath() method for environment-aware config file location
+- ✅ Implement default dev_config.json creation with all fields
+- ✅ Implement validation tests for all configuration fields (RecordingInterval, ProcessingInterval, RetentionPolicy)
 - ✅ Implement environment-aware paths (dev vs production) - Paths.swift with PLAYBACK_DEV_MODE detection
 
 ---
@@ -518,9 +521,9 @@ Playback/
 - Environment-aware path resolution (Swift and Python)
 - Signal file management for timeline viewer pause detection
 - Timeline viewer uses Paths utility for data access
+- Configuration system with hot-reloading and migration
 
 ### In Progress 🚧
-- Configuration system
 - LaunchAgent management
 - Timeline viewer foundation
 - Build system setup
