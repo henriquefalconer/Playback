@@ -434,6 +434,132 @@ Fast tests that run before each commit:
 4. Add database queries if needed
 5. Test: Open timeline, verify feature works, test edge cases
 
+## Configuration System
+
+### ConfigManager
+- **Singleton:** Access via `ConfigManager.shared` (Swift only)
+- **Thread safety:** Marked `@MainActor` for main-thread operations
+- **Config files:**
+  - Development: `dev_config.json` in project root
+  - Production: `~/Library/Application Support/Playback/config.json`
+- **Hot-reloading:** Automatic via file watcher, changes detected within seconds
+- **Python:** Use `from lib.config import load_config_with_defaults`
+
+### Config Structure
+```swift
+// Swift access
+let config = ConfigManager.shared.config
+let fps = config.videoFps
+let crf = config.ffmpegCrf
+```
+
+```python
+# Python access
+from lib.config import load_config_with_defaults
+config = load_config_with_defaults()
+fps = config.video_fps
+crf = config.ffmpeg_crf
+```
+
+## LaunchAgent Management
+
+### LaunchAgentManager
+- **Singleton:** Access via `LaunchAgentManager.shared`
+- **Agent types:** `.recording` and `.processing` (enum `AgentType`)
+- **Plist templates:** Located in `Resources/launchagents/` with `{{VARIABLE}}` substitution
+- **Environment-aware:** Automatically uses dev or prod labels and paths
+
+### Commands
+```swift
+let manager = LaunchAgentManager.shared
+
+// Install agent (creates plist from template)
+try manager.installAgent(.recording)
+
+// Load agent (makes launchd aware of it)
+try manager.loadAgent(.recording)
+
+// Start agent (begins execution)
+try manager.startAgent(.recording)
+
+// Stop agent (halts execution)
+try manager.stopAgent(.recording)
+
+// Reload agent (reinstall + reload)
+try manager.reloadAgent(.processing)
+
+// Get status
+let status = manager.getAgentStatus(.recording)
+print("Running: \(status.isRunning), PID: \(status.pid ?? -1)")
+```
+
+### Variable Substitution
+Templates support these variables:
+- `{{LABEL}}` - Agent label (e.g., com.playback.recording)
+- `{{SCRIPT_PATH}}` - Path to Python scripts directory
+- `{{WORKING_DIR}}` - Working directory for agent
+- `{{LOG_PATH}}` - Log file directory
+- `{{CONFIG_PATH}}` - Path to config.json
+- `{{DATA_DIR}}` - Data directory path
+- `{{DEV_MODE}}` - "1" for development, "0" for production
+- `{{INTERVAL_SECONDS}}` - Processing interval (processing agent only)
+
+## App Exclusion
+
+### Configuration
+Add apps to `excluded_apps` array in config.json:
+```json
+{
+  "excluded_apps": [
+    "com.1password.1password",
+    "com.apple.Keychain"
+  ],
+  "exclusion_mode": "skip"
+}
+```
+
+### Exclusion Modes
+- **`skip`:** Don't capture screenshots when excluded app is frontmost
+- **`invisible`:** Capture screenshots but mark them as excluded (for future filtering)
+
+### Behavior
+- Config reloads automatically via file watcher
+- Changes take effect within 30 seconds (next recording cycle)
+- Recording service checks `config.is_app_excluded(bundle_id)` before capture
+- Valid bundle ID format: alphanumeric, dots, and hyphens only
+
+## Processing Service
+
+### Command-Line Usage
+```bash
+# Scheduled processing (last 7 days, auto-detects pending days)
+python3 src/scripts/build_chunks_from_temp.py --auto
+
+# Manual processing for specific day
+python3 src/scripts/build_chunks_from_temp.py --day 20260207
+
+# Override encoding settings
+python3 src/scripts/build_chunks_from_temp.py --day 20260207 --fps 60 --crf 23
+
+# Skip temp file cleanup (keep screenshots)
+python3 src/scripts/build_chunks_from_temp.py --day 20260207 --no-cleanup
+```
+
+### Parameters
+- **`--auto`:** Process all pending days (last 7 days with unprocessed screenshots)
+- **`--day YYYYMMDD`:** Process specific day
+- **`--fps N`:** Override video FPS (default: from config)
+- **`--crf N`:** Override compression quality 0-51, lower=better (default: from config)
+- **`--preset`:** FFmpeg preset: ultrafast, veryfast, fast, medium, slow (default: veryfast)
+- **`--segment-duration`:** Segment length in seconds (default: 5.0)
+- **`--no-cleanup`:** Keep temp screenshots after processing
+
+### Integration
+- LaunchAgent runs `--auto` mode every N minutes (from config)
+- Manual runs use `--day` for specific date processing
+- FPS and CRF default to config values, can be overridden per-run
+- Processing creates video segments in `chunks/YYYYMM/DD/`
+
 ## Best Practices
 
 ### Configuration
