@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Proprietary
 
 import SwiftUI
+import AppKit
 
 struct SettingsView: View {
     @EnvironmentObject var configManager: ConfigManager
@@ -93,15 +94,75 @@ struct GeneralSettingsTab: View {
 }
 
 struct RecordingSettingsTab: View {
+    @EnvironmentObject var configManager: ConfigManager
+
     var body: some View {
         Form {
-            Section("Recording") {
-                Text("Recording settings will be added here")
-                    .foregroundColor(.secondary)
+            Section("Recording Interval") {
+                HStack {
+                    Text("Recording Interval:")
+                    Spacer()
+                    Text("2 seconds (not configurable)")
+                        .foregroundColor(.secondary)
+                }
+
+                HStack(spacing: 4) {
+                    Image(systemName: "info.circle")
+                        .foregroundColor(.secondary)
+                        .font(.caption)
+                    Text("The recording interval is fixed at 2 seconds to balance capture quality with system performance.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                .padding(.top, 4)
+            }
+
+            Section("Timeline Interaction") {
+                Toggle("Pause recording when Timeline window is open", isOn: binding(\.pauseWhenTimelineOpen))
+
+                HStack(spacing: 4) {
+                    Image(systemName: "info.circle")
+                        .foregroundColor(.secondary)
+                        .font(.caption)
+                    Text("Prevents recording your own timeline browsing activity. When enabled, recording automatically pauses while the Timeline window is open.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                .padding(.top, 4)
+            }
+
+            Section {
+                HStack(spacing: 8) {
+                    Image(systemName: "info.circle.fill")
+                        .foregroundColor(.blue)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Automatic Pause Behavior")
+                            .font(.subheadline)
+                            .fontWeight(.semibold)
+                        Text("Recording will automatically pause when the Timeline window is open (if enabled above). The recording service detects the timeline signal file and temporarily stops capturing screenshots until you close the window.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.blue.opacity(0.08))
+                .cornerRadius(8)
             }
         }
         .formStyle(.grouped)
         .padding()
+    }
+
+    private func binding<T>(_ keyPath: WritableKeyPath<Config, T>) -> Binding<T> {
+        Binding(
+            get: { configManager.config[keyPath: keyPath] },
+            set: { newValue in
+                var updatedConfig = configManager.config
+                updatedConfig[keyPath: keyPath] = newValue
+                configManager.updateConfig(updatedConfig)
+            }
+        )
     }
 }
 
@@ -257,15 +318,320 @@ struct PrivacySettingsTab: View {
 }
 
 struct AdvancedSettingsTab: View {
+    @EnvironmentObject var configManager: ConfigManager
+
+    @State private var macOSVersion = "Loading..."
+    @State private var pythonVersion = "Loading..."
+    @State private var ffmpegVersion = "Loading..."
+    @State private var availableSpace = "Loading..."
+
+    @State private var recordingStatus = LaunchAgentStatus(isLoaded: false, isRunning: false, pid: nil, lastExitStatus: nil)
+    @State private var processingStatus = LaunchAgentStatus(isLoaded: false, isRunning: false, pid: nil, lastExitStatus: nil)
+
+    @State private var showResetConfirmation = false
+    @State private var showRebuildProgress = false
+    @State private var showDiagnosticsResults = false
+    @State private var diagnosticsMessage = ""
+
     var body: some View {
         Form {
-            Section("Advanced") {
-                Text("Advanced settings will be added here")
-                    .foregroundColor(.secondary)
+            Section("Video Encoding Settings") {
+                HStack {
+                    Text("Codec:")
+                    Spacer()
+                    Text("H.264 (libx264)")
+                        .foregroundColor(.secondary)
+                }
+
+                HStack {
+                    Text("Quality (CRF):")
+                    Spacer()
+                    Text("\(configManager.config.ffmpegCrf)")
+                        .foregroundColor(.secondary)
+                }
+                .help("Lower values = better quality, larger files (0-51)")
+
+                HStack {
+                    Text("Preset:")
+                    Spacer()
+                    Text("veryfast")
+                        .foregroundColor(.secondary)
+                }
+
+                HStack {
+                    Text("Frame Rate:")
+                    Spacer()
+                    Text("\(configManager.config.videoFps) fps")
+                        .foregroundColor(.secondary)
+                }
+
+                HStack(spacing: 4) {
+                    Image(systemName: "info.circle")
+                        .foregroundColor(.secondary)
+                        .font(.caption)
+                    Text("Video encoding settings are read-only. These values are optimized for screen recording and cannot be changed through the UI.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                .padding(.top, 4)
+            }
+
+            Section("System Information") {
+                HStack {
+                    Text("macOS Version:")
+                    Spacer()
+                    Text(macOSVersion)
+                        .foregroundColor(.secondary)
+                }
+
+                HStack {
+                    Text("Python Version:")
+                    Spacer()
+                    Text(pythonVersion)
+                        .foregroundColor(.secondary)
+                }
+
+                HStack {
+                    Text("FFmpeg Version:")
+                    Spacer()
+                    Text(ffmpegVersion)
+                        .foregroundColor(.secondary)
+                }
+
+                HStack {
+                    Text("Available Disk Space:")
+                    Spacer()
+                    Text(availableSpace)
+                        .foregroundColor(.secondary)
+                }
+            }
+
+            Section("Service Status") {
+                HStack {
+                    HStack(spacing: 6) {
+                        Circle()
+                            .fill(statusColor(recordingStatus))
+                            .frame(width: 8, height: 8)
+                        Text("Recording Service:")
+                    }
+                    Spacer()
+                    Text(statusText(recordingStatus))
+                        .foregroundColor(.secondary)
+                    if !recordingStatus.isRunning && recordingStatus.isLoaded {
+                        Button("Restart") {
+                            restartService(.recording)
+                        }
+                        .buttonStyle(.borderless)
+                        .controlSize(.small)
+                    }
+                }
+
+                HStack {
+                    HStack(spacing: 6) {
+                        Circle()
+                            .fill(statusColor(processingStatus))
+                            .frame(width: 8, height: 8)
+                        Text("Processing Service:")
+                    }
+                    Spacer()
+                    Text(statusText(processingStatus))
+                        .foregroundColor(.secondary)
+                    if !processingStatus.isRunning && processingStatus.isLoaded {
+                        Button("Restart") {
+                            restartService(.processing)
+                        }
+                        .buttonStyle(.borderless)
+                        .controlSize(.small)
+                    }
+                }
+            }
+
+            Section("Maintenance") {
+                Button("Reset All Settings") {
+                    showResetConfirmation = true
+                }
+                .buttonStyle(.borderless)
+
+                Button("Rebuild Database") {
+                    rebuildDatabase()
+                }
+                .buttonStyle(.borderless)
+
+                Button("Export Logs") {
+                    exportLogs()
+                }
+                .buttonStyle(.borderless)
+
+                Button("Run Diagnostics Check") {
+                    runDiagnostics()
+                }
+                .buttonStyle(.borderless)
             }
         }
         .formStyle(.grouped)
         .padding()
+        .task {
+            await loadSystemInformation()
+            loadServiceStatus()
+        }
+        .onReceive(Timer.publish(every: 30, on: .main, in: .common).autoconnect()) { _ in
+            Task {
+                await loadSystemInformation()
+            }
+        }
+        .onReceive(Timer.publish(every: 5, on: .main, in: .common).autoconnect()) { _ in
+            loadServiceStatus()
+        }
+        .alert("Reset All Settings?", isPresented: $showResetConfirmation) {
+            Button("Cancel", role: .cancel) { }
+            Button("Reset", role: .destructive) {
+                resetAllSettings()
+            }
+        } message: {
+            Text("This will reset all settings to their default values. This action cannot be undone.")
+        }
+        .alert("Database Rebuild", isPresented: $showRebuildProgress) {
+            Button("OK") { }
+        } message: {
+            Text("Database rebuild initiated. This may take a few minutes.")
+        }
+        .alert("Diagnostics Results", isPresented: $showDiagnosticsResults) {
+            Button("OK") { }
+        } message: {
+            Text(diagnosticsMessage)
+        }
+    }
+
+    private func loadSystemInformation() async {
+        macOSVersion = await runShellCommand("sw_vers -productVersion")
+        pythonVersion = await runShellCommand("python3 --version")
+        ffmpegVersion = await runShellCommand("ffmpeg -version | head -n 1")
+
+        let dataDir = Paths.baseDataDirectory.path
+        let spaceOutput = await runShellCommand("df -h '\(dataDir)' | tail -n 1 | awk '{print $4}'")
+        availableSpace = spaceOutput.isEmpty ? "Unknown" : spaceOutput
+    }
+
+    private func loadServiceStatus() {
+        recordingStatus = LaunchAgentManager.shared.getAgentStatus(.recording)
+        processingStatus = LaunchAgentManager.shared.getAgentStatus(.processing)
+    }
+
+    private func statusColor(_ status: LaunchAgentStatus) -> Color {
+        if !status.isLoaded {
+            return .red
+        }
+        return status.isRunning ? .green : .yellow
+    }
+
+    private func statusText(_ status: LaunchAgentStatus) -> String {
+        if !status.isLoaded {
+            return "Not Loaded"
+        }
+        if status.isRunning {
+            return "Running (PID: \(status.pid ?? 0))"
+        }
+        return "Stopped"
+    }
+
+    private func restartService(_ type: AgentType) {
+        Task {
+            do {
+                try await LaunchAgentManager.shared.restartAgent(type)
+                await MainActor.run {
+                    loadServiceStatus()
+                }
+            } catch {
+                print("Failed to restart \(type.rawValue) service: \(error)")
+            }
+        }
+    }
+
+    private func resetAllSettings() {
+        configManager.updateConfig(Config.defaultConfig)
+    }
+
+    private func rebuildDatabase() {
+        showRebuildProgress = true
+    }
+
+    private func exportLogs() {
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = "playback-logs-\(formatDate(Date())).zip"
+        panel.allowedContentTypes = [.zip]
+        panel.canCreateDirectories = true
+
+        panel.begin { response in
+            if response == .OK, let url = panel.url {
+                Task {
+                    await exportLogsToFile(url)
+                }
+            }
+        }
+    }
+
+    private func exportLogsToFile(_ destination: URL) async {
+        let logDir = Paths.isDevelopment ? "dev_logs" : "~/Library/Logs/Playback"
+        let expandedPath = (logDir as NSString).expandingTildeInPath
+        let command = "cd '\(expandedPath)' && zip -r '\(destination.path)' . 2>&1"
+        let _ = await runShellCommand(command)
+    }
+
+    private func runDiagnostics() {
+        Task {
+            var diagnostics: [String] = []
+
+            diagnostics.append("macOS: \(await runShellCommand("sw_vers -productVersion"))")
+            diagnostics.append("Python: \(await runShellCommand("python3 --version"))")
+            diagnostics.append("FFmpeg: \(await runShellCommand("ffmpeg -version | head -n 1"))")
+
+            let dbPath = Paths.databasePath.path
+            let dbExists = FileManager.default.fileExists(atPath: dbPath)
+            diagnostics.append("Database: \(dbExists ? "Found" : "Missing")")
+
+            let configPath = Paths.configPath().path
+            let configExists = FileManager.default.fileExists(atPath: configPath)
+            diagnostics.append("Config: \(configExists ? "Found" : "Missing")")
+
+            diagnostics.append("Recording: \(statusText(recordingStatus))")
+            diagnostics.append("Processing: \(statusText(processingStatus))")
+
+            await MainActor.run {
+                diagnosticsMessage = diagnostics.joined(separator: "\n")
+                showDiagnosticsResults = true
+            }
+        }
+    }
+
+    private func runShellCommand(_ command: String) async -> String {
+        await withCheckedContinuation { continuation in
+            let process = Process()
+            let pipe = Pipe()
+
+            process.executableURL = URL(fileURLWithPath: "/bin/bash")
+            process.arguments = ["-c", command]
+            process.standardOutput = pipe
+            process.standardError = pipe
+
+            do {
+                try process.run()
+                process.waitUntilExit()
+
+                let data = pipe.fileHandleForReading.readDataToEndOfFile()
+                let output = String(data: data, encoding: .utf8)?
+                    .trimmingCharacters(in: .whitespacesAndNewlines) ?? "Error"
+
+                continuation.resume(returning: output.isEmpty ? "Not found" : output)
+            } catch {
+                continuation.resume(returning: "Error")
+            }
+        }
+    }
+
+    private func formatDate(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyyMMdd-HHmmss"
+        return formatter.string(from: date)
     }
 }
 

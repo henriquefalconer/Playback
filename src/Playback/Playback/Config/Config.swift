@@ -13,6 +13,7 @@ struct Config: Codable {
     var ffmpegCrf: Int
     var videoFps: Int
     var timelineShortcut: String
+    var pauseWhenTimelineOpen: Bool
     var notifications: Notifications
 
     struct Notifications: Codable {
@@ -33,6 +34,7 @@ struct Config: Codable {
             ffmpegCrf: 28,
             videoFps: 30,
             timelineShortcut: "Option+Shift+Space",
+            pauseWhenTimelineOpen: true,
             notifications: Notifications(
                 processingComplete: true,
                 processingErrors: true,
@@ -91,6 +93,7 @@ struct Config: Codable {
         case ffmpegCrf = "ffmpeg_crf"
         case videoFps = "video_fps"
         case timelineShortcut = "timeline_shortcut"
+        case pauseWhenTimelineOpen = "pause_when_timeline_open"
         case notifications
     }
 }
