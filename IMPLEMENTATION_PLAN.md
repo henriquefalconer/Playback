@@ -25,8 +25,8 @@ Playback consists of separate components:
 - ✅ Implement screenshot capture using ScreenCaptureKit
 - ✅ Implement 2-second capture interval loop
 - ✅ Implement frontmost app detection via AppleScript
-- [ ] Implement timeline viewer detection (check for `.timeline_open` file)
-- [ ] Implement automatic pause when timeline viewer open
+- ✅ Implement timeline viewer detection (check for `.timeline_open` file) - uses `lib.paths.get_timeline_open_signal_path()`
+- ✅ Implement automatic pause when timeline viewer open - recording script pauses when signal file exists
 - ✅ Implement screen unavailability detection (screensaver, display off)
 - ✅ Implement file naming convention (YYYYMMDD-HHMMSS-uuid-app_id) - now using timestamps.py
 - ✅ Implement date-based directory structure (YYYYMM/DD/) - now using paths.py
@@ -36,6 +36,8 @@ Playback consists of separate components:
 - Implement graceful error handling and recovery
 - Implement metrics tracking (frames captured, errors, CPU/memory usage)
 
+**Note:** Swift timeline viewer still needs to create/delete the signal file when opening/closing (TODO).
+
 ### 1.2 Processing Service (Python)
 - ✅ Implement temp file scanning and grouping
 - ✅ Implement FFmpeg video generation (H.264, CRF 28, 30fps)
@@ -44,7 +46,7 @@ Playback consists of separate components:
 - ✅ Implement database insertion for segments - now using database.py
 - Implement 5-minute processing interval via LaunchAgent
 - Implement app segment aggregation and timeline generation
-- Implement temp file cleanup after processing
+- ✅ Implement temp file cleanup after processing - processing script cleans up temp files by default (--no-cleanup flag available)
 - Implement error handling for corrupted frames
 - Implement batch processing for efficiency
 - Implement progress logging and metrics

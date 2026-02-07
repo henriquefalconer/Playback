@@ -25,7 +25,7 @@ from pathlib import Path
 # Add parent directory to path to import lib modules
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from lib.paths import get_temp_directory, ensure_directory_exists
+from lib.paths import get_temp_directory, ensure_directory_exists, get_timeline_open_signal_path
 from lib.macos import is_screen_unavailable, get_active_display_index, get_frontmost_app_bundle_id
 from lib.timestamps import generate_chunk_name
 
@@ -75,20 +75,51 @@ def capture_screen(output_path: Path) -> None:
     temp_path.rename(output_path)
 
 
+def is_timeline_viewer_open() -> bool:
+    """
+    Verifica se o timeline viewer está aberto checando a existência do arquivo .timeline_open.
+    Retorna True se o arquivo existe, False caso contrário.
+    """
+    signal_path = get_timeline_open_signal_path()
+    return signal_path.exists()
+
+
 def main(
     interval_seconds: int = 2,
 ) -> None:
     """
     Loop principal:
     - A cada `interval_seconds`, tira um screenshot e salva no diretório de temp.
+    - Pausa automaticamente quando o timeline viewer está aberto.
     """
     temp_root = get_temp_directory()
+    signal_path = get_timeline_open_signal_path()
     print(f"[Playback] Iniciando gravação de tela com intervalo de {interval_seconds}s...")
     print(f"[Playback] Salvando em: {temp_root}")
+    print(f"[Playback] Monitorando sinal de pause em: {signal_path}")
+
+    timeline_was_open = False
 
     while True:
         now = datetime.now()
         print(f"[Playback] DEBUG: Iniciando ciclo de captura às {now.strftime('%H:%M:%S')}")
+
+        # Verifica se o timeline viewer está aberto
+        timeline_open = is_timeline_viewer_open()
+
+        # Log mudanças de estado do timeline viewer
+        if timeline_open and not timeline_was_open:
+            print(f"[Playback] Timeline viewer aberto - pausando gravação")
+            timeline_was_open = True
+        elif not timeline_open and timeline_was_open:
+            print(f"[Playback] Timeline viewer fechado - retomando gravação")
+            timeline_was_open = False
+
+        # Se o timeline viewer está aberto, não gravamos nada neste ciclo
+        if timeline_open:
+            print(f"[Playback] DEBUG: Pulando captura (timeline viewer aberto), aguardando {interval_seconds}s...")
+            time.sleep(interval_seconds)
+            continue
 
         # Se a tela estiver em protetor de tela / bloqueada / desligada,
         # não gravamos nada neste ciclo.

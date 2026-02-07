@@ -174,15 +174,70 @@ def build_appsegments_for_day(frames: List[FrameInfo]) -> List[Tuple[Optional[st
     return segments
 
 
+def cleanup_temp_files(frames: List[FrameInfo], day: str) -> None:
+    """
+    Remove os arquivos temporários (screenshots) após processamento bem-sucedido.
+
+    Args:
+        frames: Lista de frames que foram processados com sucesso
+        day: String YYYYMMDD representando o dia processado
+    """
+    print(f"[build_chunks] Limpando {len(frames)} arquivos temporários...")
+
+    deleted_count = 0
+    error_count = 0
+
+    for frame in frames:
+        try:
+            if frame.path.exists():
+                frame.path.unlink()
+                deleted_count += 1
+        except Exception as e:
+            print(f"[build_chunks] AVISO: Não foi possível deletar {frame.path}: {e}")
+            error_count += 1
+
+    print(f"[build_chunks] Limpeza concluída: {deleted_count} arquivos deletados, {error_count} erros")
+
+    # Tenta remover o diretório do dia se estiver vazio
+    try:
+        year_month = day[:6]
+        day_only = day[6:]
+        day_dir = get_temp_directory() / year_month / day_only
+
+        # Verifica se o diretório está vazio (ignora .DS_Store e outros arquivos ocultos)
+        remaining_files = [f for f in day_dir.iterdir() if not f.name.startswith('.')]
+
+        if not remaining_files:
+            day_dir.rmdir()
+            print(f"[build_chunks] Diretório temporário vazio removido: {day_dir}")
+
+            # Tenta remover o diretório do mês se também estiver vazio
+            month_dir = day_dir.parent
+            if not any(month_dir.iterdir()):
+                month_dir.rmdir()
+                print(f"[build_chunks] Diretório do mês vazio removido: {month_dir}")
+    except Exception as e:
+        print(f"[build_chunks] AVISO: Não foi possível remover diretórios vazios: {e}")
+
+
 def process_day(
     day: str,
     fps: float,
     segment_duration: float,
     crf: int,
     preset: str,
+    cleanup: bool = True,
 ) -> None:
     """
     Gera vídeos a partir dos frames de um dia (YYYYMMDD).
+
+    Args:
+        day: Dia no formato YYYYMMDD
+        fps: Frames por segundo do vídeo de saída
+        segment_duration: Duração de cada segmento em segundos
+        crf: Constant Rate Factor para compressão
+        preset: Preset do FFmpeg (veryfast, medium, slow, etc.)
+        cleanup: Se True, remove os arquivos temporários após processamento
     """
     frames = load_frames_for_day(day)
     if not frames:
@@ -255,6 +310,10 @@ def process_day(
             app_id=app_id,
         )
 
+    # Remove arquivos temporários após processamento bem-sucedido
+    if cleanup:
+        cleanup_temp_files(frames, day)
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
@@ -265,6 +324,11 @@ def parse_args() -> argparse.Namespace:
         type=str,
         required=True,
         help="Dia no formato YYYYMMDD (ex.: 20251222)",
+    )
+    parser.add_argument(
+        "--no-cleanup",
+        action="store_true",
+        help="Não remove os arquivos temporários após processamento",
     )
     parser.add_argument(
         "--fps",
@@ -301,6 +365,7 @@ def main() -> None:
         segment_duration=args.segment_duration,
         crf=args.crf,
         preset=args.preset,
+        cleanup=not args.no_cleanup,
     )
 
 
