@@ -16,8 +16,12 @@ Key operational learnings from Phase 2 development (2026-02-07):
 - **Permission checking:** Screen Recording via Python/Quartz `CGWindowListCopyWindowInfo`, Accessibility via `AXIsProcessTrustedWithOptions`
 - **Byte formatting:** Use Foundation's `ByteCountFormatter` for proper GB/MB/KB formatting with automatic unit selection
 - **Shell command integration:** Use `Process` with `Pipe` for stdout/stderr, wrap in `async withCheckedContinuation` for SwiftUI async integration
-- **Python test discovery:** Use `python3 -m pytest src/` to run all tests recursively. Individual module breakdown: paths (32), timestamps (35), config (48), database (51), video (34), security (24), network (14), macos (6) = 244 total tests
+- **Python test discovery:** Use `python3 -m pytest src/` to run all tests recursively. Individual module breakdown: paths (32), timestamps (35), config (48), database (51), video (34), security (24), network (14), macos (6), logging_config (28) = 272 total tests
 - **Config validation quirks:** None values crash during validation. String values for list fields (like `excluded_apps`) cause iteration over characters instead of list items
+- **Structured logging implementation:** Created lib/logging_config.py with JSONFormatter for newline-delimited JSON logs, RotatingFileHandler (10MB files, 5 backups), setup_logger() for component loggers
+- **Logging convenience functions:** log_info(), log_warning(), log_error(), log_critical(), log_debug() with metadata support, log_resource_metrics() for psutil integration, log_error_with_context() for exception logging
+- **Service logging migration pattern:** Import logging_config functions at top, setup logger in main() with component name, replace all print() with log_*() calls, add resource metrics collection with psutil (optional), log state changes and errors with context
+- **psutil integration:** Add psutil>=6.1.1 to requirements.txt, graceful degradation if not available (PSUTIL_AVAILABLE flag), collect metrics every N operations to avoid overhead
 
 ## Specifications
 
