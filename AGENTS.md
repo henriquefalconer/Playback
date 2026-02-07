@@ -20,7 +20,7 @@ Key operational learnings from Phase 2 development (2026-02-07):
 - **Config validation quirks:** None values crash during validation. String values for list fields (like `excluded_apps`) cause iteration over characters instead of list items
 - **Structured logging implementation:** Created lib/logging_config.py with JSONFormatter for newline-delimited JSON logs, RotatingFileHandler (10MB files, 5 backups), setup_logger() for component loggers
 - **Logging convenience functions:** log_info(), log_warning(), log_error(), log_critical(), log_debug() with metadata support, log_resource_metrics() for psutil integration, log_error_with_context() for exception logging
-- **Service logging migration pattern:** Import logging_config functions at top, setup logger in main() with component name, replace all print() with log_*() calls, add resource metrics collection with psutil (optional), log state changes and errors with context
+- **Service logging migration pattern:** Import logging_config functions at top, setup logger in main() with component name, replace all print() with log_*() calls, add resource metrics collection with psutil (optional), log state changes and errors with context. Successfully applied to record_screen.py (21 print statements) and build_chunks_from_temp.py (21 print statements). Pattern includes: structured metadata in all logs, exception context in error logs, resource metrics at regular intervals (not every operation), graceful psutil degradation
 - **psutil integration:** Add psutil>=6.1.1 to requirements.txt, graceful degradation if not available (PSUTIL_AVAILABLE flag), collect metrics every N operations to avoid overhead
 
 ## Specifications

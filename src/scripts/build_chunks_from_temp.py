@@ -32,7 +32,25 @@ from lib.paths import get_temp_directory, get_chunks_directory, get_database_pat
 from lib.timestamps import parse_timestamp_from_name, parse_app_from_name
 from lib.video import get_image_size, create_video_from_images
 from lib.config import load_config_with_defaults
+from lib.logging_config import (
+    setup_logger,
+    log_info,
+    log_warning,
+    log_error,
+    log_critical,
+    log_debug,
+    log_resource_metrics,
+    log_error_with_context,
+)
 import os
+import time
+
+# Import psutil for resource metrics (optional)
+try:
+    import psutil
+    PSUTIL_AVAILABLE = True
+except ImportError:
+    PSUTIL_AVAILABLE = False
 
 # Import OCR processor for text extraction (Phase 4.1)
 try:
@@ -40,7 +58,6 @@ try:
     OCR_AVAILABLE = test_ocr_availability()
 except ImportError:
     OCR_AVAILABLE = False
-    print("[build_chunks] AVISO: OCR não disponível (PyObjC não instalado)")
 
 
 @dataclass
@@ -52,7 +69,7 @@ class FrameInfo:
     height: Optional[int] = None
 
 
-def load_frames_for_day(day: str) -> List[FrameInfo]:
+def load_frames_for_day(day: str, logger) -> List[FrameInfo]:
     """
     Carrega todos os frames de temp/YYYYMM/DD relativos ao dia informado
     como string YYYYMMDD.
@@ -65,6 +82,8 @@ def load_frames_for_day(day: str) -> List[FrameInfo]:
         raise FileNotFoundError(f"Pasta de frames não encontrada: {day_dir}")
 
     frames: List[FrameInfo] = []
+    invalid_files = 0
+
     for entry in sorted(day_dir.iterdir()):
         if not entry.is_file():
             continue
@@ -82,7 +101,13 @@ def load_frames_for_day(day: str) -> List[FrameInfo]:
         # Se não conseguimos determinar largura/altura via ffprobe, este arquivo
         # provavelmente não é um PNG válido; melhor ignorar do que quebrar o ffmpeg.
         if width is None or height is None:
-            print(f"[build_chunks] Ignorando arquivo não‑PNG ou inválido: {entry}")
+            log_warning(
+                logger,
+                "Invalid frame file skipped",
+                file_path=str(entry),
+                reason="Could not determine dimensions"
+            )
+            invalid_files += 1
             continue
 
         frames.append(
@@ -96,6 +121,16 @@ def load_frames_for_day(day: str) -> List[FrameInfo]:
         )
 
     frames.sort(key=lambda f: f.ts)
+
+    log_info(
+        logger,
+        "Frames loaded for day",
+        day=day,
+        total_frames=len(frames),
+        invalid_files=invalid_files,
+        day_dir=str(day_dir)
+    )
+
     return frames
 
 
@@ -189,6 +224,7 @@ def process_ocr_for_frames(
     frames: List[FrameInfo],
     segment_id: str,
     db,
+    logger,
     num_workers: int = 4
 ) -> int:
     """
@@ -198,6 +234,7 @@ def process_ocr_for_frames(
         frames: Lista de frames a processar
         segment_id: ID do segmento de vídeo associado
         db: DatabaseManager instance
+        logger: Logger instance
         num_workers: Número de workers paralelos para OCR
 
     Returns:
@@ -209,7 +246,14 @@ def process_ocr_for_frames(
     if not frames:
         return 0
 
-    print(f"[build_chunks]   Executando OCR em {len(frames)} frames...")
+    ocr_start_time = time.time()
+    log_info(
+        logger,
+        "Starting OCR batch processing",
+        segment_id=segment_id,
+        frame_count=len(frames),
+        num_workers=num_workers
+    )
 
     # Batch OCR processing with parallel workers
     frame_paths = [str(f.path) for f in frames]
@@ -218,18 +262,30 @@ def process_ocr_for_frames(
         from ocr_processor import perform_ocr_batch
         ocr_results = perform_ocr_batch(frame_paths, num_workers=num_workers, timeout=5.0)
     except Exception as e:
-        print(f"[build_chunks]   ERRO: OCR falhou: {e}")
+        log_error_with_context(
+            logger,
+            e,
+            "OCR batch processing failed",
+            segment_id=segment_id,
+            frame_count=len(frames),
+            num_workers=num_workers
+        )
         return 0
 
     # Prepare batch insert records
     ocr_records = []
     success_count = 0
+    empty_count = 0
+    failed_count = 0
+
     for frame, result in zip(frames, ocr_results):
         if not result.success:
+            failed_count += 1
             continue
 
         # Skip empty results (no text found)
         if not result.text.strip():
+            empty_count += 1
             continue
 
         # Build tuple for batch insert: (frame_path, timestamp, text_content, confidence, segment_id, language)
@@ -247,39 +303,86 @@ def process_ocr_for_frames(
     if ocr_records:
         try:
             inserted = db.insert_ocr_batch(ocr_records)
-            print(f"[build_chunks]   OCR: {success_count}/{len(frames)} frames com texto ({inserted} inseridos)")
+            ocr_duration = time.time() - ocr_start_time
+
+            log_info(
+                logger,
+                "OCR batch processing completed",
+                segment_id=segment_id,
+                total_frames=len(frames),
+                frames_with_text=success_count,
+                frames_empty=empty_count,
+                frames_failed=failed_count,
+                records_inserted=inserted,
+                duration_s=round(ocr_duration, 2)
+            )
             return inserted
         except Exception as e:
-            print(f"[build_chunks]   ERRO ao inserir OCR: {e}")
+            log_error_with_context(
+                logger,
+                e,
+                "OCR database insertion failed",
+                segment_id=segment_id,
+                ocr_records_count=len(ocr_records)
+            )
             return 0
     else:
-        print(f"[build_chunks]   OCR: Nenhum texto encontrado nos frames")
+        log_info(
+            logger,
+            "OCR processing found no text",
+            segment_id=segment_id,
+            total_frames=len(frames),
+            frames_empty=empty_count,
+            frames_failed=failed_count
+        )
         return 0
 
 
-def cleanup_temp_files(frames: List[FrameInfo], day: str) -> None:
+def cleanup_temp_files(frames: List[FrameInfo], day: str, logger) -> None:
     """
     Remove os arquivos temporários (screenshots) após processamento bem-sucedido.
 
     Args:
         frames: Lista de frames que foram processados com sucesso
         day: String YYYYMMDD representando o dia processado
+        logger: Logger instance
     """
-    print(f"[build_chunks] Limpando {len(frames)} arquivos temporários...")
+    log_info(
+        logger,
+        "Starting temp file cleanup",
+        day=day,
+        file_count=len(frames)
+    )
 
     deleted_count = 0
     error_count = 0
+    total_size = 0
 
     for frame in frames:
         try:
             if frame.path.exists():
+                file_size = frame.path.stat().st_size
                 frame.path.unlink()
                 deleted_count += 1
+                total_size += file_size
         except Exception as e:
-            print(f"[build_chunks] AVISO: Não foi possível deletar {frame.path}: {e}")
+            log_warning(
+                logger,
+                "Failed to delete temp file",
+                file_path=str(frame.path),
+                error=str(e)
+            )
             error_count += 1
 
-    print(f"[build_chunks] Limpeza concluída: {deleted_count} arquivos deletados, {error_count} erros")
+    log_info(
+        logger,
+        "Temp file cleanup completed",
+        day=day,
+        files_deleted=deleted_count,
+        files_failed=error_count,
+        bytes_freed=total_size,
+        mb_freed=round(total_size / (1024 * 1024), 2)
+    )
 
     # Tenta remover o diretório do dia se estiver vazio
     try:
@@ -292,15 +395,34 @@ def cleanup_temp_files(frames: List[FrameInfo], day: str) -> None:
 
         if not remaining_files:
             day_dir.rmdir()
-            print(f"[build_chunks] Diretório temporário vazio removido: {day_dir}")
+            log_info(logger, "Empty day directory removed", day_dir=str(day_dir))
 
             # Tenta remover o diretório do mês se também estiver vazio
             month_dir = day_dir.parent
             if not any(month_dir.iterdir()):
                 month_dir.rmdir()
-                print(f"[build_chunks] Diretório do mês vazio removido: {month_dir}")
+                log_info(logger, "Empty month directory removed", month_dir=str(month_dir))
     except Exception as e:
-        print(f"[build_chunks] AVISO: Não foi possível remover diretórios vazios: {e}")
+        log_warning(
+            logger,
+            "Failed to remove empty directories",
+            day=day,
+            error=str(e)
+        )
+
+
+def collect_metrics() -> dict:
+    """Collect current resource metrics using psutil."""
+    metrics = {}
+    if PSUTIL_AVAILABLE:
+        try:
+            process = psutil.Process()
+            metrics["cpu_percent"] = process.cpu_percent(interval=0.1)
+            metrics["memory_mb"] = round(process.memory_info().rss / (1024 * 1024), 2)
+            metrics["disk_free_gb"] = round(psutil.disk_usage('/').free / (1024 * 1024 * 1024), 2)
+        except Exception:
+            pass
+    return metrics
 
 
 def process_day(
@@ -309,6 +431,7 @@ def process_day(
     segment_duration: float,
     crf: int,
     preset: str,
+    logger,
     cleanup: bool = True,
 ) -> None:
     """
@@ -320,11 +443,27 @@ def process_day(
         segment_duration: Duração de cada segmento em segundos
         crf: Constant Rate Factor para compressão
         preset: Preset do FFmpeg (veryfast, medium, slow, etc.)
+        logger: Logger instance
         cleanup: Se True, remove os arquivos temporários após processamento
     """
-    frames = load_frames_for_day(day)
+    day_start_time = time.time()
+    start_metrics = collect_metrics()
+
+    log_info(
+        logger,
+        "Starting day processing",
+        day=day,
+        fps=fps,
+        segment_duration=segment_duration,
+        crf=crf,
+        preset=preset,
+        cleanup_enabled=cleanup,
+        **start_metrics
+    )
+
+    frames = load_frames_for_day(day, logger)
     if not frames:
-        print(f"[build_chunks] Nenhum frame encontrado para o dia {day}")
+        log_info(logger, "No frames found for day", day=day)
         return
 
     # Faixas de app (appsegments) para o dia inteiro, independentes de como
@@ -334,7 +473,16 @@ def process_day(
     # Número alvo de frames por segmento: fps * duração desejada em segundos.
     max_frames_per_segment = int(fps * segment_duration)
     segments = group_frames_by_count(frames, max_frames_per_segment)
-    print(f"[build_chunks] Dia {day}: {len(frames)} frames em {len(segments)} segmentos")
+
+    log_info(
+        logger,
+        "Day segmentation calculated",
+        day=day,
+        total_frames=len(frames),
+        segments_count=len(segments),
+        appsegments_count=len(appsegments),
+        frames_per_segment=max_frames_per_segment
+    )
 
     year_month = day[:6]
     day_only = day[6:]
@@ -345,10 +493,23 @@ def process_day(
 
     date_str = f"{day[:4]}-{day[4:6]}-{day[6:]}"
 
+    total_video_size = 0
+    total_ocr_records = 0
+
     for idx, seg_frames in enumerate(segments, start=1):
+        segment_start_time = time.time()
         segment_id = generate_segment_id()
         dest_without_ext = day_chunks_dir / segment_id
-        print(f"[build_chunks] Segmento {idx}/{len(segments)} -> {dest_without_ext}.mp4")
+
+        log_info(
+            logger,
+            "Processing segment",
+            day=day,
+            segment_index=idx,
+            total_segments=len(segments),
+            segment_id=segment_id,
+            frame_count=len(seg_frames)
+        )
 
         # Use shared library function for video creation
         frame_paths = [frame.path for frame in seg_frames]
@@ -361,6 +522,8 @@ def process_day(
             preset=preset,
             pix_fmt="yuv420p",
         )
+
+        total_video_size += size
 
         # Set secure permissions on generated video file (0o600 = user read/write only)
         video_file = dest_without_ext.with_suffix(".mp4")
@@ -386,11 +549,44 @@ def process_day(
             height=height,
         )
 
+        segment_duration_actual = time.time() - segment_start_time
+
+        log_info(
+            logger,
+            "Segment created",
+            day=day,
+            segment_index=idx,
+            segment_id=segment_id,
+            video_path=rel_path,
+            file_size_bytes=size,
+            file_size_mb=round(size / (1024 * 1024), 2),
+            width=width,
+            height=height,
+            duration_s=round(segment_duration_actual, 2)
+        )
+
         # Phase 4.1: Extract text via OCR from frames (if available)
         if OCR_AVAILABLE:
-            process_ocr_for_frames(seg_frames, segment_id, db, num_workers=4)
+            ocr_records = process_ocr_for_frames(seg_frames, segment_id, db, logger, num_workers=4)
+            total_ocr_records += ocr_records
+
+        # Collect metrics every 10 segments to avoid overhead
+        if idx % 10 == 0:
+            log_resource_metrics(
+                logger,
+                "processing",
+                segments_processed=idx,
+                total_segments=len(segments)
+            )
 
     # Persiste todos os appsegments calculados para o dia.
+    log_info(
+        logger,
+        "Inserting app segments",
+        day=day,
+        appsegments_count=len(appsegments)
+    )
+
     for app_id, start_ts, end_ts in appsegments:
         appsegment_id = generate_segment_id()
         db.insert_appsegment(
@@ -403,7 +599,25 @@ def process_day(
 
     # Remove arquivos temporários após processamento bem-sucedido
     if cleanup:
-        cleanup_temp_files(frames, day)
+        cleanup_temp_files(frames, day, logger)
+
+    # Final metrics
+    day_duration = time.time() - day_start_time
+    end_metrics = collect_metrics()
+
+    log_info(
+        logger,
+        "Day processing completed",
+        day=day,
+        total_frames=len(frames),
+        segments_created=len(segments),
+        appsegments_created=len(appsegments),
+        ocr_records_created=total_ocr_records,
+        total_video_size_bytes=total_video_size,
+        total_video_size_mb=round(total_video_size / (1024 * 1024), 2),
+        duration_s=round(day_duration, 2),
+        **end_metrics
+    )
 
 
 def parse_args() -> argparse.Namespace:
@@ -452,7 +666,7 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def find_pending_days() -> List[str]:
+def find_pending_days(logger) -> List[str]:
     """
     Encontra dias com screenshots na pasta temp que ainda não foram processados.
     Retorna lista de strings no formato YYYYMMDD para os últimos 7 dias.
@@ -471,15 +685,33 @@ def find_pending_days() -> List[str]:
         day_dir = temp_dir / year_month / day_only
         if day_dir.exists():
             # Check if there are any files in this directory
-            files = list(day_dir.glob("*"))
+            files = [f for f in day_dir.glob("*") if not f.name.startswith('.')]
             if files:
                 pending_days.append(day_str)
+                log_debug(
+                    logger,
+                    "Pending day found",
+                    day=day_str,
+                    file_count=len(files),
+                    day_dir=str(day_dir)
+                )
+
+    log_info(
+        logger,
+        "Pending days scan completed",
+        days_checked=7,
+        pending_days_found=len(pending_days),
+        pending_days=pending_days
+    )
 
     return pending_days
 
 
 def main() -> None:
     args = parse_args()
+
+    # Setup structured logging
+    logger = setup_logger("processing", log_level="INFO", console_output=False)
 
     # Load config for defaults
     config = load_config_with_defaults()
@@ -488,16 +720,42 @@ def main() -> None:
     fps = args.fps if args.fps is not None else config.video_fps
     crf = args.crf if args.crf is not None else config.ffmpeg_crf
 
+    # Log service initialization
+    log_info(
+        logger,
+        "Processing service started",
+        mode="auto" if args.auto else "manual",
+        fps=fps,
+        crf=crf,
+        preset=args.preset,
+        segment_duration=args.segment_duration,
+        cleanup_enabled=not args.no_cleanup,
+        ocr_available=OCR_AVAILABLE,
+        psutil_available=PSUTIL_AVAILABLE,
+        temp_directory=str(get_temp_directory()),
+        chunks_directory=str(get_chunks_directory()),
+        database_path=str(get_database_path())
+    )
+
     if args.auto:
         # Auto mode: process all pending days
-        pending_days = find_pending_days()
+        pending_days = find_pending_days(logger)
         if not pending_days:
-            print("[Playback] Nenhum dia pendente para processar")
+            log_info(logger, "No pending days to process")
             return
 
-        print(f"[Playback] Modo automático: processando {len(pending_days)} dia(s)")
+        log_info(
+            logger,
+            "Auto mode starting",
+            pending_days_count=len(pending_days),
+            pending_days=pending_days
+        )
+
+        successful_days = 0
+        failed_days = 0
+
         for day in pending_days:
-            print(f"[Playback] Processando dia: {day}")
+            log_info(logger, "Processing day", day=day, mode="auto")
             try:
                 process_day(
                     day=day,
@@ -505,23 +763,53 @@ def main() -> None:
                     segment_duration=args.segment_duration,
                     crf=crf,
                     preset=args.preset,
+                    logger=logger,
                     cleanup=not args.no_cleanup,
                 )
+                successful_days += 1
             except Exception as e:
-                print(f"[Playback] ERRO ao processar {day}: {e}")
+                failed_days += 1
+                log_error_with_context(
+                    logger,
+                    e,
+                    "Failed to process day",
+                    day=day,
+                    mode="auto"
+                )
                 # Continue with next day even if one fails
+
+        log_info(
+            logger,
+            "Auto mode completed",
+            total_days=len(pending_days),
+            successful_days=successful_days,
+            failed_days=failed_days
+        )
+
     elif args.day:
         # Manual mode: process specific day
-        process_day(
-            day=args.day,
-            fps=fps,
-            segment_duration=args.segment_duration,
-            crf=crf,
-            preset=args.preset,
-            cleanup=not args.no_cleanup,
-        )
+        log_info(logger, "Manual mode processing single day", day=args.day)
+        try:
+            process_day(
+                day=args.day,
+                fps=fps,
+                segment_duration=args.segment_duration,
+                crf=crf,
+                preset=args.preset,
+                logger=logger,
+                cleanup=not args.no_cleanup,
+            )
+            log_info(logger, "Manual mode completed successfully", day=args.day)
+        except Exception as e:
+            log_error_with_context(
+                logger,
+                e,
+                "Failed to process day in manual mode",
+                day=args.day
+            )
+            sys.exit(1)
     else:
-        print("[Playback] ERRO: Especifique --day ou --auto")
+        log_critical(logger, "Missing required argument: specify --day or --auto")
         sys.exit(1)
 
 

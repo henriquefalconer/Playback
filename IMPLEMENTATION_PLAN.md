@@ -502,7 +502,7 @@ python3 src/scripts/cleanup_old_chunks.py --database-only
 ### Progress Summary
 - **Phase 4.1 Status:** 100% COMPLETE (Full OCR search pipeline, UI integration, timeline markers)
 - **Phase 4.2 Status:** 100% COMPLETE (Full privacy & security UI, all backend features exposed)
-- **Phase 4.3 Status:** 40% IN PROGRESS (Core logging infrastructure complete, service migration in progress)
+- **Phase 4.3 Status:** 55% IN PROGRESS (Core logging infrastructure and service migrations complete, UI work remaining)
 - **Files Created:** 6 new Swift files, 4 Python files (OCR + security scripts), 4 test suites
 - **Lines of Code:** ~2100+ lines (800 Phase 4.1 + 800 Phase 4.2 + 500 Phase 4.3)
 - **Test Coverage:** 272 total tests (244 previous + 28 new logging tests)
@@ -652,13 +652,14 @@ Phase 4.1 delivers a complete full-text search system with OCR:
 
 ### 4.3 Logging & Diagnostics
 
-**Progress: 🟡 IN PROGRESS (40% - Core logging infrastructure complete)**
+**Progress: 🟡 IN PROGRESS (55% - Service migrations complete, UI work remaining)**
 
 **Completed:**
 - ✅ Structured JSON logging system (lib/logging_config.py)
 - ✅ Log rotation (10MB per file, 5 backups)
 - ✅ Resource metrics collection (CPU, memory, disk I/O via psutil)
 - ✅ Recording service migration to structured logging
+- ✅ Processing service migration to structured logging
 - ✅ Comprehensive test suite (28 tests in test_logging_config.py)
 - ✅ psutil dependency added to requirements.txt (>=6.1.1)
 
@@ -668,6 +669,7 @@ Phase 4.1 delivers a complete full-text search system with OCR:
 
 **Files Modified:**
 - `src/scripts/record_screen.py` (migrated to structured logging with metrics)
+- `src/scripts/build_chunks_from_temp.py` (migrated to structured logging with metrics)
 - `src/scripts/requirements.txt` (added psutil>=6.1.1)
 
 **Test Results:**
@@ -675,8 +677,16 @@ Phase 4.1 delivers a complete full-text search system with OCR:
 - All tests passing
 - Test duration: <0.5 seconds
 
+**Processing Service Migration (Completed 2026-02-07):**
+- All 21 print() statements replaced with structured logging
+- Resource metrics collection added (CPU, memory, disk)
+- Error context logging for all exceptions
+- Log levels properly applied (info/warning/error/critical)
+- Metrics logged every 10 segments to avoid overhead
+- Day-level and segment-level operation logging
+- Graceful degradation when psutil not available
+
 **Remaining Work:**
-- Migrate processing service to structured logging
 - Migrate cleanup service to structured logging
 - Implement log viewer UI in diagnostics tab
 - Implement log filtering and search
