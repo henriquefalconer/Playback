@@ -1,4 +1,6 @@
 #!/bin/bash
+set -euo pipefail   # Exit on error, undefined vars, and pipe failures
+
 # Usage: ./loop.sh [plan] [max_iterations]
 # Examples:
 #   ./loop.sh              # Build mode, unlimited iterations
@@ -11,12 +13,12 @@ GREEN_BOLD="\033[1;38;2;40;254;20m"    # #28FE14 + bold
 RESET="\033[0m"
 
 # Parse arguments
-if [ "$1" = "plan" ]; then
+if [ "${1:-}" = "plan" ]; then
     # Plan mode
     MODE="plan"
     PROMPT_FILE="PROMPT_plan.md"
     MAX_ITERATIONS=${2:-0}
-elif [[ "$1" =~ ^[0-9]+$ ]]; then
+elif [[ "${1:-}" =~ ^[0-9]+$ ]]; then
     # Build mode with max iterations
     MODE="build"
     PROMPT_FILE="PROMPT_build.md"
