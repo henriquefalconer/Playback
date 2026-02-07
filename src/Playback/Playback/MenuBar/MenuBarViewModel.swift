@@ -101,7 +101,14 @@ final class MenuBarViewModel: ObservableObject {
     }
 
     func openDiagnostics() {
-        showDiagnostics = true
+        NSApp.activate(ignoringOtherApps: true)
+        if let window = NSApp.windows.first(where: { $0.identifier?.rawValue == "diagnostics" }) {
+            window.makeKeyAndOrderFront(nil)
+        } else {
+            if let url = URL(string: "playback://diagnostics") {
+                NSWorkspace.shared.open(url)
+            }
+        }
     }
 
     func quitPlayback() {

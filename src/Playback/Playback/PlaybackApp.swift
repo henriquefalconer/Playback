@@ -50,6 +50,12 @@ struct PlaybackApp: App {
         .windowStyle(.hiddenTitleBar)
         .windowResizability(.contentSize)
         .defaultPosition(.center)
+
+        Window("Diagnostics", id: "diagnostics") {
+            DiagnosticsView()
+        }
+        .windowResizability(.contentSize)
+        .defaultPosition(.center)
     }
 }
 
