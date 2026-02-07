@@ -502,9 +502,11 @@ python3 src/scripts/cleanup_old_chunks.py --database-only
 ### Progress Summary
 - **Phase 4.1 Status:** 100% COMPLETE (Full OCR search pipeline, UI integration, timeline markers)
 - **Phase 4.2 Status:** 100% COMPLETE (Full privacy & security UI, all backend features exposed)
-- **Files Created:** 6 new Swift files, 4 Python files (OCR + security scripts), 2 test suites
-- **Lines of Code:** ~1600+ lines (800 Phase 4.1 + 800 Phase 4.2)
-- **Completion:** OCR processing, FTS5 search, file permissions, security tests, network isolation, data export, uninstall script, privacy UI, storage cleanup UI all operational
+- **Phase 4.3 Status:** 40% IN PROGRESS (Core logging infrastructure complete, service migration in progress)
+- **Files Created:** 6 new Swift files, 4 Python files (OCR + security scripts), 4 test suites
+- **Lines of Code:** ~2100+ lines (800 Phase 4.1 + 800 Phase 4.2 + 500 Phase 4.3)
+- **Test Coverage:** 272 total tests (244 previous + 28 new logging tests)
+- **Completion:** OCR processing, FTS5 search, file permissions, security tests, network isolation, data export, uninstall script, privacy UI, storage cleanup UI, structured logging all operational
 
 ### 4.1 Text Search with OCR
 
@@ -649,11 +651,35 @@ Phase 4.1 delivers a complete full-text search system with OCR:
 - User-friendly dialogs and confirmation flows
 
 ### 4.3 Logging & Diagnostics
-- Implement structured JSON logging for all services
-- Implement log rotation (10MB per file, 5 backups)
+
+**Progress: 🟡 IN PROGRESS (40% - Core logging infrastructure complete)**
+
+**Completed:**
+- ✅ Structured JSON logging system (lib/logging_config.py)
+- ✅ Log rotation (10MB per file, 5 backups)
+- ✅ Resource metrics collection (CPU, memory, disk I/O via psutil)
+- ✅ Recording service migration to structured logging
+- ✅ Comprehensive test suite (28 tests in test_logging_config.py)
+- ✅ psutil dependency added to requirements.txt (>=6.1.1)
+
+**Files Created:**
+- `src/lib/logging_config.py` (structured logging with rotation and metrics)
+- `src/lib/test_logging_config.py` (28 tests for logging functionality)
+
+**Files Modified:**
+- `src/scripts/record_screen.py` (migrated to structured logging with metrics)
+- `src/scripts/requirements.txt` (added psutil>=6.1.1)
+
+**Test Results:**
+- Total tests: 272 (244 previous + 28 new logging tests)
+- All tests passing
+- Test duration: <0.5 seconds
+
+**Remaining Work:**
+- Migrate processing service to structured logging
+- Migrate cleanup service to structured logging
 - Implement log viewer UI in diagnostics tab
 - Implement log filtering and search
-- Implement resource metrics collection (CPU, memory, disk I/O)
 - Implement health monitoring and alerts
 - Implement crash notification system
 - Implement diagnostic report generation
@@ -682,7 +708,7 @@ Phase 4.1 delivers a complete full-text search system with OCR:
 - Target: 80%+ code coverage for core logic
 
 ### 5.2 Unit Tests (Python)
-**Progress: ✅ 100% COMPLETE (5/5 core library modules fully tested, 244 total tests passing)**
+**Progress: ✅ 100% COMPLETE (6/6 core library modules fully tested, 272 total tests passing)**
 
 **Completed core library modules:**
 - ✅ paths.py - 32 tests (environment-aware path resolution, directory management)
@@ -690,6 +716,7 @@ Phase 4.1 delivers a complete full-text search system with OCR:
 - ✅ config.py - 48 tests (configuration loading, validation, defaults)
 - ✅ database.py - 51 tests (schema, queries, security, maintenance)
 - ✅ video.py - 34 tests (FFmpeg wrappers, video operations)
+- ✅ logging_config.py - 28 tests (structured logging, rotation, metrics collection)
 
 **Completed integration/security tests:**
 - ✅ test_security.py - 24 tests (file permissions, database security, input validation)
@@ -702,7 +729,7 @@ Phase 4.1 delivers a complete full-text search system with OCR:
 - OCR tests (accuracy, performance, error handling) - covered by integration tests
 - Cleanup tests (retention policies, file deletion) - covered by integration tests
 
-**Achievement: All core Python libraries now have 100% test coverage**
+**Achievement: All core Python libraries now have 100% test coverage (272 total tests passing)**
 
 **Phase 5.2 - Completed Tests:**
 
@@ -757,16 +784,27 @@ Phase 4.1 delivers a complete full-text search system with OCR:
 - Error handling (subprocess failure, timeout, missing output)
 - Dimension fallback on error
 
+**test_logging_config.py (28 tests):**
+- Structured JSON logging configuration
+- Environment-aware log path resolution (dev vs production)
+- Log rotation (10MB per file, 5 backups)
+- Log formatting (timestamp, level, message, extra fields)
+- Resource metrics collection (CPU usage, memory usage, disk I/O)
+- psutil integration for system monitoring
+- Log level configuration
+- Handler configuration (file handler with rotation)
+- Error handling and fallback mechanisms
+
 **Integration/Security Tests:**
 - test_security.py (24 tests) - File permissions, database security, input validation, SQL injection prevention
 - test_network.py (14 tests) - Zero-network policy compliance, URL detection, subprocess audit
 - test_macos.py (6 tests) - Display detection, mouse location, screensaver, frontmost app, idle time
 
 **Test Execution Summary:**
-- **Total tests:** 244 passing
+- **Total tests:** 272 passing
 - **Test duration:** <0.5 seconds
 - **Framework:** pytest with class-based organization
-- **Coverage:** All 5 core Python libraries at 100% coverage
+- **Coverage:** All 6 core Python libraries at 100% coverage
 
 **Files in Phase 5.2:**
 - `src/lib/test_paths.py` (32 tests, 444 lines)
@@ -774,6 +812,7 @@ Phase 4.1 delivers a complete full-text search system with OCR:
 - `src/lib/test_config.py` (48 tests, 552 lines)
 - `src/lib/test_database.py` (51 tests, 952 lines)
 - `src/lib/test_video.py` (34 tests, 529 lines)
+- `src/lib/test_logging_config.py` (28 tests, 400+ lines)
 - `src/scripts/tests/test_security.py` (24 tests)
 - `src/scripts/tests/test_network.py` (14 tests)
 - `src/lib/test_macos.py` (6 tests)
@@ -980,7 +1019,7 @@ Playback/
 | Phase 1: Core Recording & Processing | 4-6 weeks | ✅ COMPLETE |
 | Phase 2: User Interface | 6-8 weeks | ✅ COMPLETE |
 | Phase 3: Data & Storage | 3-4 weeks | ✅ COMPLETE |
-| Phase 4: Advanced Features | 4-6 weeks | 🟡 IN PROGRESS (4.1: ✅ 100%, 4.2: ✅ 100%, 4.3: 📋 Planned, 4.4: 📋 Planned) |
+| Phase 4: Advanced Features | 4-6 weeks | 🟡 IN PROGRESS (4.1: ✅ 100%, 4.2: ✅ 100%, 4.3: 🟡 40%, 4.4: 📋 Planned) |
 | Phase 5: Testing & Quality | 3-4 weeks | 🟡 IN PROGRESS (5.1: 📋 Planned, 5.2: ✅ 100%, 5.3-5.6: 📋 Planned) |
 | Phase 6: Distribution & Deployment | 2-3 weeks | 📋 Planned |
 
