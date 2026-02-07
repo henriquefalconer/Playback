@@ -8,6 +8,8 @@ struct ContentView: View {
 
     @State private var centerTime: TimeInterval = 0
     @State private var showDatePicker = false
+    @State private var showSearch = false
+    @StateObject private var searchController: SearchController
     // Janela de tempo visível na timeline (em segundos).
     // 3600s = 1h visível ao redor do instante atual.
     @State private var visibleWindowSeconds: TimeInterval = 60 * 1
@@ -21,6 +23,11 @@ struct ContentView: View {
     private let pinchZoomExponent: Double = 3.0
     @State private var keyMonitor: Any?
     @State private var scrollMonitor: Any?
+
+    init() {
+        let dbPath = Paths.databasePath()
+        _searchController = StateObject(wrappedValue: SearchController(databasePath: dbPath))
+    }
 
     var body: some View {
         ZStack {
@@ -68,7 +75,8 @@ struct ContentView: View {
                     TimelineView(
                         centerTime: $centerTime,
                         visibleWindowSeconds: $visibleWindowSeconds,
-                        showDatePicker: $showDatePicker
+                        showDatePicker: $showDatePicker,
+                        searchResults: searchController.results
                     )
                     .environmentObject(timelineStore)
                     .environmentObject(playbackController)
@@ -99,6 +107,23 @@ struct ContentView: View {
                 .transition(.opacity)
             }
 
+            // Phase 4.1: Search UI overlay (Command+F)
+            if showSearch {
+                VStack {
+                    HStack {
+                        Spacer()
+                        VStack(alignment: .trailing, spacing: 8) {
+                            SearchBar(searchController: searchController, isPresented: $showSearch)
+                            SearchResultsList(searchController: searchController)
+                        }
+                        .padding(.top, 20)
+                        .padding(.trailing, 20)
+                    }
+                    Spacer()
+                }
+                .transition(.opacity)
+            }
+
         }
         .onAppear {
             // Se os segmentos já estiverem carregados quando a view aparecer,
@@ -108,12 +133,35 @@ struct ContentView: View {
                 playbackController.update(for: latest, store: timelineStore)
             }
 
+            // Phase 4.1: Listen for search jump notifications
+            NotificationCenter.default.addObserver(
+                forName: NSNotification.Name("JumpToTimestamp"),
+                object: nil,
+                queue: .main
+            ) { notification in
+                if let timestamp = notification.userInfo?["timestamp"] as? Double {
+                    centerTime = timestamp
+                    playbackController.scrub(to: timestamp, store: timelineStore)
+                }
+            }
+
             // Monitor de teclado para atalhos globais
             keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [self] event in
-                // keyCode 53 = ESC, 49 = Space, 123 = Left Arrow, 124 = Right Arrow
+                // keyCode 53 = ESC, 49 = Space, 123 = Left Arrow, 124 = Right Arrow, 3 = F (for Command+F)
+
+                // Command+F (keyCode 3 with command modifier)
+                if event.keyCode == 3 && event.modifierFlags.contains(.command) {
+                    self.showSearch.toggle()
+                    return nil
+                }
+
                 switch event.keyCode {
-                case 53:  // ESC - Close window
-                    NSApp.keyWindow?.close()
+                case 53:  // ESC - Close window or search
+                    if self.showSearch {
+                        self.showSearch = false
+                    } else {
+                        NSApp.keyWindow?.close()
+                    }
                     return nil
 
                 case 49:  // Space - Play/Pause

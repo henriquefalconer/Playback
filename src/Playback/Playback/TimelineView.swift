@@ -73,6 +73,8 @@ struct TimelineView: View {
     @Binding var visibleWindowSeconds: TimeInterval
     @Binding var showDatePicker: Bool
 
+    var searchResults: [SearchController.SearchResult] = []
+
     @GestureState private var dragTranslation: CGFloat = 0
     @State private var dragStartCenterTime: TimeInterval?
 
@@ -256,6 +258,26 @@ struct TimelineView: View {
                 }
                 .frame(width: width, height: height)
                 .position(x: geo.size.width / 2, y: segmentsY)
+
+                // Phase 4.1: Search match markers (yellow vertical lines)
+                if !searchResults.isEmpty {
+                    ZStack {
+                        ForEach(searchResults, id: \.id) { result in
+                            let matchTime = result.timestamp
+                            // Only show markers for results within the visible window
+                            if matchTime >= windowStart && matchTime <= span.end {
+                                let markerX = CGFloat(matchTime - windowStart) * pixelsPerSecond
+                                Rectangle()
+                                    .fill(Color.yellow.opacity(0.8))
+                                    .frame(width: 2, height: 30)
+                                    .position(x: markerX, y: height / 2)
+                            }
+                        }
+                    }
+                    .frame(width: width, height: height)
+                    .position(x: geo.size.width / 2, y: segmentsY)
+                }
+
                 // Desloca apenas a área de hit-test alguns pontos para baixo, mantendo os
                 // segmentos na mesma posição visual.
                 .contentShape(ExpandedVerticalHitShape(extra: 20))
