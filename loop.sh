@@ -68,7 +68,9 @@ while true; do
 
     # Check for agent completion signal
     if [ -f .agent_complete ]; then
-        echo "✅ Agent signaled completion (.agent_complete found)"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "Agent signaled: COMPLETION"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
         rm -f .agent_complete
         break
     fi
