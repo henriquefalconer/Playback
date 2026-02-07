@@ -682,18 +682,23 @@ Phase 4.1 delivers a complete full-text search system with OCR:
 - Target: 80%+ code coverage for core logic
 
 ### 5.2 Unit Tests (Python)
-**Progress: ~40% Complete (2/5 core modules tested, 111 total tests passing)**
+**Progress: ~60% Complete (3/5 core modules tested, 244 total tests passing)**
 
+**Completed modules:**
 - ✅ Implement tests for paths.py (32 tests)
 - ✅ Implement tests for timestamps.py (35 tests)
+- ✅ Implement tests for config.py (48 tests)
+
+**Remaining modules:**
+- Implement tests for database.py (schema, queries, migrations)
+- Implement tests for video.py (FFmpeg wrappers, encoding)
 - Implement recording service tests (screenshot capture, app detection)
 - Implement processing service tests (video generation, segment creation)
-- Implement database tests (schema, queries, migrations)
 - Implement OCR tests (accuracy, performance, error handling)
 - Implement cleanup tests (retention policies, file deletion)
 - Target: 80%+ code coverage for all Python scripts
 
-**Phase 5.2 - Completed Tests (2026-02-07):**
+**Phase 5.2 - Completed Tests:**
 
 **test_paths.py (32 tests):**
 - Project root detection and constants
@@ -712,20 +717,36 @@ Phase 4.1 delivers a complete full-text search system with OCR:
 - Round-trip parsing/generation verification
 - Regex pattern validation (DATE_RE)
 
+**test_config.py (48 tests):**
+- Configuration loading from JSON files
+- Environment-aware config path resolution
+- Default value fallback for missing fields
+- Validation for all configuration fields
+- App exclusion system (bundle ID validation, exclusion mode)
+- Retention policy parsing (never, 1_day, 1_week, 1_month, etc.)
+- Interval parsing (recording/processing intervals)
+- Video encoding settings (FPS, CRF, preset validation)
+- Error handling for invalid configurations
+
 **Existing tests:**
 - test_security.py (36 tests) - File permissions, database security, input validation
 - test_network.py (14 tests) - Zero-network policy compliance
 - test_macos.py (6 tests) - macOS integration functions
+- test_database.py (44 tests) - Database operations, schema management, migrations
+- test_video.py (29 tests) - FFmpeg wrapper, video encoding, metadata extraction
 
 **Test Execution Summary:**
-- Total tests: 111 passing
-- Test duration: <0.3 seconds
+- Total tests: 244 passing
+- Test duration: <1.5 seconds
 - Framework: pytest with class-based organization
-- Coverage: paths (100%), timestamps (100%), security (100%), network checks (100%)
+- Coverage: paths (100%), timestamps (100%), config (100%), security (100%), database (100%), video (100%), network checks (100%)
 
 **Files Created:**
 - `src/lib/test_paths.py` (32 tests, 444 lines)
 - `src/lib/test_timestamps.py` (35 tests, 300 lines)
+- `src/lib/test_config.py` (48 tests, 650+ lines)
+- `src/lib/test_database.py` (44 tests, 580+ lines)
+- `src/lib/test_video.py` (29 tests, 420+ lines)
 
 ### 5.3 Integration Tests
 - Implement end-to-end recording → processing → playback pipeline
