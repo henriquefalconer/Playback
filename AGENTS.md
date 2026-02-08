@@ -56,6 +56,12 @@ Key operational learnings from Phase 2 development (2026-02-07):
 - **ServiceStats calculation:** Dictionary keyed by component name, accumulating per-service error/warning counts and CPU/memory averages
 - **Phase 4 complete:** All 4 subphases (OCR search, privacy & security, diagnostics UI, performance monitoring) now 100% implemented
 - **Environment constraints:** Before attempting Swift/Xcode operations, check current OS with `uname -s`. Darwin (macOS) can run Xcode and build tools. Linux environments cannot run Xcode or macOS-specific build tools. Swift testing, integration testing, and distribution phases require macOS environment. When blocked by environment limitations, document blocker clearly in IMPLEMENTATION_PLAN.md with next steps
+- **Integration test fixtures:** Test helper createTestConfig() must match exact field names and values expected by assertions. Use consistent defaults (video_fps: 5, ffmpeg_preset: "veryfast") across all test configs
+- **SQLite database initialization:** Empty files fail assertFileExists() size checks. Create valid SQLite databases with proper schema using Python sqlite3 module via Process execution
+- **Test file creation:** createTestVideoSegment() must create non-empty files (36-byte MP4 header minimum) to pass file size validation in assertFileExists()
+- **Async/await signatures:** Only use await with async functions. ConfigManager.loadConfiguration() and updateConfig() are synchronous - calling with await causes test failures
+- **Config field naming:** Python services use snake_case (processing_interval_minutes) not camelCase. Assertions must check for correct JSON field names
+- **Complete config structures:** All Config struct fields are required (non-optional). Test configs must include all fields: version, processing_interval_minutes, temp_retention_policy, recording_retention_policy, exclusion_mode, excluded_apps, video_fps, ffmpeg_crf, ffmpeg_preset, timeline_shortcut, pause_when_timeline_open, notifications
 
 ## Specifications
 
