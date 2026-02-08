@@ -70,10 +70,17 @@ These items prevent basic usability. They should be fixed first.
   - `ContentView.swift` — Shows LoadingScreenView when processing detected, ESC key dismisses and closes app
 - **Note:** App now provides clear visual feedback when processing service is running
 
-### 1.3 App Icon Missing
+### 1.3 App Icon Missing — 🎨 REQUIRES DESIGN WORK
 - **Spec:** `specs/timeline-graphical-interface.md` lines 32-36
 - **Source:** `Assets.xcassets/AppIcon.appiconset/Contents.json` — all 10 size slots defined but **zero image files present**
 - **Impact:** App has no icon in Dock, About panel, Finder, or menu bar
+- **Design Requirements:**
+  - **Style:** Play button (rounded triangle pointing right)
+  - **Colors:** Vibrant blue/purple gradient background
+  - **Sizes needed:** 10 PNG files (16px, 32px, 64px, 128px, 256px, 512px, 1024px, plus @2x variants)
+  - **Tool required:** Graphic design software (Sketch, Figma, Photoshop, Affinity Designer) or icon generator service
+  - **Cannot be generated programmatically** — requires manual graphic design work
+- **Blocker:** This is a visual design task that requires graphic design expertise or tools not available to the agent
 
 ---
 
@@ -81,7 +88,12 @@ These items prevent basic usability. They should be fixed first.
 
 These features are specified but not implemented. They significantly impact UX.
 
-### 2.1 Settings: General Tab Missing Key Controls
+**Implementation Status:**
+- ✅ **Can implement immediately:** 2.2, 2.4, 2.6, 2.8 (no design assets required)
+- 🎨 **Requires design assets:** 2.5 (app icons for results)
+- 🔧 **Requires additional research:** 2.1 (SMAppService API), 2.3 (timeline rendering), 2.7 (NSOpenPanel integration)
+
+### 2.1 Settings: General Tab Missing Key Controls — 🔧 REQUIRES RESEARCH
 - **Spec:** `specs/menu-bar.md` lines 114-152
 - **Source:** `SettingsView.swift:63-106`
 - **Missing:**
@@ -89,16 +101,27 @@ These features are specified but not implemented. They significantly impact UX.
   - Hotkey Recorder for timeline shortcut customization — spec lines 124-132
   - Permission status section with visual indicators — spec lines 143-152
 - **Currently:** Only shows notification toggles and read-only shortcut display
+- **Implementation complexity:**
+  - SMAppService API requires understanding of macOS 13+ login item registration
+  - Hotkey recorder requires Carbon API integration with event monitoring
+  - Permission status requires native Swift checks (partially addressed in 3.12)
 
-### 2.2 Settings: Processing Tab Missing Features
+### 2.2 Settings: Processing Tab Missing Features — ✅ CAN IMPLEMENT IMMEDIATELY
 - **Spec:** `specs/menu-bar.md` lines 199-217
 - **Source:** `SettingsView.swift:182-229`
 - **Missing:**
   - "Last Processing Run" section (timestamp, duration, success/failed status) — spec lines 200-207
   - "Process Now" manual trigger button with spinner feedback — spec lines 209-217
 - **Currently:** Only shows interval picker and encoding info
+- **Implementation plan:**
+  - Add `@State` vars for lastRunTimestamp, lastRunDuration, lastRunStatus
+  - Query diagnostics logs to extract last run info from `build_chunks_from_temp.py` logs
+  - Add "Process Now" button that launches `build_chunks_from_temp.py --auto` via Process
+  - Add `@State var isProcessing = false` for spinner feedback
+  - Monitor process completion and update lastRun vars
+- **No blockers:** Pure SwiftUI + Process API + log parsing
 
-### 2.3 Timeline: Search Result Markers on Timeline
+### 2.3 Timeline: Search Result Markers on Timeline — 🔧 REQUIRES RESEARCH
 - **Spec:** `specs/search-ocr.md` lines 146-161
 - **Source:** `TimelineWithHighlights.swift` does not exist
 - **Missing:**
@@ -106,33 +129,72 @@ These features are specified but not implemented. They significantly impact UX.
   - Segments with matches should appear slightly brighter
   - Match count badges on segment hover
 - **Currently:** Search results appear in list but are invisible on timeline; `searchResults` is passed to `TimelineView` but never rendered
+- **Implementation complexity:**
+  - Requires understanding TimelineView's geometry and coordinate system
+  - Need to convert timestamps to x-coordinates based on zoom level
+  - Overlay rendering in SwiftUI with proper z-indexing
+  - Performance considerations for many markers (100+ matches)
 
-### 2.4 Search: Text Highlighting in Snippets
+### 2.4 Search: Text Highlighting in Snippets — ✅ CAN IMPLEMENT IMMEDIATELY
 - **Spec:** `specs/search-ocr.md` lines 100-104
 - **Source:** `SearchResultRow.swift:1-44`
 - **Missing:** Matched search terms not highlighted in result snippets; spec shows `attributedSnippet` with emphasis
 - **Currently:** Plain text only
+- **Implementation plan:**
+  - Create helper function to generate AttributedString with highlighted matches
+  - Use `.background(Color.yellow.opacity(0.3))` for matched text ranges
+  - Replace plain Text(snippet) with Text(attributedSnippet)
+  - Case-insensitive matching for highlight detection
+- **No blockers:** Pure SwiftUI AttributedString API
 
-### 2.5 Search: App Icon in Result Rows
+### 2.5 Search: App Icon in Result Rows — 🎨 REQUIRES DESIGN ASSETS
 - **Spec:** `specs/search-ocr.md` lines 101-103 — "App icon (20x20), app name, timestamp, snippet"
 - **Source:** `SearchResultRow.swift`
 - **Missing:** No app icon or app name shown; only timestamp + confidence + snippet
+- **Implementation blocker:**
+  - Requires app icons to be extracted or fetched from bundle IDs
+  - NSWorkspace.shared.icon(forFile:) can fetch app icons at runtime
+  - Need to handle missing icons gracefully (placeholder icon)
+  - App name should come from OCR results metadata (if available)
+- **Complexity:** Medium — requires NSWorkspace integration and image caching
 
-### 2.6 LaunchAgentManager: updateProcessingInterval Is a Stub
+### 2.6 LaunchAgentManager: updateProcessingInterval Is a Stub — ✅ CAN IMPLEMENT IMMEDIATELY
 - **Spec:** `specs/menu-bar.md` lines 547-557
 - **Source:** `LaunchAgentManager.swift:175-177`
 - **Problem:** `func updateProcessingInterval(minutes: Int) throws { try reloadAgent(.processing) }` — just reloads, never actually changes the `StartInterval` value in the plist
 - **Impact:** Changing processing interval in Settings has no effect
+- **Implementation plan:**
+  - Read existing plist file as PropertyListSerialization dictionary
+  - Update `StartInterval` key to minutes * 60 seconds
+  - Write modified plist back to disk
+  - Call `reloadAgent(.processing)` to apply changes
+  - Add error handling for plist read/write failures
+- **No blockers:** Pure Foundation PropertyListSerialization API
 
-### 2.7 FirstRun: No Custom Storage Location Picker
+### 2.7 FirstRun: No Custom Storage Location Picker — 🔧 REQUIRES RESEARCH
 - **Spec:** `specs/installation-deployment.md` — "Allow custom location selection (NSOpenPanel)"
 - **Source:** `StorageSetupView.swift`
 - **Missing:** Only shows default path; no way for user to choose custom data directory
+- **Implementation complexity:**
+  - Requires NSOpenPanel integration in SwiftUI (AppKit bridging)
+  - Need to validate selected directory for write permissions
+  - Must update Paths.swift to use custom directory path
+  - Persistence mechanism for custom path (UserDefaults or config)
+  - Migration logic if user changes path later
 
-### 2.8 NotificationManager Service Missing
+### 2.8 NotificationManager Service Missing — ✅ CAN IMPLEMENT IMMEDIATELY
 - **Spec:** `specs/menu-bar.md` lines 600-627 — notification system for errors, warnings, cleanup results
 - **Source:** No `NotificationManager.swift` exists; config has `notifications` field but nothing consumes it
 - **Impact:** Users never notified of recording errors, processing failures, or disk space warnings
+- **Implementation plan:**
+  - Create `Services/NotificationManager.swift` with UserNotifications framework
+  - Request notification authorization on first launch
+  - Implement notification methods: showError(), showWarning(), showInfo()
+  - Respect config.notifications.enabled flag
+  - Add notification categories for different event types (recording, processing, storage)
+  - Hook into LaunchAgentManager to send notifications on service failures
+  - Monitor disk space and send warning at configurable threshold
+- **No blockers:** Pure UserNotifications framework API, standard SwiftUI integration
 
 ---
 
