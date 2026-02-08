@@ -97,6 +97,9 @@ Key operational learnings from Phase 2 development (2026-02-07):
 - **App name from bundle ID:** Use `NSWorkspace.shared.urlForApplication(withBundleIdentifier:)` to get app URL, then `FileManager.default.displayName(atPath:)` to get human-readable name. Strip ".app" extension from result
 - **SQLite column ordering:** When adding columns to existing SELECT queries, update both the SQL string AND the sqlite3_column_* indices in result parsing (framePath was added as column 5, so index is 5)
 - **Pipe readabilityHandler race condition (CRITICAL):** Using `readabilityHandler` on Process pipes causes SIGABRT due to background dispatch queue execution continuing AFTER `waitUntilExit()` returns and handlers are cleared. The handlers access deallocated memory → crash. ALWAYS use synchronous `readDataToEndOfFile()` pattern instead: call `process.run()`, then immediately `readDataToEndOfFile()` on both pipes (blocks until process completes), then `waitUntilExit()`. No handlers = no races.
+- **Environment variable precedence:** Check ProcessInfo.processInfo.environment before dev/prod mode checks to allow environment variable overrides (PLAYBACK_CONFIG, PLAYBACK_DATA_DIR). Highest precedence wins: env vars → dev mode → production defaults
+- **Cursor-anchored zoom formula:** When implementing cursor-anchored zoom, use `centerTime = anchorTimestamp + (centerTime - anchorTimestamp) * (newWindow / oldWindow)` to maintain timestamp position during pinch gestures. Store anchor at gesture start, adjust center proportionally during zoom
+- **Comment translation:** When translating comments, preserve technical terminology (segment, timeline, scrubbing, frozen frame) and maintain original formatting. Use concise professional tone appropriate for code documentation
 
 ## Specifications
 
