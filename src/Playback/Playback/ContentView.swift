@@ -31,6 +31,80 @@ struct ContentView: View {
 
     var body: some View {
         ZStack {
+            if timelineStore.loadingState == .loading {
+                LoadingStateContentView()
+            } else if timelineStore.loadingState == .empty {
+                EmptyStateView()
+            } else if case .error(let errorMessage) = timelineStore.loadingState {
+                ErrorStateView(errorType: .databaseError(errorMessage))
+            } else if let playbackError = playbackController.playbackError {
+                playbackErrorView(playbackError)
+            } else {
+                timelineContentView
+            }
+        }
+        .onAppear {
+            setupEventHandlers()
+            // If segments are already loaded when view appears,
+            // immediately position at the most recent instant.
+            if let latest = timelineStore.latestTS {
+                centerTime = latest
+                playbackController.update(for: latest, store: timelineStore)
+            }
+        }
+        .onDisappear {
+            cleanupEventHandlers()
+        }
+        // Whenever segment count changes (initial load or reload),
+        // reposition centerTime to the latest available timestamp.
+        .onChange(of: timelineStore.segments.count) { _, newCount in
+            guard newCount > 0, let latest = timelineStore.latestTS else { return }
+            if Paths.isDevelopment {
+                print("[ContentView] segments.count changed to \(newCount); repositioning centerTime to latestTS=\(latest)")
+            }
+            centerTime = latest
+            playbackController.update(for: latest, store: timelineStore)
+        }
+        // Allow pinch zoom in ANY window area, not just over segment bar.
+        .simultaneousGesture(
+            MagnificationGesture()
+                .onChanged { value in
+                    guard value.isFinite, value > 0 else { return }
+
+                    if pinchBaseVisibleWindowSeconds == nil {
+                        pinchBaseVisibleWindowSeconds = visibleWindowSeconds
+                    }
+                    guard let base = pinchBaseVisibleWindowSeconds else { return }
+
+                    // Increase zoom sensitivity by applying an exponent
+                    // to the pinch value. This way, small gestures generate
+                    // more perceptible changes in time scale.
+                    let factor = pow(Double(value), pinchZoomExponent)
+
+                    // Zoom in => smaller window (fewer visible seconds).
+                    var newWindow = base / factor
+                    if newWindow < minVisibleWindowSeconds {
+                        newWindow = minVisibleWindowSeconds
+                    } else if newWindow > maxVisibleWindowSeconds {
+                        newWindow = maxVisibleWindowSeconds
+                    }
+
+                    if abs(newWindow - visibleWindowSeconds) > 0.001 {
+                        visibleWindowSeconds = newWindow
+                        if Paths.isDevelopment {
+                            print("[ContentView] Pinch zoom -> visibleWindowSeconds=\(visibleWindowSeconds)")
+                        }
+                    }
+                }
+                .onEnded { _ in
+                    pinchBaseVisibleWindowSeconds = nil
+                }
+        )
+    }
+
+    @ViewBuilder
+    private var timelineContentView: some View {
+        ZStack {
             VideoBackgroundView(player: playbackController.player)
                 .ignoresSafeArea()
 
@@ -121,30 +195,47 @@ struct ContentView: View {
                 }
                 .transition(.opacity)
             }
-
         }
-        .onAppear {
-            // If segments are already loaded when view appears,
-            // immediately position at the most recent instant.
-            if let latest = timelineStore.latestTS {
-                centerTime = latest
-                playbackController.update(for: latest, store: timelineStore)
-            }
+    }
 
-            // Phase 4.1: Listen for search jump notifications
-            NotificationCenter.default.addObserver(
-                forName: NSNotification.Name("JumpToTimestamp"),
-                object: nil,
-                queue: .main
-            ) { notification in
-                if let timestamp = notification.userInfo?["timestamp"] as? Double {
-                    centerTime = timestamp
-                    playbackController.scrub(to: timestamp, store: timelineStore)
-                }
-            }
+    @ViewBuilder
+    private func playbackErrorView(_ error: PlaybackError) -> some View {
+        switch error {
+        case .videoFileMissing(let filename):
+            ErrorStateView(errorType: .videoFileMissing(filename))
+        case .segmentLoadingFailure(let message):
+            ErrorStateView(errorType: .segmentLoadingFailure(message))
+        case .permissionDenied:
+            ErrorStateView(errorType: .permissionDenied)
+        case .multipleConsecutiveFailures(let count):
+            ErrorStateView(errorType: .multipleConsecutiveFailures(count))
+        }
+    }
 
-            // Keyboard monitor for global shortcuts
-            keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [self] event in
+    private func setupEventHandlers() {
+        // Phase 4.1: Listen for search jump notifications
+        NotificationCenter.default.addObserver(
+            forName: NSNotification.Name("JumpToTimestamp"),
+            object: nil,
+            queue: .main
+        ) { [self] notification in
+            if let timestamp = notification.userInfo?["timestamp"] as? Double {
+                centerTime = timestamp
+                playbackController.scrub(to: timestamp, store: timelineStore)
+            }
+        }
+
+        // Listen for retry loading notification
+        NotificationCenter.default.addObserver(
+            forName: NSNotification.Name("RetryLoadingTimeline"),
+            object: nil,
+            queue: .main
+        ) { [self] _ in
+            timelineStore.loadSegments()
+        }
+
+        // Keyboard monitor for global shortcuts
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [self] event in
                 // keyCode 53 = ESC, 49 = Space, 123 = Left Arrow, 124 = Right Arrow, 3 = F (for Command+F)
 
                 // Command+F (keyCode 3 with command modifier)
@@ -181,11 +272,12 @@ struct ContentView: View {
                 default:
                     return event
                 }
-            }
-            // Global scroll monitor to control video time without blocking clicks on timeline.
-            // Unlike the previous ScrollCaptureView (which used a transparent NSView over everything),
-            // this monitor only observes scroll events without interfering with UI hit-test hierarchy.
-            scrollMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { event in
+        }
+
+        // Global scroll monitor to control video time without blocking clicks on timeline.
+        // Unlike the previous ScrollCaptureView (which used a transparent NSView over everything),
+        // this monitor only observes scroll events without interfering with UI hit-test hierarchy.
+        scrollMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [self] event in
                 let rawDx = event.scrollingDeltaX
                 let rawDy = event.scrollingDeltaY
 
@@ -266,75 +358,18 @@ struct ContentView: View {
                 // Return nil to prevent any default view (e.g. NSScrollView)
                 // from also processing this scroll.
                 return nil
-            }
         }
-        .onDisappear {
-            if let monitor = keyMonitor {
-                NSEvent.removeMonitor(monitor)
-                keyMonitor = nil
-            }
-            if let monitor = scrollMonitor {
-                NSEvent.removeMonitor(monitor)
-                scrollMonitor = nil
-            }
+    }
+
+    private func cleanupEventHandlers() {
+        if let monitor = keyMonitor {
+            NSEvent.removeMonitor(monitor)
+            keyMonitor = nil
         }
-        // Whenever segment count changes (initial load or reload),
-        // reposition centerTime to the latest available timestamp.
-        .onChange(of: timelineStore.segments.count) { _, newCount in
-            guard newCount > 0, let latest = timelineStore.latestTS else { return }
-            if Paths.isDevelopment {
-                print("[ContentView] segments.count changed to \(newCount); repositioning centerTime to latestTS=\(latest)")
-            }
-            centerTime = latest
-            playbackController.update(for: latest, store: timelineStore)
+        if let monitor = scrollMonitor {
+            NSEvent.removeMonitor(monitor)
+            scrollMonitor = nil
         }
-        // IMPORTANT: during scrubbing via ScrollCapture/Timeline, who controls
-        // the player is PlaybackController.scrub(...). Additional calls to
-        // scheduleUpdate here can conflict with scrubbing and cause unexpected "jumps".
-        // Therefore, this hook is temporarily disabled.
-        /*
-        .onChange(of: centerTime) { _, newValue in
-            if Paths.isDevelopment {
-                print("[ContentView] centerTime changed to \(newValue); calling scheduleUpdate")
-            }
-            playbackController.scheduleUpdate(for: newValue, store: timelineStore)
-        }
-        */
-        // Allow pinch zoom in ANY window area, not just over segment bar.
-        .simultaneousGesture(
-            MagnificationGesture()
-                .onChanged { value in
-                    guard value.isFinite, value > 0 else { return }
-
-                    if pinchBaseVisibleWindowSeconds == nil {
-                        pinchBaseVisibleWindowSeconds = visibleWindowSeconds
-                    }
-                    guard let base = pinchBaseVisibleWindowSeconds else { return }
-
-                    // Increase zoom sensitivity by applying an exponent
-                    // to the pinch value. This way, small gestures generate
-                    // more perceptible changes in time scale.
-                    let factor = pow(Double(value), pinchZoomExponent)
-
-                    // Zoom in => smaller window (fewer visible seconds).
-                    var newWindow = base / factor
-                    if newWindow < minVisibleWindowSeconds {
-                        newWindow = minVisibleWindowSeconds
-                    } else if newWindow > maxVisibleWindowSeconds {
-                        newWindow = maxVisibleWindowSeconds
-                    }
-
-                    if abs(newWindow - visibleWindowSeconds) > 0.001 {
-                        visibleWindowSeconds = newWindow
-                        if Paths.isDevelopment {
-                            print("[ContentView] Pinch zoom -> visibleWindowSeconds=\(visibleWindowSeconds)")
-                        }
-                    }
-                }
-                .onEnded { _ in
-                    pinchBaseVisibleWindowSeconds = nil
-                }
-        )
     }
 
     private func togglePlayPause() {

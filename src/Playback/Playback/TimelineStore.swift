@@ -2,6 +2,13 @@ import Foundation
 import Combine
 import SQLite3
 
+enum LoadingState: Equatable {
+    case loading
+    case loaded
+    case empty
+    case error(String)
+}
+
 struct Segment: Identifiable {
     let id: String
     let startTS: TimeInterval
@@ -78,6 +85,7 @@ struct AppSegment: Identifiable {
 final class TimelineStore: ObservableObject {
     @Published private(set) var segments: [Segment] = []
     @Published private(set) var appSegments: [AppSegment] = []
+    @Published private(set) var loadingState: LoadingState = .loading
 
     var timelineStart: TimeInterval? {
         segments.first?.startTS
@@ -143,7 +151,11 @@ final class TimelineStore: ObservableObject {
         refreshTimer?.invalidate()
     }
 
-    private func loadSegments() {
+    func loadSegments() {
+        DispatchQueue.main.async {
+            self.loadingState = .loading
+        }
+
         var db: OpaquePointer?
         let rc = sqlite3_open(dbPath, &db)
         guard rc == SQLITE_OK, let db else {
@@ -156,6 +168,9 @@ final class TimelineStore: ObservableObject {
             }
             if Paths.isDevelopment {
                 print("[TimelineStore] Failed to open meta.sqlite3 at \(dbPath). rc=\(rc), error=\(errorMessage)")
+            }
+            DispatchQueue.main.async {
+                self.loadingState = .error(errorMessage)
             }
             return
         }
@@ -250,6 +265,13 @@ final class TimelineStore: ObservableObject {
         DispatchQueue.main.async {
             self.segments = loaded
             self.appSegments = loadedAppSegments
+
+            if loaded.isEmpty {
+                self.loadingState = .empty
+            } else {
+                self.loadingState = .loaded
+            }
+
             if Paths.isDevelopment {
                 print("[TimelineStore] Loaded \(loaded.count) segments and \(loadedAppSegments.count) appsegments")
             }

@@ -48,15 +48,17 @@ Based on comprehensive technical specifications in `specs/` and verified against
 
 These items prevent basic usability. They should be fixed first.
 
-### 1.1 Timeline: No Error States or Empty States
+### 1.1 Timeline: No Error States or Empty States — ✅ COMPLETE
 - **Spec:** `specs/timeline-graphical-interface.md` lines 273-291
-- **Source:** No implementation exists
-- **Missing views:**
-  - "No recordings yet" message when database is empty (with button to open menu bar)
-  - Video file missing error (fallback to frozen frame)
-  - Segment loading failure message
-  - Permission denied error dialog
-- **Impact:** App shows blank screen when no data exists — terrible first-time UX
+- **Source:** `Timeline/EmptyStateView.swift`, `Timeline/ErrorStateView.swift`, `Timeline/LoadingStateView.swift`
+- **Implemented:**
+  - `EmptyStateView.swift` — "No recordings yet" message with icon and instructions
+  - `ErrorStateView.swift` — Error display with title, message, and retry button
+  - `LoadingStateView.swift` — Loading spinner with status message
+  - `TimelineStore.swift` — LoadingState enum (.loading, .loaded, .error) with error handling
+  - `PlaybackController.swift` — PlaybackError enum and consecutive failure tracking (3 failures = error state)
+  - `ContentView.swift` — Conditional rendering based on loading state (empty/error/loading/content)
+- **Note:** App now provides clear feedback for all states (empty data, errors, loading)
 
 ### 1.2 Timeline: No Loading Screen During Processing
 - **Spec:** `specs/timeline-graphical-interface.md` lines 54-67

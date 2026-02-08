@@ -3,12 +3,20 @@ import AVFoundation
 import Combine
 import AppKit
 
+enum PlaybackError: Equatable {
+    case videoFileMissing(String)
+    case segmentLoadingFailure(String)
+    case permissionDenied
+    case multipleConsecutiveFailures(Int)
+}
+
 final class PlaybackController: ObservableObject {
     let player = AVPlayer()
 
     @Published private(set) var currentSegment: Segment?
     @Published var currentTime: TimeInterval = 0
     @Published var isPlaying: Bool = false
+    @Published var playbackError: PlaybackError?
     /// Último frame "congelado" usado como fallback visual enquanto um novo
     /// segmento é carregado ou quando navegamos para fora da faixa gravada.
     @Published var frozenFrame: NSImage?
@@ -29,6 +37,7 @@ final class PlaybackController: ObservableObject {
     private var pendingWorkItem: DispatchWorkItem?
     private var statusObserver: NSKeyValueObservation?
     private var scrubEndWorkItem: DispatchWorkItem?
+    private var consecutiveFailures: Int = 0
 
     init() {
         // Observa periodicamente o tempo do player para manter `currentTime`
@@ -248,6 +257,8 @@ final class PlaybackController: ObservableObject {
                         print("[Playback] \(isScrub ? "(scrub) " : "")READY to play \(url.path)")
                     }
                     DispatchQueue.main.async {
+                        self.consecutiveFailures = 0
+                        self.playbackError = nil
                         // Só escondemos o frame congelado se não estivermos
                         // mais em scrubbing. Durante scrubbing, mantemos o
                         // último frame exibido para evitar flashes pretos
@@ -261,6 +272,15 @@ final class PlaybackController: ObservableObject {
                         print("[Playback] \(isScrub ? "(scrub) " : "")FAILED for \(url.path): \(item.error?.localizedDescription ?? "(no error)")")
                     }
                     DispatchQueue.main.async {
+                        self.consecutiveFailures += 1
+                        let errorDesc = item.error?.localizedDescription ?? "Unknown error"
+                        if !FileManager.default.fileExists(atPath: url.path) {
+                            self.playbackError = .videoFileMissing(url.lastPathComponent)
+                        } else if self.consecutiveFailures >= 3 {
+                            self.playbackError = .multipleConsecutiveFailures(self.consecutiveFailures)
+                        } else {
+                            self.playbackError = .segmentLoadingFailure(errorDesc)
+                        }
                         if !self.isScrubbing {
                             self.showFrozenFrame = false
                         }
@@ -323,6 +343,8 @@ final class PlaybackController: ObservableObject {
                         print("[Playback] READY to play \(url.path)")
                     }
                     DispatchQueue.main.async {
+                        self.consecutiveFailures = 0
+                        self.playbackError = nil
                         if !self.isScrubbing {
                             self.showFrozenFrame = false
                         }
@@ -332,6 +354,15 @@ final class PlaybackController: ObservableObject {
                         print("[Playback] FAILED for \(url.path): \(item.error?.localizedDescription ?? "(no error)")")
                     }
                     DispatchQueue.main.async {
+                        self.consecutiveFailures += 1
+                        let errorDesc = item.error?.localizedDescription ?? "Unknown error"
+                        if !FileManager.default.fileExists(atPath: url.path) {
+                            self.playbackError = .videoFileMissing(url.lastPathComponent)
+                        } else if self.consecutiveFailures >= 3 {
+                            self.playbackError = .multipleConsecutiveFailures(self.consecutiveFailures)
+                        } else {
+                            self.playbackError = .segmentLoadingFailure(errorDesc)
+                        }
                         if !self.isScrubbing {
                             self.showFrozenFrame = false
                         }
