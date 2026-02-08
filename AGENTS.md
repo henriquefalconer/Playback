@@ -62,6 +62,12 @@ Key operational learnings from Phase 2 development (2026-02-07):
 - **Async/await signatures:** Only use await with async functions. ConfigManager.loadConfiguration() and updateConfig() are synchronous - calling with await causes test failures
 - **Config field naming:** Python services use snake_case (processing_interval_minutes) not camelCase. Assertions must check for correct JSON field names
 - **Complete config structures:** All Config struct fields are required (non-optional). Test configs must include all fields: version, processing_interval_minutes, temp_retention_policy, recording_retention_policy, exclusion_mode, excluded_apps, video_fps, ffmpeg_crf, ffmpeg_preset, timeline_shortcut, pause_when_timeline_open, notifications
+- **UI test accessibility identifiers:** Essential for XCUITest - use consistent naming like "view.element" (e.g., "menubar.recordToggle", "settings.generalTab"). SwiftUI modifier: `.accessibilityIdentifier("id")`
+- **XCUITest file organization:** Group UI tests by feature/screen (MenuBarUITests, TimelineUITests, etc.) not by test type. Each file should test one major UI component
+- **UI test helper methods:** Create helper methods in each test class (e.g., `openTimeline()`, `openSearch()`) to reduce duplication and improve readability
+- **UI test timing:** Use `waitForExistence(timeout:)` for element queries rather than fixed sleep() when possible. Use sleep() only for animations/transitions
+- **Build verification for UI tests:** Use `xcodebuild build-for-testing` to verify UI tests compile without running them (fast validation, especially in CI/CD)
+- **GUI environment requirement:** UI tests require WindowServer running (check with `ps aux | grep WindowServer`). Tests will fail in headless environments
 
 ## Specifications
 
