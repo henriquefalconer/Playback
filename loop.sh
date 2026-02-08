@@ -88,10 +88,11 @@ fi
 
 if ! $USE_SANDBOX; then
     echo -e ""
-    echo -e "${YELLOW_BOLD}⚠️  WARNING: Running in DIRECT Claude CLI mode (NO SANDBOX)${RESET}"
-    echo -e "${YELLOW_BOLD}   • No filesystem / command isolation${RESET}"
-    echo -e "${YELLOW_BOLD}   • Claude will have full access to your current directory${RESET}"
-    echo -e "${YELLOW_BOLD}   • Use only if you fully trust the prompt & model output${RESET}"
+    echo -e "${YELLOW_BOLD}⚠️  WARNING: Running in DIRECT Claude CLI mode (--no-sandbox)${RESET}"
+    echo -e "${YELLOW_BOLD}   • No sandbox isolation — Claude can run ANY shell command${RESET}"
+    echo -e "${YELLOW_BOLD}   • --dangerously-skip-permissions is ON → all tool calls auto-approved${RESET}"
+    echo -e "${YELLOW_BOLD}   • Model can read, write or delete files ANYWHERE your user has access${RESET}"
+    echo -e "${YELLOW_BOLD}   • Only proceed if you accept full responsibility for the risk${RESET}"
     echo -e ""
     read -p "Continue without sandbox? (y/N) " -n 1 -r
     echo    # move to new line
