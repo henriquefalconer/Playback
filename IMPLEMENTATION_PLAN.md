@@ -316,10 +316,101 @@ Playback consists of separate components:
   - **MenuBarViewModelTests:** state management, recording toggle, status monitoring
   - **GlobalHotkeyManagerTests:** hotkey registration, accessibility checks
 
+**⚠️ CRITICAL BUG - Test Runner Crash (MUST FIX BEFORE CONTINUING):**
+
+**Issue:** Test runner crashes with memory management error when running UI tests
+- **Crash Location:** `ConfigManagerTests.testValidationCorrectsCRFOutOfRange()` at line 291
+- **Error:** `___BUG_IN_CLIENT_OF_LIBMALLOC_POINTER_BEING_FREED_WAS_NOT_ALLOCATED`
+- **Symptom:** App appears to run but hangs, waiting for quit; terminal shows no output
+- **Root Cause:** Memory management issue in `ConfigManager.__deallocating_deinit` - likely related to Swift concurrency/actor isolation or @StateObject lifecycle
+
+**Evidence:** See `/Users/henriquefalconer/Playback/playback-error-report.txt` (lines 1-54):
+```
+Exception Type:    EXC_CRASH (SIGABRT)
+Termination Reason:  Namespace SIGNAL, Code 6, Abort trap: 6
+Thread 0 Crashed::  Dispatch queue: com.apple.main-thread
+7   libswift_Concurrency.dylib    swift::TaskLocal::StopLookupScope::~StopLookupScope() + 144
+9   Playback.debug.dylib          ConfigManager.__deallocating_deinit + 124
+12  PlaybackTests                 ConfigManagerTests.testValidationCorrectsCRFOutOfRange() + 1136
+```
+
+**Fix Steps (MUST complete before writing more tests):**
+1. **Clean stale build artifacts:**
+   - `xcodebuild clean -scheme Playback-Development`
+   - Delete `~/Library/Developer/Xcode/DerivedData/Playback-*`
+   - Verify ConfigManagerTests.swift doesn't exist in `src/Playback/PlaybackTests/` (confirmed: doesn't exist)
+
+2. **Fix ConfigManager memory management (HIGH PRIORITY - Resource Leak Found):**
+   - **File:** `src/Playback/Playback/Config/ConfigManager.swift`
+   - **Issue 1 - ConfigWatcher file descriptor leak (lines 173-176):**
+     - `ConfigWatcher.deinit` cancels the dispatch source but NEVER closes the file descriptor
+     - This leaks file descriptors and causes the memory management crash
+     - **Fix:** Add `close(fileDescriptor)` in ConfigWatcher.deinit before canceling source:
+       ```swift
+       deinit {
+           if fileDescriptor >= 0 {
+               close(fileDescriptor)
+           }
+           source?.cancel()
+       }
+       ```
+   - **Issue 2 - ConfigManager singleton lifecycle:**
+     - ConfigManager is a singleton (`static let shared`) but is also being instantiated in tests
+     - Tests may be creating multiple instances which conflict with singleton pattern
+     - Shared instance never deallocates, but test instances try to clean up resources
+     - **Fix:** Add deinit to ConfigManager to stop watcher:
+       ```swift
+       deinit {
+           watcher = nil  // Triggers ConfigWatcher.deinit which cleans up resources
+       }
+       ```
+   - **Verify:** Lines 121-122 already use `[weak self]` in watcher callback (good practice)
+
+3. **Create ConfigManagerTests properly (after ConfigManager fix):**
+   - File: `src/Playback/PlaybackTests/ConfigManagerTests.swift`
+   - Use `@MainActor` on test class if ConfigManager requires it
+   - Properly tearDown() ConfigManager instances to avoid leaks
+   - Mock file system for testing without side effects
+
+4. **Verify fix:**
+   - Run: `xcodebuild test -scheme Playback-Development -destination 'platform=macOS'`
+   - Confirm no crashes, test runner completes normally
+   - Verify test output is visible in terminal
+   - Should see: PathsTests passing, no ConfigManagerTests (not created yet)
+
+5. **After fix is verified - Create ConfigManagerTests properly:**
+   - ConfigManagerTests doesn't exist yet (crash was from stale build artifact)
+   - When creating tests, ensure proper lifecycle management:
+     - Use `setUp()` to create test ConfigManager instance (NOT shared singleton)
+     - Use `tearDown()` to clean up and set instance to nil
+     - Consider using dependency injection pattern instead of singleton for testability
+   - Example pattern:
+     ```swift
+     class ConfigManagerTests: XCTestCase {
+         var configManager: ConfigManager!
+
+         override func setUp() {
+             super.setUp()
+             // Create test instance with custom path
+             configManager = ConfigManager(configPath: testConfigPath)
+         }
+
+         override func tearDown() {
+             configManager = nil  // Triggers deinit
+             super.tearDown()
+         }
+     }
+     ```
+
+**Priority:** 🔴 CRITICAL - Blocks all test development
+**Status:** 🚧 Not Started - Must fix immediately
+**Reference:** Error details in `/Users/henriquefalconer/Playback/playback-error-report.txt`
+
 **Test Infrastructure:**
 - Framework: XCTest (native Xcode testing)
 - Python tests complete: 280/280 passing, zero bugs
 - Swift unit tests underway - core infrastructure in place for rapid test implementation
+- **BLOCKED:** Critical memory bug must be fixed before proceeding
 
 **Known Issues:**
 - ConfigManagerTests runtime failures require investigation:
