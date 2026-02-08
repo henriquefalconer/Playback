@@ -505,6 +505,75 @@ extension LaunchAgentManagerTests {
         try manager.removeAgent(.processing)
     }
 
+    func testUpdateProcessingIntervalUpdatesStartInterval() throws {
+        let manager = LaunchAgentManager.shared
+
+        try manager.installAgent(.processing)
+
+        let plistPath = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/LaunchAgents")
+            .appendingPathComponent(AgentType.processing.plistName)
+
+        try manager.updateProcessingInterval(minutes: 15)
+
+        let plistData = try Data(contentsOf: plistPath)
+        let plist = try PropertyListSerialization.propertyList(
+            from: plistData,
+            options: [],
+            format: nil
+        ) as? [String: Any]
+
+        XCTAssertNotNil(plist, "Plist should be readable after update")
+        XCTAssertEqual(plist?["StartInterval"] as? Int, 900,
+                       "StartInterval should be 900 seconds (15 minutes)")
+
+        try manager.updateProcessingInterval(minutes: 5)
+
+        let updatedPlistData = try Data(contentsOf: plistPath)
+        let updatedPlist = try PropertyListSerialization.propertyList(
+            from: updatedPlistData,
+            options: [],
+            format: nil
+        ) as? [String: Any]
+
+        XCTAssertNotNil(updatedPlist, "Plist should be readable after second update")
+        XCTAssertEqual(updatedPlist?["StartInterval"] as? Int, 300,
+                       "StartInterval should be 300 seconds (5 minutes)")
+
+        try manager.removeAgent(.processing)
+    }
+
+    func testUpdateProcessingIntervalValidatesRange() throws {
+        let manager = LaunchAgentManager.shared
+
+        try manager.installAgent(.processing)
+
+        XCTAssertThrowsError(try manager.updateProcessingInterval(minutes: 0)) { error in
+            if case LaunchAgentError.installationFailed(let message) = error {
+                XCTAssertTrue(message.contains("between 1 and 60"),
+                              "Error message should indicate valid range")
+            } else {
+                XCTFail("Should throw installationFailed error for invalid range")
+            }
+        }
+
+        XCTAssertThrowsError(try manager.updateProcessingInterval(minutes: 61)) { error in
+            if case LaunchAgentError.installationFailed(let message) = error {
+                XCTAssertTrue(message.contains("between 1 and 60"),
+                              "Error message should indicate valid range")
+            } else {
+                XCTFail("Should throw installationFailed error for invalid range")
+            }
+        }
+
+        XCTAssertNoThrow(try manager.updateProcessingInterval(minutes: 1),
+                         "Should accept minimum value of 1")
+        XCTAssertNoThrow(try manager.updateProcessingInterval(minutes: 60),
+                         "Should accept maximum value of 60")
+
+        try manager.removeAgent(.processing)
+    }
+
     // MARK: - Error Handling Tests (System Integration)
 
     func testInstallAgentThrowsForMissingTemplate() {

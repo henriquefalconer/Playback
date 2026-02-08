@@ -158,18 +158,21 @@ These features are specified but not implemented. They significantly impact UX.
   - App name should come from OCR results metadata (if available)
 - **Complexity:** Medium — requires NSWorkspace integration and image caching
 
-### 2.6 LaunchAgentManager: updateProcessingInterval Is a Stub — ✅ CAN IMPLEMENT IMMEDIATELY
+### 2.6 LaunchAgentManager: updateProcessingInterval Is a Stub — ✅ COMPLETE (2026-02-08)
 - **Spec:** `specs/menu-bar.md` lines 547-557
-- **Source:** `LaunchAgentManager.swift:175-177`
+- **Source:** `LaunchAgentManager.swift:187-225`
 - **Problem:** `func updateProcessingInterval(minutes: Int) throws { try reloadAgent(.processing) }` — just reloads, never actually changes the `StartInterval` value in the plist
 - **Impact:** Changing processing interval in Settings has no effect
-- **Implementation plan:**
-  - Read existing plist file as PropertyListSerialization dictionary
-  - Update `StartInterval` key to minutes * 60 seconds
-  - Write modified plist back to disk
-  - Call `reloadAgent(.processing)` to apply changes
-  - Add error handling for plist read/write failures
-- **No blockers:** Pure Foundation PropertyListSerialization API
+- **Implementation:**
+  - ✅ Added input validation (1-60 minutes range)
+  - ✅ Read existing plist using PropertyListSerialization
+  - ✅ Update `StartInterval` key to minutes * 60 seconds
+  - ✅ Write modified plist back to disk atomically
+  - ✅ Validate plist after write using plutil
+  - ✅ Reload agent to apply changes
+  - ✅ Added development mode logging
+  - ✅ Added comprehensive integration tests (disabled by default)
+- **Result:** Processing interval changes in Settings now properly update LaunchAgent schedule
 
 ### 2.7 FirstRun: No Custom Storage Location Picker — 🔧 REQUIRES RESEARCH
 - **Spec:** `specs/installation-deployment.md` — "Allow custom location selection (NSOpenPanel)"

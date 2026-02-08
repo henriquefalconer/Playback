@@ -185,7 +185,43 @@ final class LaunchAgentManager {
     }
 
     func updateProcessingInterval(minutes: Int) throws {
+        guard minutes >= 1 && minutes <= 60 else {
+            throw LaunchAgentError.installationFailed("Processing interval must be between 1 and 60 minutes")
+        }
+
+        let plistPath = launchAgentsDir.appendingPathComponent(AgentType.processing.plistName)
+
+        guard fileManager.fileExists(atPath: plistPath.path) else {
+            throw LaunchAgentError.installationFailed("Processing agent plist not found at \(plistPath.path)")
+        }
+
+        let plistData = try Data(contentsOf: plistPath)
+
+        guard var plistDict = try PropertyListSerialization.propertyList(
+            from: plistData,
+            options: .mutableContainersAndLeaves,
+            format: nil
+        ) as? [String: Any] else {
+            throw LaunchAgentError.invalidPlist("Could not parse plist as dictionary")
+        }
+
+        plistDict["StartInterval"] = minutes * 60
+
+        let updatedData = try PropertyListSerialization.data(
+            fromPropertyList: plistDict,
+            format: .xml,
+            options: 0
+        )
+
+        try updatedData.write(to: plistPath, options: .atomic)
+
+        try validatePlist(at: plistPath)
+
         try reloadAgent(.processing)
+
+        if Paths.isDevelopment {
+            print("[LaunchAgent] Updated processing interval to \(minutes) minutes (\(minutes * 60) seconds)")
+        }
     }
 
     private func buildVariables(for type: AgentType) -> [String: String] {
