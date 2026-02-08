@@ -35,6 +35,7 @@ struct SearchBar: View {
                         }
                     }
                 }
+                .accessibilityIdentifier("search.textField")
 
             // Result counter
             if !searchController.results.isEmpty {
@@ -52,6 +53,7 @@ struct SearchBar: View {
                 }
                 .buttonStyle(.plain)
                 .help("Previous result (Shift+Enter)")
+                .accessibilityIdentifier("search.previousButton")
 
                 Button(action: {
                     searchController.nextResult()
@@ -62,6 +64,7 @@ struct SearchBar: View {
                 }
                 .buttonStyle(.plain)
                 .help("Next result (Enter)")
+                .accessibilityIdentifier("search.nextButton")
             }
 
             // Loading indicator
@@ -81,6 +84,7 @@ struct SearchBar: View {
                 }
                 .buttonStyle(.plain)
                 .help("Clear search")
+                .accessibilityIdentifier("search.clearButton")
             }
 
             // Close button
@@ -94,6 +98,7 @@ struct SearchBar: View {
             }
             .buttonStyle(.plain)
             .help("Close search (ESC)")
+            .accessibilityIdentifier("search.closeButton")
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)

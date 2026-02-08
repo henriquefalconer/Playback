@@ -53,6 +53,7 @@ struct DateTimePickerView: View {
                     Image(systemName: "chevron.left")
                 }
                 .buttonStyle(.plain)
+                .accessibilityIdentifier("datepicker.previousMonthButton")
 
                 Text(monthYearString(currentMonth))
                     .font(.headline)
@@ -61,6 +62,7 @@ struct DateTimePickerView: View {
                     Image(systemName: "chevron.right")
                 }
                 .buttonStyle(.plain)
+                .accessibilityIdentifier("datepicker.nextMonthButton")
 
                 Spacer()
 
@@ -70,6 +72,7 @@ struct DateTimePickerView: View {
                     loadAvailableTimesForSelectedDate()
                 }
                 .buttonStyle(.plain)
+                .accessibilityIdentifier("datepicker.todayButton")
             }
             .padding(.horizontal)
 
@@ -102,6 +105,7 @@ struct DateTimePickerView: View {
                         }
                         .buttonStyle(.plain)
                         .disabled(!hasRecordings)
+                        .accessibilityIdentifier("datepicker.dayButton.\(dateString)")
                     } else {
                         Color.clear
                             .frame(width: 32, height: 32)
@@ -150,6 +154,7 @@ struct DateTimePickerView: View {
                                 .cornerRadius(4)
                             }
                             .buttonStyle(.plain)
+                            .accessibilityIdentifier("datepicker.timeButton.\(Int(time))")
                         }
                     }
                     .padding(8)
@@ -163,6 +168,7 @@ struct DateTimePickerView: View {
                     isPresented = false
                 }
                 .buttonStyle(.plain)
+                .accessibilityIdentifier("datepicker.cancelButton")
 
                 Spacer()
 
@@ -174,6 +180,7 @@ struct DateTimePickerView: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(availableTimes.isEmpty)
+                .accessibilityIdentifier("datepicker.jumpButton")
             }
             .padding(12)
         }

@@ -15,6 +15,7 @@ struct MenuBarView: View {
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
+                .accessibilityIdentifier("menubar.recordToggle")
 
             Divider()
 
@@ -31,6 +32,7 @@ struct MenuBarView: View {
             .buttonStyle(.plain)
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
+            .accessibilityIdentifier("menubar.openTimelineButton")
 
             Divider()
 
@@ -47,6 +49,7 @@ struct MenuBarView: View {
             .buttonStyle(.plain)
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
+            .accessibilityIdentifier("menubar.settingsButton")
 
             Button(action: viewModel.openDiagnostics) {
                 HStack {
@@ -62,12 +65,14 @@ struct MenuBarView: View {
                                 .font(.caption2)
                                 .foregroundColor(.white)
                         }
+                        .accessibilityIdentifier("menubar.errorBadge")
                     }
                 }
             }
             .buttonStyle(.plain)
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
+            .accessibilityIdentifier("menubar.diagnosticsButton")
 
             Divider()
 
@@ -82,6 +87,7 @@ struct MenuBarView: View {
             .buttonStyle(.plain)
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
+            .accessibilityIdentifier("menubar.aboutButton")
 
             Divider()
 
@@ -97,6 +103,7 @@ struct MenuBarView: View {
             .buttonStyle(.plain)
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
+            .accessibilityIdentifier("menubar.quitButton")
         }
         .frame(minWidth: 220)
     }

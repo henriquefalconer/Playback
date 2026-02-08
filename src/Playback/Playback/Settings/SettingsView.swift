@@ -19,36 +19,42 @@ struct SettingsView: View {
                     Label("General", systemImage: "gearshape")
                 }
                 .tag(0)
+                .accessibilityIdentifier("settings.generalTab")
 
             RecordingSettingsTab()
                 .tabItem {
                     Label("Recording", systemImage: "record.circle")
                 }
                 .tag(1)
+                .accessibilityIdentifier("settings.recordingTab")
 
             ProcessingSettingsTab()
                 .tabItem {
                     Label("Processing", systemImage: "gearshape.2")
                 }
                 .tag(2)
+                .accessibilityIdentifier("settings.processingTab")
 
             StorageSettingsTab()
                 .tabItem {
                     Label("Storage", systemImage: "externaldrive")
                 }
                 .tag(3)
+                .accessibilityIdentifier("settings.storageTab")
 
             PrivacySettingsTab()
                 .tabItem {
                     Label("Privacy", systemImage: "hand.raised")
                 }
                 .tag(4)
+                .accessibilityIdentifier("settings.privacyTab")
 
             AdvancedSettingsTab()
                 .tabItem {
                     Label("Advanced", systemImage: "gearshape.2.fill")
                 }
                 .tag(5)
+                .accessibilityIdentifier("settings.advancedTab")
         }
         .frame(width: 600, height: 500)
     }
@@ -61,11 +67,15 @@ struct GeneralSettingsTab: View {
         Form {
             Section("Notifications") {
                 Toggle("Processing complete", isOn: binding(\.notifications.processingComplete))
+                    .accessibilityIdentifier("settings.general.processingCompleteToggle")
                 Toggle("Processing errors", isOn: binding(\.notifications.processingErrors))
                     .help("Recommended")
+                    .accessibilityIdentifier("settings.general.processingErrorsToggle")
                 Toggle("Disk space warnings", isOn: binding(\.notifications.diskSpaceWarnings))
                     .help("Recommended")
+                    .accessibilityIdentifier("settings.general.diskSpaceToggle")
                 Toggle("Recording status", isOn: binding(\.notifications.recordingStatus))
+                    .accessibilityIdentifier("settings.general.recordingStatusToggle")
             }
 
             Section("Global Shortcut") {
@@ -121,6 +131,7 @@ struct RecordingSettingsTab: View {
 
             Section("Timeline Interaction") {
                 Toggle("Pause recording when Timeline window is open", isOn: binding(\.pauseWhenTimelineOpen))
+                    .accessibilityIdentifier("settings.recording.pauseWhenTimelineToggle")
 
                 HStack(spacing: 4) {
                     Image(systemName: "info.circle")
@@ -182,6 +193,7 @@ struct ProcessingSettingsTab: View {
                     Text("30 minutes").tag(30)
                     Text("60 minutes").tag(60)
                 }
+                .accessibilityIdentifier("settings.processing.intervalPicker")
             }
 
             Section("Video Encoding") {
@@ -284,6 +296,7 @@ struct StorageSettingsTab: View {
                     }
                     .buttonStyle(.borderless)
                     .controlSize(.small)
+                    .accessibilityIdentifier("settings.storage.refreshButton")
                 }
             }
 
@@ -297,6 +310,7 @@ struct StorageSettingsTab: View {
                     Text("6 months").tag("6_months")
                     Text("1 year").tag("1_year")
                 }
+                .accessibilityIdentifier("settings.storage.tempRetentionPicker")
 
                 Picker("Recordings:", selection: binding(\.recordingRetentionPolicy)) {
                     Text("Never delete").tag("never")
@@ -307,6 +321,7 @@ struct StorageSettingsTab: View {
                     Text("6 months").tag("6_months")
                     Text("1 year").tag("1_year")
                 }
+                .accessibilityIdentifier("settings.storage.recordingRetentionPicker")
 
                 HStack(spacing: 4) {
                     Image(systemName: "info.circle")
@@ -326,6 +341,7 @@ struct StorageSettingsTab: View {
                     }
                 }
                 .buttonStyle(.borderless)
+                .accessibilityIdentifier("settings.storage.cleanupButton")
 
                 Text("Applies retention policies immediately and removes old files")
                     .font(.caption)
@@ -596,6 +612,7 @@ struct PrivacySettingsTab: View {
                         }
                         .buttonStyle(.borderless)
                         .controlSize(.small)
+                        .accessibilityIdentifier("settings.privacy.screenRecordingButton")
                     }
                 }
 
@@ -613,6 +630,7 @@ struct PrivacySettingsTab: View {
                         }
                         .buttonStyle(.borderless)
                         .controlSize(.small)
+                        .accessibilityIdentifier("settings.privacy.accessibilityButton")
                     }
                 }
 
@@ -661,6 +679,7 @@ struct PrivacySettingsTab: View {
                     Text("Skip screenshots").tag("skip")
                     Text("Mark as invisible").tag("invisible")
                 }
+                .accessibilityIdentifier("settings.privacy.exclusionModePicker")
 
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Custom Excluded Apps:")
@@ -683,10 +702,12 @@ struct PrivacySettingsTab: View {
 
                     HStack {
                         TextField("com.example.app", text: $newAppId)
+                            .accessibilityIdentifier("settings.privacy.appIdTextField")
                         Button("Add") {
                             addApp()
                         }
                         .disabled(newAppId.isEmpty)
+                        .accessibilityIdentifier("settings.privacy.addAppButton")
                     }
                 }
             }
@@ -705,12 +726,14 @@ struct PrivacySettingsTab: View {
                     }
                     .buttonStyle(.borderless)
                     .controlSize(.small)
+                    .accessibilityIdentifier("settings.privacy.revealDataButton")
                 }
 
                 Button("Export All Data") {
                     exportAllData()
                 }
                 .buttonStyle(.borderless)
+                .accessibilityIdentifier("settings.privacy.exportDataButton")
 
                 Text("Creates a ZIP archive with all recordings, database, and configuration")
                     .font(.caption)
@@ -1001,6 +1024,7 @@ struct AdvancedSettingsTab: View {
                         }
                         .buttonStyle(.borderless)
                         .controlSize(.small)
+                        .accessibilityIdentifier("settings.advanced.restartRecordingButton")
                     }
                 }
 
@@ -1020,6 +1044,7 @@ struct AdvancedSettingsTab: View {
                         }
                         .buttonStyle(.borderless)
                         .controlSize(.small)
+                        .accessibilityIdentifier("settings.advanced.restartProcessingButton")
                     }
                 }
             }
@@ -1029,21 +1054,25 @@ struct AdvancedSettingsTab: View {
                     showResetConfirmation = true
                 }
                 .buttonStyle(.borderless)
+                .accessibilityIdentifier("settings.advanced.resetButton")
 
                 Button("Rebuild Database") {
                     rebuildDatabase()
                 }
                 .buttonStyle(.borderless)
+                .accessibilityIdentifier("settings.advanced.rebuildDatabaseButton")
 
                 Button("Export Logs") {
                     exportLogs()
                 }
                 .buttonStyle(.borderless)
+                .accessibilityIdentifier("settings.advanced.exportLogsButton")
 
                 Button("Run Diagnostics Check") {
                     runDiagnostics()
                 }
                 .buttonStyle(.borderless)
+                .accessibilityIdentifier("settings.advanced.diagnosticsButton")
             }
         }
         .formStyle(.grouped)

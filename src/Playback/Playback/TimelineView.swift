@@ -302,6 +302,7 @@ struct TimelineView: View {
                 }
                 .buttonStyle(.plain)
                 .position(x: geo.size.width / 2, y: barY - 32)
+                .accessibilityIdentifier("timeline.timeBubbleButton")
             }
             // Desloca apenas a área de hit-test alguns pontos para baixo, mantendo os
             // segmentos na mesma posição visual.

@@ -79,6 +79,7 @@ struct FirstRunWindowView: View {
                     }
                     .buttonStyle(.bordered)
                     .disabled(isProcessing)
+                    .accessibilityIdentifier("firstrun.backButton")
                 }
 
                 if coordinator.currentStep == .config && coordinator.currentStep.canSkip {
@@ -87,6 +88,7 @@ struct FirstRunWindowView: View {
                     }
                     .buttonStyle(.bordered)
                     .disabled(isProcessing)
+                    .accessibilityIdentifier("firstrun.skipButton")
                 }
 
                 if coordinator.currentStep == FirstRunStep.allCases.last {
@@ -95,6 +97,7 @@ struct FirstRunWindowView: View {
                     }
                     .buttonStyle(.borderedProminent)
                     .disabled(!coordinator.canProceed() || isProcessing)
+                    .accessibilityIdentifier("firstrun.finishButton")
                 } else {
                     Button("Continue") {
                         coordinator.moveToNextStep()
@@ -102,6 +105,7 @@ struct FirstRunWindowView: View {
                     }
                     .buttonStyle(.borderedProminent)
                     .disabled(!coordinator.canProceed() || isProcessing)
+                    .accessibilityIdentifier("firstrun.continueButton")
                 }
             }
         }
