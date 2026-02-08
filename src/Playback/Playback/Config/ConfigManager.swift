@@ -21,6 +21,15 @@ final class ConfigManager: ObservableObject {
         startWatching()
     }
 
+    internal init(configPath: URL, enableWatcher: Bool = false) {
+        self.configPath = configPath
+        self.config = Config.defaultConfig
+        loadConfiguration()
+        if enableWatcher {
+            startWatching()
+        }
+    }
+
     func loadConfiguration() {
         do {
             let data = try Data(contentsOf: configPath)
