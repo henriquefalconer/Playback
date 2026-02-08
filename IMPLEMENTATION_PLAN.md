@@ -352,11 +352,12 @@ These items improve the overall experience but are not blocking core functionali
 - **Source:** `src/Playback/Playback/Config/ConfigManager.swift:132-145`
 - **Currently:** `migrateConfig()` only matches version "1.0.0" and sets it back to "1.0.0" -- no-op.
 
-### 3.10 Config: Environment Variable Overrides Not Implemented
+### 3.10 Config: Environment Variable Overrides ✅ FIXED
 
-- [ ] **Support PLAYBACK_CONFIG and PLAYBACK_DATA_DIR env vars**
+- [x] **Support PLAYBACK_CONFIG and PLAYBACK_DATA_DIR env vars**
 - **Spec:** `specs/configuration.md` -- PLAYBACK_CONFIG and PLAYBACK_DATA_DIR environment variables
 - **Source:** `src/Playback/Playback/Paths.swift` -- only checks `PLAYBACK_DEV_MODE`
+- **Fix applied:** Added support for PLAYBACK_CONFIG and PLAYBACK_DATA_DIR environment variables in Paths.swift. These variables override default paths when set, allowing flexible deployment configurations for testing, CI/CD, and custom installations. Environment variable checks happen before dev/prod mode checks, providing highest precedence.
 
 ### 3.11 FirstRun: No Notification Listener for Permission Re-check
 

@@ -8,6 +8,11 @@ enum Paths {
 
     /// Base data directory (dev or production)
     static var baseDataDirectory: URL {
+        // Check for PLAYBACK_DATA_DIR environment variable override
+        if let dataDir = ProcessInfo.processInfo.environment["PLAYBACK_DATA_DIR"] {
+            return URL(fileURLWithPath: dataDir)
+        }
+
         if isDevelopment {
             // Development: use dev_data/ relative to project root
             // Assumes project root is 3 levels up from Playback.app location
@@ -47,6 +52,11 @@ enum Paths {
 
     /// Config file path
     static func configPath() -> URL {
+        // Check for PLAYBACK_CONFIG environment variable override
+        if let configPath = ProcessInfo.processInfo.environment["PLAYBACK_CONFIG"] {
+            return URL(fileURLWithPath: configPath)
+        }
+
         if isDevelopment {
             let projectRoot = Bundle.main.bundleURL
                 .deletingLastPathComponent()
