@@ -11,6 +11,7 @@ struct PlaybackApp: App {
     @StateObject private var configManager = ConfigManager.shared
     @StateObject private var menuBarViewModel = MenuBarViewModel()
     @StateObject private var hotkeyManager = GlobalHotkeyManagerWrapper()
+    @StateObject private var processMonitor = ProcessMonitor.shared
 
     var body: some Scene {
         MenuBarExtra {
@@ -25,15 +26,20 @@ struct PlaybackApp: App {
             ContentView()
                 .environmentObject(timelineStore)
                 .environmentObject(playbackController)
+                .environmentObject(processMonitor)
                 .onAppear {
                     NSApp.windows.first?.toggleFullScreen(nil)
                     signalManager.createSignal()
+                    processMonitor.startMonitoring()
                     hotkeyManager.registerHotkey {
                         NSApp.activate(ignoringOtherApps: true)
                         if let window = NSApp.windows.first(where: { $0.identifier?.rawValue == "timeline" }) {
                             window.makeKeyAndOrderFront(nil)
                         }
                     }
+                }
+                .onDisappear {
+                    processMonitor.stopMonitoring()
                 }
         }
         .windowStyle(.hiddenTitleBar)

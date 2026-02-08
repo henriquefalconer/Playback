@@ -60,11 +60,15 @@ These items prevent basic usability. They should be fixed first.
   - `ContentView.swift` — Conditional rendering based on loading state (empty/error/loading/content)
 - **Note:** App now provides clear feedback for all states (empty data, errors, loading)
 
-### 1.2 Timeline: No Loading Screen During Processing
+### 1.2 Timeline: No Loading Screen During Processing — ✅ COMPLETE
 - **Spec:** `specs/timeline-graphical-interface.md` lines 54-67
-- **Source:** `LoadingScreenView.swift` does not exist
-- **Missing:** Spinner with status text, process detection for `build_chunks_from_temp.py`, estimated time, ESC to dismiss
-- **Impact:** User opens app during processing and sees blank/stale content
+- **Source:** `Timeline/LoadingScreenView.swift`, `Services/ProcessMonitor.swift`
+- **Implemented:**
+  - `LoadingScreenView.swift` — Semi-transparent overlay with centered modal, app name, spinner, and status text
+  - `ProcessMonitor.swift` — Process detection service polling for `build_chunks_from_temp.py` every 500ms using pgrep
+  - `PlaybackApp.swift` — Integration of ProcessMonitor with timeline window lifecycle
+  - `ContentView.swift` — Shows LoadingScreenView when processing detected, ESC key dismisses and closes app
+- **Note:** App now provides clear visual feedback when processing service is running
 
 ### 1.3 App Icon Missing
 - **Spec:** `specs/timeline-graphical-interface.md` lines 32-36

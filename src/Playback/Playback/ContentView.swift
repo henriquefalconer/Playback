@@ -5,6 +5,7 @@ import AppKit
 struct ContentView: View {
     @EnvironmentObject var timelineStore: TimelineStore
     @EnvironmentObject var playbackController: PlaybackController
+    @EnvironmentObject var processMonitor: ProcessMonitor
 
     @State private var centerTime: TimeInterval = 0
     @State private var showDatePicker = false
@@ -31,7 +32,9 @@ struct ContentView: View {
 
     var body: some View {
         ZStack {
-            if timelineStore.loadingState == .loading {
+            if processMonitor.isProcessing {
+                LoadingScreenView()
+            } else if timelineStore.loadingState == .loading {
                 LoadingStateContentView()
             } else if timelineStore.loadingState == .empty {
                 EmptyStateView()
@@ -248,6 +251,8 @@ struct ContentView: View {
                 case 53:  // ESC - Close window or search
                     if self.showSearch {
                         self.showSearch = false
+                    } else if self.processMonitor.isProcessing {
+                        NSApp.keyWindow?.close()
                     } else {
                         NSApp.keyWindow?.close()
                     }
