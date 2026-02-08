@@ -28,10 +28,13 @@ final class ConfigManagerTests: XCTestCase {
     // MARK: - Initialization Tests
 
     func testInitializationCreatesDefaultConfig() throws {
-        XCTAssertFalse(FileManager.default.fileExists(atPath: tempConfigPath.path),
+        let testConfigPath = tempDirectory.appendingPathComponent("test_default_config.json")
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: testConfigPath.path),
                        "Config file should not exist before initialization")
 
-        let defaultConfig = configManager.config
+        let manager = ConfigManager(configPath: testConfigPath)
+        let defaultConfig = manager.config
 
         XCTAssertEqual(defaultConfig.version, "1.0.0")
         XCTAssertEqual(defaultConfig.processingIntervalMinutes, 5)
@@ -44,6 +47,8 @@ final class ConfigManagerTests: XCTestCase {
     }
 
     func testInitializationLoadsExistingConfig() throws {
+        let testConfigPath = tempDirectory.appendingPathComponent("test_existing_config.json")
+
         let customConfig = """
         {
             "version": "1.0.0",
@@ -65,9 +70,9 @@ final class ConfigManagerTests: XCTestCase {
         }
         """
 
-        try customConfig.write(to: tempConfigPath, atomically: true, encoding: .utf8)
+        try customConfig.write(to: testConfigPath, atomically: true, encoding: .utf8)
 
-        let manager = ConfigManager(configPath: tempConfigPath)
+        let manager = ConfigManager(configPath: testConfigPath)
         let config = manager.config
 
         XCTAssertEqual(config.version, "1.0.0")
@@ -85,11 +90,14 @@ final class ConfigManagerTests: XCTestCase {
     // MARK: - Saving Tests
 
     func testSaveConfigurationWritesFile() throws {
-        XCTAssertFalse(FileManager.default.fileExists(atPath: tempConfigPath.path))
+        let testConfigPath = tempDirectory.appendingPathComponent("test_save_file.json")
 
-        configManager.saveConfiguration()
+        XCTAssertFalse(FileManager.default.fileExists(atPath: testConfigPath.path))
 
-        XCTAssertTrue(FileManager.default.fileExists(atPath: tempConfigPath.path),
+        let manager = ConfigManager(configPath: testConfigPath)
+        manager.saveConfiguration()
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: testConfigPath.path),
                       "Config file should exist after save")
     }
 
@@ -121,6 +129,8 @@ final class ConfigManagerTests: XCTestCase {
     }
 
     func testSaveConfigurationMaintainsMaxFiveBackups() throws {
+        configManager.saveConfiguration()
+
         for i in 1...7 {
             var modifiedConfig = configManager.config
             let newInterval = (i * 5) % 60
@@ -228,6 +238,8 @@ final class ConfigManagerTests: XCTestCase {
     }
 
     func testValidationFiltersInvalidBundleIDs() throws {
+        let testConfigPath = tempDirectory.appendingPathComponent("test_bundle_validation.json")
+
         let invalidConfig = """
         {
             "version": "1.0.0",
@@ -249,9 +261,9 @@ final class ConfigManagerTests: XCTestCase {
         }
         """
 
-        try invalidConfig.write(to: tempConfigPath, atomically: true, encoding: .utf8)
+        try invalidConfig.write(to: testConfigPath, atomically: true, encoding: .utf8)
 
-        let manager = ConfigManager(configPath: tempConfigPath)
+        let manager = ConfigManager(configPath: testConfigPath)
 
         XCTAssertEqual(manager.config.excludedApps.count, 2,
                        "Invalid bundle IDs should be filtered out")
@@ -323,6 +335,8 @@ final class ConfigManagerTests: XCTestCase {
     // MARK: - Update Tests
 
     func testUpdateConfigSavesImmediately() throws {
+        configManager.saveConfiguration()
+
         var newConfig = configManager.config
         newConfig.processingIntervalMinutes = 15
 
@@ -401,9 +415,11 @@ final class ConfigManagerTests: XCTestCase {
     }
 
     func testHandlesMissingFileGracefully() throws {
-        XCTAssertFalse(FileManager.default.fileExists(atPath: tempConfigPath.path))
+        let testConfigPath = tempDirectory.appendingPathComponent("test_missing_file.json")
 
-        let manager = ConfigManager(configPath: tempConfigPath)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: testConfigPath.path))
+
+        let manager = ConfigManager(configPath: testConfigPath)
 
         XCTAssertEqual(manager.config.version, "1.0.0",
                        "Should use defaults when file is missing")
