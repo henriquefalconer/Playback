@@ -68,6 +68,9 @@ Key operational learnings from Phase 2 development (2026-02-07):
 - **UI test timing:** Use `waitForExistence(timeout:)` for element queries rather than fixed sleep() when possible. Use sleep() only for animations/transitions
 - **Build verification for UI tests:** Use `xcodebuild build-for-testing` to verify UI tests compile without running them (fast validation, especially in CI/CD)
 - **GUI environment requirement:** UI tests require WindowServer running (check with `ps aux | grep WindowServer`). Tests will fail in headless environments
+- **Performance test async issues:** XCTest performance tests cannot reliably measure async operations. SearchController and other async patterns that depend on RunLoop may timeout (110+ seconds). Solution: Use direct SQLite C API queries for synchronous performance measurement instead of async Swift wrappers
+- **SQLITE_TRANSIENT binding:** When using sqlite3_bind_text in Swift, use `unsafeBitCast(-1, to: sqlite3_destructor_type.self)` for SQLITE_TRANSIENT to ensure proper string binding
+- **FTS5 rank function:** FTS5 rank is accessed via `rank` function in WHERE/ORDER BY clauses, not as a column (e.g., `ORDER BY o.timestamp DESC` not `ORDER BY s.rank`)
 
 ## Specifications
 

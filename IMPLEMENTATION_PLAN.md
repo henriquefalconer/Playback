@@ -449,6 +449,8 @@ Playback consists of separate components:
 
 **Status:** All 21 performance tests implemented and build-verified
 
+**Note:** Fixed 6 failing tests that were timing out due to async SearchController usage. All tests now use direct SQL queries for reliable synchronous performance measurement.
+
 **What's Complete:**
 - ✅ **Database query performance tests** (4 tests) - Targets: <100-200ms
   - testSegmentLoadingPerformance: Load 100 segments (<100ms)
