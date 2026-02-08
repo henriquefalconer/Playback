@@ -101,9 +101,9 @@ if [ "$MODE" = "plan" ] && [ -z "$GOAL_TEXT" ]; then
         printf "${GREEN_BOLD}Type your goal - Enter to select project-specific goal for the agent to cycle planning${RESET}\n\n"
 
         # Move cursor back visually (crude)
-        printf "\rAs our next objective, we want to achieve ${GREEN_BOLD}%s${RESET}" "${GOAL_TEXT:0:$cursor_pos}"
+        printf "\rAs our next objective, we want to achieve ${GREEN_BOLD}%s_${RESET}" "${GOAL_TEXT:0:$cursor_pos}"
         if [ $cursor_pos -lt ${#GOAL_TEXT} ]; then
-            printf "${YELLOW_BOLD}%s${RESET}" "${GOAL_TEXT:cursor_pos:1}"
+            printf "${YELLOW_BOLD}%s_${RESET}" "${GOAL_TEXT:cursor_pos:1}"
         fi
 
         printf "\n\n${YELLOW_BOLD}Examples:${RESET}\n"
@@ -164,7 +164,7 @@ if [ "$MODE" = "plan" ] && [ -z "$GOAL_TEXT" ]; then
     clear 2>/dev/null || printf '\033[H\033[2J'
     echo -e "${GREEN_BOLD}Confirm goal${RESET}"
     echo -e "────────────────────────────────────────────────────────────────────"
-    echo -e "ULTIMATE GOAL: We want to achieve ${YELLOW_BOLD}${GOAL_TEXT}${RESET}."
+    echo -e "As our next objective, we want to achieve ${YELLOW_BOLD}${GOAL_TEXT}${RESET}."
     echo -e "────────────────────────────────────────────────────────────────────\n"
     echo -en "${GREEN_BOLD}Good? [Y/n] ${RESET}"
     read -n 1 -r confirm 2>/dev/null
