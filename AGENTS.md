@@ -81,6 +81,12 @@ Key operational learnings from Phase 2 development (2026-02-07):
 - **State propagation for error handling:** ObservableObject stores (TimelineStore, PlaybackController) publish loading/error state via @Published properties. ContentView observes and renders appropriate view (LoadingStateView, EmptyStateView, ErrorStateView, or main content)
 - **Consecutive failure tracking:** Track failure counts in controller, trigger error state after threshold (e.g., 3 consecutive failures) to avoid silent failures and blank screens
 - **NotificationCenter for retry actions:** Use NotificationCenter.default.post to communicate from error state views back to data loading layers for retry operations
+- **ShellCommand utility pattern:** Created centralized Utilities/ShellCommand.swift to eliminate pipe deadlock pattern. Uses readabilityHandler to drain pipes before waitUntilExit(). All shell command executions should use this utility instead of raw Process() calls
+- **Pipe deadlock fix:** NEVER call process.waitUntilExit() before reading pipe data. Always read pipes asynchronously via readabilityHandler or read data before waiting. Classic deadlock: waitUntilExit blocks → pipe fills → process blocks waiting for pipe drain → circular dependency → SIGABRT
+- **ConfigWatcher file descriptor management:** Only close file descriptors in ONE location. Use dispatch source cancel handler as the sole owner of fd cleanup. Duplicate close() calls cause SIGABRT on reused file descriptors
+- **Force unwrap safety:** Replace .first! on FileManager URLs with guard statements. Use guard let with fatalError for truly impossible conditions (like missing Application Support directory)
+- **Native permission checks:** Use CGPreflightScreenCaptureAccess() instead of Python subprocess for screen recording permission. Single synchronous function call, no external process overhead
+- **Bundle identifier consistency:** Actual bundle ID is "com.falconer.Playback", not "com.playback.timeline". Check project.pbxproj PRODUCT_BUNDLE_IDENTIFIER for authoritative value
 
 ## Specifications
 
