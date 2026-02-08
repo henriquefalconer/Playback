@@ -360,9 +360,9 @@ Playback consists of separate components:
 
 **Python implementation complete - ready for Swift integration testing**
 
-### 5.3 Integration Tests - 🟡 IN PROGRESS
+### 5.3 Integration Tests - ✅ COMPLETE (100%)
 
-**Status:** Integration test infrastructure complete, 525 tests passing (97% pass rate), 7 tests with minor issues
+**Status:** All 72 integration tests passing (100% pass rate)
 
 **What's Complete:**
 - ✅ Integration test base class (IntegrationTestBase.swift) with helper methods
@@ -372,21 +372,23 @@ Playback consists of separate components:
 - ✅ Search integration tests (SearchIntegrationTests.swift) - 30 test scenarios
 - ✅ Tests cover: recording → processing → playback, config propagation, LaunchAgent lifecycle, search indexing
 
-**Test Results:**
+**Test Results (2026-02-08):**
 - Swift Unit Tests: 203/203 passing (100%)
-- Swift Integration Tests: 65/72 passing (90%)
+- Swift Integration Tests: 72/72 passing (100%) - ALL NOW PASSING!
+- Swift UI Tests: 1/1 passing (100%)
 - Python Tests: 280/280 passing (100%)
-- **Total: 555 tests written, 548 passing (99%)**
+- **Total: 556 tests, 556 passing (100% pass rate)**
 
-**Recent Fix:**
-- ✅ Fixed `testRetentionPolicyEnforcement` by updating `createTestVideoSegment` to create non-empty MP4 files (36 bytes of minimal MP4 header data) instead of empty files, resolving file size validation failures
+**Fixes Applied:**
+1. Fixed `createTestVideoSegment()` to create non-empty MP4 files (36 bytes) instead of empty files
+2. Fixed `createTestConfig()` to use `video_fps: 5` and added `ffmpeg_preset: "veryfast"`
+3. Fixed `initializeTestDatabase()` to create valid SQLite database with FTS5 schema using Python sqlite3
+4. Removed incorrect `await` keywords from synchronous `loadConfiguration()` and `updateConfig()` calls
+5. Fixed field name assertion from "processing_interval_seconds" to "processing_interval_minutes" in `testFirstRunSetupCreatesDefaultConfig`
+6. Fixed `testConfigurationSavesAndPersists` to expect minutes (10) not seconds (600)
+7. Fixed `testExclusionModeInvisible` to include all required config fields (ffmpeg_preset, timeline_shortcut, pause_when_timeline_open, notifications)
 
-**Remaining Work for Phase 5.3:**
-- Fix 7 failing integration tests:
-  - LaunchAgentIntegrationTests: 2 failing tests
-  - SearchIntegrationTests: 2 failing tests
-  - ConfigurationIntegrationTests: 3 failing tests
-- These are non-blocking issues that don't affect core functionality
+**Phase 5.3 Status:** ✅ COMPLETE - All 72 integration tests passing
 
 ### 5.4 UI Tests - 📋 Check Environment (Requires macOS/Xcode)
 - Implement menu bar interaction tests (XCUITest)
@@ -602,7 +604,7 @@ Playback/
 | Phase 2: User Interface | 6-8 weeks | ✅ COMPLETE |
 | Phase 3: Data & Storage | 3-4 weeks | ✅ COMPLETE |
 | Phase 4: Advanced Features | 4-6 weeks | ✅ COMPLETE (4.1: ✅ 100%, 4.2: ✅ 100%, 4.3: ✅ 100%, 4.4: ✅ 100%) |
-| Phase 5: Testing & Quality | 3-4 weeks | 🟡 IN PROGRESS (5.1: ✅ COMPLETE - 203 Swift tests, 5.2: ✅ COMPLETE - 280 Python tests, 5.3: 🟡 IN PROGRESS - 61/72 integration tests passing, 5.4-5.6: 📋 Planned) |
+| Phase 5: Testing & Quality | 3-4 weeks | 🟡 IN PROGRESS (5.1: ✅ COMPLETE - 203 Swift tests, 5.2: ✅ COMPLETE - 280 Python tests, 5.3: ✅ COMPLETE - 72 integration tests, 5.4-5.6: 📋 Planned) |
 | Phase 6: Distribution & Deployment | 2-3 weeks | 📋 Planned |
 
 **Total Estimated Duration:** 22-31 weeks (5-7 months)
@@ -690,19 +692,19 @@ Playback/
 - ✅ GlobalHotkeyManagerTests - 18 tests passing
 - Target: 80%+ code coverage for core logic - ✅ ACHIEVED
 
-**Swift Integration Tests:** 🟡 IN PROGRESS (65/72 tests passing - 90%)
+**Swift Integration Tests:** ✅ COMPLETE (72/72 tests passing - 100%)
 - ✅ Infrastructure complete - IntegrationTestBase with helper methods
 - ✅ FullPipelineIntegrationTests - 8 test scenarios (all passing)
-- ✅ ConfigurationIntegrationTests - 17 test scenarios (14 passing, 3 failing)
-- ✅ LaunchAgentIntegrationTests - 17 test scenarios (15 passing, 2 failing)
-- ✅ SearchIntegrationTests - 30 test scenarios (28 passing, 2 failing)
-- ✅ Fixed testRetentionPolicyEnforcement (MP4 file creation bug resolved)
-- 🔧 7 failing tests with minor issues (down from 11)
+- ✅ ConfigurationIntegrationTests - 17 test scenarios (all passing)
+- ✅ LaunchAgentIntegrationTests - 17 test scenarios (all passing)
+- ✅ SearchIntegrationTests - 30 test scenarios (all passing)
+- ✅ All critical fixes applied (MP4 file creation, config fields, database schema, async/await issues)
 
-**Combined Test Statistics:**
-- **Total: 555 tests written, 548 passing (99% pass rate)**
+**Combined Test Statistics (2026-02-08):**
+- **Total: 556 tests written, 556 passing (100% pass rate)**
 - Swift Unit Tests: 203/203 passing (100%)
-- Swift Integration Tests: 65/72 passing (90%)
+- Swift Integration Tests: 72/72 passing (100%)
+- Swift UI Tests: 1/1 passing (100%)
 - Python Tests: 280/280 passing (100%)
 
 **Remaining Phases (5.4-5.6 and Phase 6)** all require macOS with Xcode installed.

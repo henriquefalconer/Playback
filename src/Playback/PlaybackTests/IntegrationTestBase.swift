@@ -63,8 +63,9 @@ class IntegrationTestBase: XCTestCase {
             "recording_retention_policy": "never",
             "exclusion_mode": "skip",
             "excluded_apps": excludedApps,
-            "video_fps": 30,
+            "video_fps": 5,
             "ffmpeg_crf": 28,
+            "ffmpeg_preset": "veryfast",
             "timeline_shortcut": "Option+Shift+Space",
             "pause_when_timeline_open": true,
             "notifications": [
@@ -81,11 +82,46 @@ class IntegrationTestBase: XCTestCase {
 
     /// Initialize test database with schema
     func initializeTestDatabase() throws {
-        // This would call the database initialization from Python or Swift
-        // For now, we'll create a minimal database file
+        // Create a minimal valid SQLite database with FTS5 schema
         let fileManager = FileManager.default
-        if !fileManager.fileExists(atPath: tempDatabasePath.path) {
-            fileManager.createFile(atPath: tempDatabasePath.path, contents: nil)
+        if fileManager.fileExists(atPath: tempDatabasePath.path) {
+            try fileManager.removeItem(atPath: tempDatabasePath.path)
+        }
+
+        // Create SQLite database with schema using Python library
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
+        process.arguments = ["-c", """
+            import sqlite3
+            conn = sqlite3.connect('\(tempDatabasePath.path)')
+            conn.execute('PRAGMA journal_mode=WAL')
+            conn.execute('PRAGMA secure_delete=ON')
+            conn.execute('''CREATE TABLE IF NOT EXISTS segments (
+                id TEXT PRIMARY KEY,
+                date TEXT NOT NULL,
+                start_ts REAL NOT NULL,
+                end_ts REAL NOT NULL,
+                frame_count INTEGER NOT NULL,
+                file_size_bytes INTEGER NOT NULL
+            )''')
+            conn.execute('''CREATE TABLE IF NOT EXISTS ocr_text (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                segment_id TEXT NOT NULL,
+                timestamp REAL NOT NULL,
+                text TEXT NOT NULL
+            )''')
+            conn.execute('''CREATE VIRTUAL TABLE IF NOT EXISTS ocr_text_fts USING fts5(
+                segment_id, timestamp, text, content=ocr_text
+            )''')
+            conn.commit()
+            conn.close()
+            """]
+        try process.run()
+        process.waitUntilExit()
+
+        if process.terminationStatus != 0 {
+            throw NSError(domain: "IntegrationTest", code: 1,
+                         userInfo: [NSLocalizedDescriptionKey: "Failed to initialize test database"])
         }
     }
 

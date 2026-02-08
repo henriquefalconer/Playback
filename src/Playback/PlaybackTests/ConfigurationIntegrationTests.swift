@@ -16,7 +16,7 @@ final class ConfigurationIntegrationTests: IntegrationTestBase {
 
         // WHEN: ConfigManager loads the config
         let configManager = ConfigManager(configPath: tempConfigPath)
-        await configManager.loadConfiguration()
+        configManager.loadConfiguration()
 
         // THEN: Config values match file contents
         XCTAssertEqual(configManager.config.processingIntervalMinutes, 10)
@@ -51,7 +51,7 @@ final class ConfigurationIntegrationTests: IntegrationTestBase {
 
         // WHEN: ConfigManager loads and validates
         let configManager = ConfigManager(configPath: tempConfigPath)
-        await configManager.loadConfiguration()
+        configManager.loadConfiguration()
 
         // THEN: Invalid values are corrected
         XCTAssertGreaterThan(configManager.config.processingIntervalMinutes, 0)
@@ -66,19 +66,19 @@ final class ConfigurationIntegrationTests: IntegrationTestBase {
         // GIVEN: Initial config
         try createTestConfig(processingIntervalMinutes: 5)
         let configManager = ConfigManager(configPath: tempConfigPath)
-        await configManager.loadConfiguration()
+        configManager.loadConfiguration()
 
         XCTAssertEqual(configManager.config.processingIntervalMinutes, 5)
 
         // WHEN: Config is updated and saved
         var updatedConfig = configManager.config
         updatedConfig.processingIntervalMinutes = 10  // Valid value from allowed set
-        await configManager.updateConfig(updatedConfig)
+        configManager.updateConfig(updatedConfig)
 
         // THEN: Changes are saved to file
         let savedData = try Data(contentsOf: tempConfigPath)
         let savedConfig = try JSONSerialization.jsonObject(with: savedData) as! [String: Any]
-        XCTAssertEqual(savedConfig["processing_interval_minutes"] as? Int, 600)
+        XCTAssertEqual(savedConfig["processing_interval_minutes"] as? Int, 10)
 
         // AND: New ConfigManager instance loads the updated values
         let newConfigManager = ConfigManager(configPath: tempConfigPath)
@@ -92,14 +92,14 @@ final class ConfigurationIntegrationTests: IntegrationTestBase {
         // GIVEN: Initial config
         try createTestConfig()
         let configManager = ConfigManager(configPath: tempConfigPath)
-        await configManager.loadConfiguration()
+        configManager.loadConfiguration()
 
         // WHEN: Config is updated multiple times
         let validIntervals = [1, 5, 10, 15, 30, 60]
         for interval in validIntervals {
             var updatedConfig = configManager.config
             updatedConfig.processingIntervalMinutes = interval
-            await configManager.updateConfig(updatedConfig)
+            configManager.updateConfig(updatedConfig)
             try await Task.sleep(nanoseconds: 100_000_000) // Small delay to ensure different timestamps
         }
 
@@ -125,7 +125,7 @@ final class ConfigurationIntegrationTests: IntegrationTestBase {
         // GIVEN: Initial config
         try createTestConfig(processingIntervalMinutes: 5)
         let configManager = ConfigManager(configPath: tempConfigPath)
-        await configManager.loadConfiguration()
+        configManager.loadConfiguration()
 
         XCTAssertEqual(configManager.config.processingIntervalMinutes, 5)
 
@@ -134,7 +134,7 @@ final class ConfigurationIntegrationTests: IntegrationTestBase {
 
         // Note: File watcher would trigger reload in real scenario
         // For testing, manually trigger reload
-        await configManager.loadConfiguration()
+        configManager.loadConfiguration()
 
         // THEN: ConfigManager loads new values
         XCTAssertEqual(configManager.config.processingIntervalMinutes, 10)
@@ -146,14 +146,14 @@ final class ConfigurationIntegrationTests: IntegrationTestBase {
         // GIVEN: ConfigManager with initial values
         try createTestConfig(excludedApps: ["com.test.app1"])
         let configManager = ConfigManager(configPath: tempConfigPath)
-        await configManager.loadConfiguration()
+        configManager.loadConfiguration()
 
         XCTAssertEqual(configManager.config.excludedApps.count, 1)
 
         // WHEN: Config is updated
         var updatedConfig = configManager.config
         updatedConfig.excludedApps = ["com.test.app1", "com.test.app2"]
-        await configManager.updateConfig(updatedConfig)
+        configManager.updateConfig(updatedConfig)
 
         // THEN: Published properties are updated
         XCTAssertEqual(configManager.config.excludedApps.count, 2)
@@ -222,7 +222,7 @@ final class ConfigurationIntegrationTests: IntegrationTestBase {
         try createTestConfig(excludedApps: excludedApps)
 
         let configManager = ConfigManager(configPath: tempConfigPath)
-        await configManager.loadConfiguration()
+        configManager.loadConfiguration()
 
         // THEN: All excluded apps are recognized
         for app in excludedApps {
@@ -252,7 +252,7 @@ final class ConfigurationIntegrationTests: IntegrationTestBase {
         try jsonData.write(to: tempConfigPath)
 
         let configManager = ConfigManager(configPath: tempConfigPath)
-        await configManager.loadConfiguration()
+        configManager.loadConfiguration()
 
         // THEN: Exclusion mode is skip
         XCTAssertEqual(configManager.config.exclusionMode, "skip")
@@ -266,18 +266,27 @@ final class ConfigurationIntegrationTests: IntegrationTestBase {
             "version": "1.0.0",
             "exclusion_mode": "invisible",
             "excluded_apps": ["com.test.app"],
-            "processing_interval_minutes": 300,
+            "processing_interval_minutes": 5,
             "temp_retention_policy": "1_week",
             "recording_retention_policy": "never",
             "video_fps": 5,
-            "ffmpeg_crf": 28
+            "ffmpeg_crf": 28,
+            "ffmpeg_preset": "veryfast",
+            "timeline_shortcut": "Option+Shift+Space",
+            "pause_when_timeline_open": true,
+            "notifications": [
+                "processing_complete": true,
+                "processing_errors": true,
+                "disk_space_warnings": true,
+                "recording_status": false
+            ]
         ]
 
         let jsonData = try JSONSerialization.data(withJSONObject: config, options: .prettyPrinted)
         try jsonData.write(to: tempConfigPath)
 
         let configManager = ConfigManager(configPath: tempConfigPath)
-        await configManager.loadConfiguration()
+        configManager.loadConfiguration()
 
         // THEN: Exclusion mode is invisible
         XCTAssertEqual(configManager.config.exclusionMode, "invisible")
@@ -307,7 +316,7 @@ final class ConfigurationIntegrationTests: IntegrationTestBase {
         try jsonData.write(to: tempConfigPath)
 
         let configManager = ConfigManager(configPath: tempConfigPath)
-        await configManager.loadConfiguration()
+        configManager.loadConfiguration()
 
         // THEN: Notification settings are loaded
         // Note: This would require accessing notification settings from config
@@ -325,7 +334,7 @@ final class ConfigurationIntegrationTests: IntegrationTestBase {
 
         // WHEN: ConfigManager attempts to load
         let configManager = ConfigManager(configPath: nonExistentPath)
-        await configManager.loadConfiguration()
+        configManager.loadConfiguration()
 
         // THEN: Default values are used
         XCTAssertGreaterThan(configManager.config.processingIntervalMinutes, 0)
@@ -343,7 +352,7 @@ final class ConfigurationIntegrationTests: IntegrationTestBase {
 
         // WHEN: ConfigManager attempts to load
         let configManager = ConfigManager(configPath: tempConfigPath)
-        await configManager.loadConfiguration()
+        configManager.loadConfiguration()
 
         // THEN: Falls back to default values
         XCTAssertGreaterThan(configManager.config.processingIntervalMinutes, 0)
@@ -359,7 +368,7 @@ final class ConfigurationIntegrationTests: IntegrationTestBase {
 
         // WHEN: ConfigManager loads
         let configManager = ConfigManager(configPath: tempConfigPath)
-        await configManager.loadConfiguration()
+        configManager.loadConfiguration()
 
         // THEN: Default values are used
         XCTAssertGreaterThan(configManager.config.processingIntervalMinutes, 0)

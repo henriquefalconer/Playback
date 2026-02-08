@@ -204,7 +204,7 @@ final class LaunchAgentIntegrationTests: IntegrationTestBase {
         let config = try JSONSerialization.jsonObject(with: configData) as! [String: Any]
 
         XCTAssertNotNil(config["version"])
-        XCTAssertNotNil(config["processing_interval_seconds"])
+        XCTAssertNotNil(config["processing_interval_minutes"])
         XCTAssertNotNil(config["video_fps"])
     }
 
