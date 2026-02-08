@@ -34,7 +34,7 @@ for arg in "$@"; do
     esac
 done
 
-set -- "${POSITIONAL[@]}"   # restore positional parameters
+set -- "${POSITIONAL[@]:-}"   # restore positional parameters
 
 # ────────────────────────────────────────────────
 # Mode & prompt file
