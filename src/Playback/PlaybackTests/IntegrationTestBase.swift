@@ -130,8 +130,16 @@ class IntegrationTestBase: XCTestCase {
         let filename = "\(startTimestamp).mp4"
         let filePath = dateDir.appendingPathComponent(filename)
 
-        // Create an empty file (real tests would need actual video data)
-        FileManager.default.createFile(atPath: filePath.path, contents: Data())
+        // Create a minimal MP4 file (not a valid video, but has non-zero size for tests)
+        // MP4 file header bytes for a minimal valid structure
+        let mp4Data = Data([
+            0x00, 0x00, 0x00, 0x20, 0x66, 0x74, 0x79, 0x70, // ftyp box
+            0x69, 0x73, 0x6F, 0x6D, 0x00, 0x00, 0x02, 0x00,
+            0x69, 0x73, 0x6F, 0x6D, 0x69, 0x73, 0x6F, 0x32,
+            0x6D, 0x70, 0x34, 0x31, 0x00, 0x00, 0x00, 0x08,
+            0x66, 0x72, 0x65, 0x65 // free box
+        ])
+        FileManager.default.createFile(atPath: filePath.path, contents: mp4Data)
         return filePath
     }
 

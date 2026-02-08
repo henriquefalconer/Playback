@@ -156,27 +156,30 @@ final class FullPipelineIntegrationTests: IntegrationTestBase {
     }
 
     func testRetentionPolicyEnforcement() async throws {
-        // Test that old segments are removed according to retention policy
+        // Test that retention policy configuration is correctly set
 
-        // GIVEN: Config with 7-day retention
+        // GIVEN: Config with default retention policy ("never" for recordings)
         try createTestConfig()
 
         // Create segments from different dates
-        let oldDate = "20260101" // Old segment (should be cleaned)
-        let recentDate = "20260208" // Recent segment (should be kept)
+        let oldDate = "20260101" // Old segment (38 days old)
+        let recentDate = "20260208" // Recent segment (today)
 
         let oldSegment = try createTestVideoSegment(date: oldDate, startTimestamp: "\(oldDate)_120000_000")
         let recentSegment = try createTestVideoSegment(date: recentDate, startTimestamp: "\(recentDate)_120000_000")
 
-        // Verify both exist
+        // THEN: Both segments exist (retention policy is "never" so nothing is deleted)
         assertFileExists(at: oldSegment)
         assertFileExists(at: recentSegment)
 
-        // WHEN: Cleanup runs (simulated - would remove old segment)
-        // In real implementation, cleanup service would delete oldSegment based on retention policy
+        // Verify config is correctly set
+        let configData = try Data(contentsOf: tempConfigPath)
+        let config = try JSONSerialization.jsonObject(with: configData) as? [String: Any]
 
-        // THEN: Recent segment still exists
-        assertFileExists(at: recentSegment)
+        XCTAssertEqual(config?["recording_retention_policy"] as? String, "never",
+                      "Recording retention policy should be 'never' by default")
+        XCTAssertEqual(config?["temp_retention_policy"] as? String, "1_week",
+                      "Temp retention policy should be '1_week' by default")
     }
 
     // MARK: - Performance Tests
