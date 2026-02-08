@@ -76,7 +76,7 @@ if [ "$MODE" = "plan" ] && [ -z "$GOAL_TEXT" ]; then
     # Very basic raw-mode editor hack for bash 3.2
     # ──────────────────────────────
 
-    GOAL_TEXT="a "           # starting suggestion
+    GOAL_TEXT=""           # starting suggestion
     cursor_pos=${#GOAL_TEXT} # where cursor is (end by default)
 
     # Save terminal state
@@ -91,7 +91,6 @@ if [ "$MODE" = "plan" ] && [ -z "$GOAL_TEXT" ]; then
     trap '
         stty "$old_stty" 2>/dev/null
         printf "\033[?25h"          # show cursor again
-        printf "\nInterrupted\n"
         exit 1
     ' INT TERM EXIT
 
