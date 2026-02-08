@@ -49,7 +49,8 @@ final class SearchControllerTests: XCTestCase {
             text: "test text",
             timestamp: 1640000000.0,
             segmentId: "seg-1",
-            confidence: 0.95
+            confidence: 0.95,
+            framePath: nil
         )
         XCTAssertEqual(result.id, 123)
         XCTAssertEqual(result.text, "test text")
@@ -64,7 +65,8 @@ final class SearchControllerTests: XCTestCase {
             text: "test",
             timestamp: 1640000000.0,
             segmentId: nil,
-            confidence: 0.9
+            confidence: 0.9,
+            framePath: nil
         )
         XCTAssertFalse(result.formattedTime.isEmpty)
         XCTAssertTrue(result.formattedTime.contains(":"))
@@ -77,7 +79,8 @@ final class SearchControllerTests: XCTestCase {
             text: shortText,
             timestamp: 1640000000.0,
             segmentId: nil,
-            confidence: 0.9
+            confidence: 0.9,
+            framePath: nil
         )
         XCTAssertEqual(result.snippet, shortText)
         XCTAssertFalse(result.snippet.contains("..."))
@@ -90,7 +93,8 @@ final class SearchControllerTests: XCTestCase {
             text: longText,
             timestamp: 1640000000.0,
             segmentId: nil,
-            confidence: 0.9
+            confidence: 0.9,
+            framePath: nil
         )
         XCTAssertTrue(result.snippet.count <= 103)
         XCTAssertTrue(result.snippet.hasSuffix("..."))
@@ -103,7 +107,8 @@ final class SearchControllerTests: XCTestCase {
             text: exactText,
             timestamp: 1640000000.0,
             segmentId: nil,
-            confidence: 0.9
+            confidence: 0.9,
+            framePath: nil
         )
         XCTAssertEqual(result.snippet, exactText)
         XCTAssertFalse(result.snippet.contains("..."))
@@ -140,7 +145,8 @@ final class SearchControllerTests: XCTestCase {
             text: "test",
             timestamp: 1640000000.0,
             segmentId: nil,
-            confidence: 0.9
+            confidence: 0.9,
+            framePath: nil
         )
         searchController.results = [result]
         wait(for: [expectation], timeout: 1.0)
@@ -313,7 +319,8 @@ final class SearchControllerTests: XCTestCase {
             text: "test",
             timestamp: 1640000000.0,
             segmentId: nil,
-            confidence: 0.9
+            confidence: 0.9,
+            framePath: nil
         )
 
         searchController.jumpToResult(result)
@@ -342,7 +349,8 @@ final class SearchControllerTests: XCTestCase {
             text: "test",
             timestamp: testTimestamp,
             segmentId: nil,
-            confidence: 0.9
+            confidence: 0.9,
+            framePath: nil
         )
 
         searchController.jumpToResult(result)
@@ -391,7 +399,8 @@ final class SearchControllerTests: XCTestCase {
                 text: "Test result \(index) with some longer text for snippet testing",
                 timestamp: Date().addingTimeInterval(Double(index * 60)).timeIntervalSince1970,
                 segmentId: "segment-\(index)",
-                confidence: 0.9
+                confidence: 0.9,
+                framePath: nil
             )
         }
     }

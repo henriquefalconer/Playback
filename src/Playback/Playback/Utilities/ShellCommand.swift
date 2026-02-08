@@ -41,22 +41,12 @@ enum ShellCommand {
         process.standardOutput = outputPipe
         process.standardError = errorPipe
 
-        var outputData = Data()
-        var errorData = Data()
-
-        outputPipe.fileHandleForReading.readabilityHandler = { handle in
-            outputData.append(handle.availableData)
-        }
-
-        errorPipe.fileHandleForReading.readabilityHandler = { handle in
-            errorData.append(handle.availableData)
-        }
-
         try process.run()
-        process.waitUntilExit()
 
-        outputPipe.fileHandleForReading.readabilityHandler = nil
-        errorPipe.fileHandleForReading.readabilityHandler = nil
+        let outputData = outputPipe.fileHandleForReading.readDataToEndOfFile()
+        let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
+
+        process.waitUntilExit()
 
         let output = String(data: outputData, encoding: .utf8) ?? ""
         let error = String(data: errorData, encoding: .utf8) ?? ""

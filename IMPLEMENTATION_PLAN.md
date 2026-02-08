@@ -70,7 +70,7 @@ Based on comprehensive technical specifications in `specs/` and verified against
 - ✅ Fixed ConfigWatcher double-close file descriptor crash
 - ✅ Fixed force unwrap crashes in Paths.swift, SettingsView.swift, DateTimePickerView.swift, DependencyCheckView.swift
 - ✅ Eliminated code duplication across 8 shell command implementations
-- ⏳ **NEW: ShellCommand.swift readabilityHandler race condition discovered (item 1.6) - requires fix**
+- ✅ Fixed ShellCommand.swift readabilityHandler race condition (item 1.6) - replaced with synchronous readDataToEndOfFile() pattern
 
 ### 1.1 SIGABRT Crash: Pipe Deadlock in LaunchAgentManager.swift:307 ✅ FIXED
 
@@ -110,11 +110,11 @@ Based on comprehensive technical specifications in `specs/` and verified against
 - **Fix applied:** Created `Utilities/ShellCommand.swift` with comprehensive implementation supporting synchronous, async/await, and completion handler patterns. All 8 call sites migrated successfully.
 - **Note:** See 1.6 below for additional race condition found in ShellCommand.swift implementation.
 
-### 1.6 SIGABRT Crash: ShellCommand.swift readabilityHandler Race Condition ⏳ IN PROGRESS
+### 1.6 SIGABRT Crash: ShellCommand.swift readabilityHandler Race Condition ✅ FIXED
 
 **Date Identified:** 2026-02-08
 
-- [ ] **Fix readabilityHandler race condition in ShellCommand.swift**
+- [x] **Fix readabilityHandler race condition in ShellCommand.swift**
 - **Source:** `src/Playback/Playback/Utilities/ShellCommand.swift` lines 44-66 (specifically lines 47-59)
 - **Root Cause:** The `readabilityHandler` closures execute on **background dispatch queues** (not the calling thread). When `waitUntilExit()` returns, the handlers may **still be executing** on their queues. Setting handlers to `nil` **does NOT stop already-dispatched handler invocations**. The handlers continue running **AFTER the function returns**, accessing `outputData`/`errorData` variables that may be deallocated, causing memory access violation → SIGABRT.
 
@@ -195,20 +195,20 @@ static func run(_ executablePath: String, arguments: [String] = []) throws -> Re
 
 #### Implementation Steps
 1. ✅ **Root cause identified** - readabilityHandler race condition confirmed via testing
-2. ⏳ **Update ShellCommand.run()** - Replace readabilityHandler pattern with readDataToEndOfFile()
-3. ⏳ **Test fix** - Run stress tests (sequential, concurrent, MainActor context)
-4. ⏳ **Verify LaunchAgentManager** - Ensure all operations work (load/unload/status)
-5. ⏳ **Update CLAUDE.md** - Document the correct pipe handling pattern
+2. ✅ **Update ShellCommand.run()** - Replace readabilityHandler pattern with readDataToEndOfFile()
+3. ✅ **Test fix** - Run stress tests (sequential, concurrent, MainActor context)
+4. ✅ **Verify LaunchAgentManager** - Ensure all operations work (load/unload/status)
+5. ✅ **Update CLAUDE.md** - Document the correct pipe handling pattern
 
 #### Testing Plan
 1. ✅ Standalone sequential test (5 calls) - PASSED
 2. ✅ Stress test (10 rapid calls) - PASSED
 3. ✅ Concurrent test (5 threads) - PASSED
 4. ✅ MainActor context test - PASSED
-5. ⏳ Build and run Playback.app
-6. ⏳ Test LaunchAgentManager operations (load/unload/start/stop/status)
-7. ⏳ Test Settings → Services tab
-8. ⏳ Verify no crashes during extended use
+5. ✅ Build and run Playback.app
+6. ✅ Test LaunchAgentManager operations (load/unload/start/stop/status)
+7. ✅ Test Settings → Services tab
+8. ✅ Verify no crashes during extended use
 
 #### Operational Note for CLAUDE.md
 Add to "Recent Implementation Notes" section:
