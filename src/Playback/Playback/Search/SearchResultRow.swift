@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 struct SearchResultRow: View {
     let result: SearchController.SearchResult
@@ -9,17 +10,33 @@ struct SearchResultRow: View {
     var body: some View {
         Button(action: onSelect) {
             HStack(alignment: .top, spacing: 12) {
-                // Timestamp and confidence
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(result.formattedTime)
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundColor(.primary)
+                // App icon and name
+                HStack(spacing: 6) {
+                    if let appId = result.appId,
+                       let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: appId) {
+                        let icon = NSWorkspace.shared.icon(forFile: appURL.path)
+                        Image(nsImage: icon)
+                            .resizable()
+                            .frame(width: 20, height: 20)
+                    } else {
+                        Image(systemName: "app.fill")
+                            .resizable()
+                            .frame(width: 20, height: 20)
+                            .foregroundColor(.secondary)
+                    }
 
-                    Text(String(format: "%.0f%% confidence", result.confidence * 100))
-                        .font(.system(size: 11))
-                        .foregroundColor(.secondary)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(result.appName)
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundColor(.primary)
+                            .lineLimit(1)
+
+                        Text(result.formattedTime)
+                            .font(.system(size: 10))
+                            .foregroundColor(.secondary)
+                    }
                 }
-                .frame(width: 120, alignment: .leading)
+                .frame(width: 140, alignment: .leading)
 
                 // Text snippet with highlighted search terms
                 Text(highlightedSnippet())
@@ -27,6 +44,12 @@ struct SearchResultRow: View {
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
                     .frame(maxWidth: .infinity, alignment: .leading)
+
+                // Confidence indicator
+                Text(String(format: "%.0f%%", result.confidence * 100))
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+                    .frame(width: 40, alignment: .trailing)
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)

@@ -145,12 +145,24 @@ These features are specified but not implemented. They impact UX but are not blo
   - Updated `GeneralSettingsTab` with all three features integrated
   - Permission status moved from `PrivacySettingsTab` to `GeneralSettingsTab` with yellow background warning when permissions missing
 
-### 2.2 Search: App Icon in Result Rows
+### 2.2 Search: App Icon in Result Rows ✅ COMPLETE
 
-- [ ] **Add app icon and app name to search results**
+- [x] **Add app icon and app name to search results**
 - **Spec:** `specs/search-ocr.md` lines 101-103 -- "App icon (20x20), app name, timestamp, snippet"
 - **Source:** `src/Playback/Playback/Search/SearchResultRow.swift`
-- **Missing:** No app icon or app name shown; only timestamp + confidence + snippet displayed
+- **Implementation complete:**
+  - Added `framePath` field to `SearchResult` struct (optional String)
+  - Added computed `appId` property that extracts bundle ID from frame filename (format: `YYYYMMDD-HHMMSS-uuid-app_id.png`)
+  - Added computed `appName` property that resolves bundle ID to app name using NSWorkspace
+  - Updated SQL query to include `o.frame_path` in SELECT statement
+  - Updated result parsing to extract `frame_path` from database
+  - Updated `SearchResultRow` to display:
+    - App icon (20x20) using `NSWorkspace.shared.icon(forFile:)`
+    - App name from bundle ID resolution
+    - Timestamp below app name
+    - Text snippet with highlighting
+    - Confidence percentage on the right
+  - Improved layout: app info (140px), snippet (flex), confidence (40px)
 
 ### 2.3 Permission Checking Uses Python Subprocess Instead of Native API ✅ FIXED
 

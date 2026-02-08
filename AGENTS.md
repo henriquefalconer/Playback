@@ -87,6 +87,15 @@ Key operational learnings from Phase 2 development (2026-02-07):
 - **Force unwrap safety:** Replace .first! on FileManager URLs with guard statements. Use guard let with fatalError for truly impossible conditions (like missing Application Support directory)
 - **Native permission checks:** Use CGPreflightScreenCaptureAccess() instead of Python subprocess for screen recording permission. Single synchronous function call, no external process overhead
 - **Bundle identifier consistency:** Actual bundle ID is "com.falconer.Playback", not "com.playback.timeline". Check project.pbxproj PRODUCT_BUNDLE_IDENTIFIER for authoritative value
+- **SwiftUI KeyPress API:** Use `.onKeyPress { }` with `KeyPress` object for capturing keyboard events in SwiftUI. Access modifiers via `keyPress.modifiers` and key via `keyPress.key`. Return `.handled` to consume the event or `.ignored` to pass through
+- **EventModifiers ambiguity:** SwiftUI.EventModifiers and Carbon.EventModifiers conflict. Use explicit `SwiftUI.EventModifiers` qualification when needed
+- **SMAppService availability:** SMAppService.mainApp requires macOS 13+. Wrap access in `#available(macOS 13.0, *)` checks. Status property can throw - wrap in do/catch for safety
+- **Modifier key bit masks:** Carbon modifier constants: Control (1<<12), Option (1<<11), Shift (1<<9), Command (1<<8). Use these for GlobalHotkeyManager registration
+- **Optional Config fields:** New Config fields should be optional (`Bool?`) to maintain backward compatibility with existing config files. Provide defaults when loading
+- **Frame path format:** Recording service stores frames with format `YYYYMMDD-HHMMSS-uuid-app_id.png`. App ID extracted by splitting on '-' and taking last component (strip .png extension)
+- **NSWorkspace icon retrieval:** `NSWorkspace.shared.icon(forFile:)` returns NSImage directly (non-optional). Use with `urlForApplication(withBundleIdentifier:)` which returns optional URL
+- **App name from bundle ID:** Use `NSWorkspace.shared.urlForApplication(withBundleIdentifier:)` to get app URL, then `FileManager.default.displayName(atPath:)` to get human-readable name. Strip ".app" extension from result
+- **SQLite column ordering:** When adding columns to existing SELECT queries, update both the SQL string AND the sqlite3_column_* indices in result parsing (framePath was added as column 5, so index is 5)
 
 ## Specifications
 

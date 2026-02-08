@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 import SQLite3
 import Combine
 
@@ -20,6 +21,28 @@ final class SearchController: ObservableObject {
         let timestamp: Double
         let segmentId: String?
         let confidence: Double
+        let framePath: String?
+
+        var appId: String? {
+            guard let path = framePath else { return nil }
+            // Format: YYYYMMDD-HHMMSS-<uuid>-<app_id>.png
+            let components = path.components(separatedBy: "-")
+            guard components.count >= 4 else { return nil }
+            let lastComponent = components.last ?? ""
+            let appIdWithExt = lastComponent
+            return appIdWithExt.replacingOccurrences(of: ".png", with: "")
+        }
+
+        var appName: String {
+            guard let bundleId = appId else { return "Unknown App" }
+            // Try to get app name from workspace
+            if let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleId) {
+                let appName = FileManager.default.displayName(atPath: appURL.path)
+                return appName.replacingOccurrences(of: ".app", with: "")
+            }
+            // Fallback to bundle ID
+            return bundleId
+        }
 
         var formattedTime: String {
             let date = Date(timeIntervalSince1970: timestamp)
@@ -127,6 +150,7 @@ final class SearchController: ObservableObject {
                     o.timestamp,
                     o.segment_id,
                     o.confidence,
+                    o.frame_path,
                     s.rank
                 FROM ocr_text o
                 JOIN ocr_search s ON o.id = s.rowid
@@ -161,13 +185,16 @@ final class SearchController: ObservableObject {
                 let segmentIdPtr = sqlite3_column_text(statement, 3)
                 let segmentId = segmentIdPtr != nil ? String(cString: segmentIdPtr!) : nil
                 let confidence = sqlite3_column_double(statement, 4)
+                let framePathPtr = sqlite3_column_text(statement, 5)
+                let framePath = framePathPtr != nil ? String(cString: framePathPtr!) : nil
 
                 let result = SearchResult(
                     id: id,
                     text: text,
                     timestamp: timestamp,
                     segmentId: segmentId,
-                    confidence: confidence
+                    confidence: confidence,
+                    framePath: framePath
                 )
                 results.append(result)
             }
