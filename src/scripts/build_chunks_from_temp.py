@@ -274,8 +274,8 @@ def process_ocr_for_frames(
     except Exception as e:
         log_error_with_context(
             logger,
-            e,
             "OCR batch processing failed",
+            exception=e,
             segment_id=segment_id,
             frame_count=len(frames),
             num_workers=num_workers
@@ -330,8 +330,8 @@ def process_ocr_for_frames(
         except Exception as e:
             log_error_with_context(
                 logger,
-                e,
                 "OCR database insertion failed",
+                exception=e,
                 segment_id=segment_id,
                 ocr_records_count=len(ocr_records)
             )
@@ -421,8 +421,16 @@ def cleanup_temp_files(frames: List[FrameInfo], day: str, logger) -> None:
         )
 
 
-def collect_metrics() -> dict:
-    """Collect current resource metrics using psutil."""
+def collect_metrics(start_time: float = None) -> dict:
+    """
+    Collect current resource metrics using psutil.
+
+    Args:
+        start_time: Optional service start time (from time.time()) for uptime calculation
+
+    Returns:
+        Dictionary of metrics including cpu_percent, memory_mb, disk_free_gb, and optionally uptime_hours
+    """
     metrics = {}
     if PSUTIL_AVAILABLE:
         try:
@@ -430,6 +438,10 @@ def collect_metrics() -> dict:
             metrics["cpu_percent"] = process.cpu_percent(interval=0.1)
             metrics["memory_mb"] = round(process.memory_info().rss / (1024 * 1024), 2)
             metrics["disk_free_gb"] = round(psutil.disk_usage('/').free / (1024 * 1024 * 1024), 2)
+
+            # Add uptime if start_time is provided
+            if start_time is not None:
+                metrics["uptime_hours"] = (time.time() - start_time) / 3600
         except Exception:
             pass
     return metrics
@@ -581,13 +593,15 @@ def process_day(
             total_ocr_records += ocr_records
 
         # Collect metrics every 10 segments to avoid overhead
-        if idx % 10 == 0:
-            log_resource_metrics(
-                logger,
-                "processing",
-                segments_processed=idx,
-                total_segments=len(segments)
-            )
+        if idx % 10 == 0 and PSUTIL_AVAILABLE:
+            metrics = collect_metrics(day_start_time)
+            if metrics:
+                log_resource_metrics(
+                    logger,
+                    **metrics,
+                    segments_processed=idx,
+                    total_segments=len(segments)
+                )
 
     # Persiste todos os appsegments calculados para o dia.
     log_info(
@@ -802,8 +816,8 @@ def main() -> None:
                 failed_days += 1
                 log_error_with_context(
                     logger,
-                    e,
                     "Failed to process day",
+                    exception=e,
                     day=day,
                     mode="auto"
                 )
@@ -834,8 +848,8 @@ def main() -> None:
         except Exception as e:
             log_error_with_context(
                 logger,
-                e,
                 "Failed to process day in manual mode",
+                exception=e,
                 day=args.day
             )
             sys.exit(1)

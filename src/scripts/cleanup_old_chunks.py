@@ -244,8 +244,8 @@ def cleanup_temp_files(
             except Exception as e:
                 log_error_with_context(
                     logger,
-                    e,
                     "Error processing temp file",
+                    exception=e,
                     file_path=str(file_path)
                 )
 
@@ -387,8 +387,8 @@ def cleanup_old_recordings(
         except Exception as e:
             log_error_with_context(
                 logger,
-                e,
                 "Error deleting segment",
+                exception=e,
                 segment_id=segment_id,
                 video_path=video_path
             )
@@ -581,6 +581,36 @@ def print_storage_report(logger, verbose: bool = False) -> None:
     print("============================\n")
 
 
+def collect_metrics(start_time: float) -> dict:
+    """
+    Collect resource usage metrics if psutil is available.
+
+    Args:
+        start_time: Service start time (from time.time())
+
+    Returns:
+        Dictionary of metrics including cpu_percent, memory_mb, disk_free_gb, uptime_hours
+    """
+    if not PSUTIL_AVAILABLE:
+        return {}
+
+    try:
+        process = psutil.Process()
+        cpu_percent = process.cpu_percent(interval=0.1)
+        memory_mb = process.memory_info().rss / (1024 * 1024)
+        disk_free_gb = psutil.disk_usage('/').free / (1024 * 1024 * 1024)
+        uptime_hours = (time.time() - start_time) / 3600
+
+        return {
+            "cpu_percent": cpu_percent,
+            "memory_mb": memory_mb,
+            "disk_free_gb": disk_free_gb,
+            "uptime_hours": uptime_hours,
+        }
+    except Exception:
+        return {}
+
+
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(
@@ -674,7 +704,9 @@ def main() -> None:
 
     # Collect initial resource metrics
     if PSUTIL_AVAILABLE:
-        log_resource_metrics(logger, "cleanup", operation="start")
+        metrics = collect_metrics(start_time)
+        if metrics:
+            log_resource_metrics(logger, **metrics, operation="start")
 
     # Print storage report if requested
     if args.report:
@@ -731,7 +763,9 @@ def main() -> None:
         print(f"[cleanup] Temp cleanup: {temp_deleted} files deleted, {format_size(temp_freed)} freed")
 
         if PSUTIL_AVAILABLE:
-            log_resource_metrics(logger, "cleanup", operation="after_temp_cleanup")
+            metrics = collect_metrics(start_time)
+            if metrics:
+                log_resource_metrics(logger, **metrics, operation="after_temp_cleanup")
 
     # Clean up old recordings
     if args.auto or args.policy or args.recording_policy:
@@ -751,7 +785,9 @@ def main() -> None:
         print(f"[cleanup] Recording cleanup: {recordings_deleted} segments deleted, {format_size(recordings_freed)} freed")
 
         if PSUTIL_AVAILABLE:
-            log_resource_metrics(logger, "cleanup", operation="after_recording_cleanup")
+            metrics = collect_metrics(start_time)
+            if metrics:
+                log_resource_metrics(logger, **metrics, operation="after_recording_cleanup")
 
     # Clean up orphaned segments
     if args.orphaned:
@@ -767,7 +803,9 @@ def main() -> None:
         print(f"[cleanup] Orphaned segments: {orphaned_count} removed")
 
         if PSUTIL_AVAILABLE:
-            log_resource_metrics(logger, "cleanup", operation="after_orphaned_cleanup")
+            metrics = collect_metrics(start_time)
+            if metrics:
+                log_resource_metrics(logger, **metrics, operation="after_orphaned_cleanup")
 
     # Vacuum database
     if args.vacuum and not args.dry_run:
@@ -781,7 +819,9 @@ def main() -> None:
         print(f"[cleanup] Database vacuum: {format_size(vacuum_freed)} freed")
 
         if PSUTIL_AVAILABLE:
-            log_resource_metrics(logger, "cleanup", operation="after_vacuum")
+            metrics = collect_metrics(start_time)
+            if metrics:
+                log_resource_metrics(logger, **metrics, operation="after_vacuum")
 
     # Print summary
     print()
@@ -804,7 +844,9 @@ def main() -> None:
     )
 
     if PSUTIL_AVAILABLE:
-        log_resource_metrics(logger, "cleanup", operation="end")
+        metrics = collect_metrics(start_time)
+        if metrics:
+            log_resource_metrics(logger, **metrics, operation="end")
 
 
 if __name__ == "__main__":

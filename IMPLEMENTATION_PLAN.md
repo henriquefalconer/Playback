@@ -81,6 +81,8 @@ Playback consists of separate components:
 **Critical bug fixes and improvements completed:**
 - ✅ **Fixed FTS5 batch insert ID calculation** - Corrected `last_insert_rowid()` retrieval to prevent potential data corruption
 - ✅ **Fixed config validation bug** - String values for `excluded_apps` no longer iterated as characters
+- ✅ **Fixed `log_error_with_context()` argument order bug** - Corrected 7 call sites that would log incorrect error messages due to swapped parameters
+- ✅ **Fixed `log_resource_metrics()` argument type bug** - Corrected 9 call sites that would crash with TypeError by passing dict instead of individual kwargs
 - ✅ **Added missing docstrings** - Completed documentation for `build_chunks_from_temp.py` (FrameInfo, parse_args, main)
 - ✅ **Created shared utils module** - Consolidated duplicate `format_size()` functions into `src/lib/utils.py`
 - ✅ **Test count increased to 280** - Added 8 new tests for utils and config validation (272 → 280)

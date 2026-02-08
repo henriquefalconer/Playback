@@ -294,7 +294,9 @@ def create_export(
 
     # Collect metrics before ZIP creation
     if PSUTIL_AVAILABLE:
-        log_resource_metrics(logger, "export_data", operation="before_zip_creation")
+        metrics = collect_metrics(export_start_time)
+        if metrics:
+            log_resource_metrics(logger, **metrics, operation="before_zip_creation")
 
     # Create ZIP archive
     if verbose:
@@ -328,13 +330,15 @@ def create_export(
                     zipf.write(source_path, archive_path)
 
                     if idx % 50 == 0 and PSUTIL_AVAILABLE:
-                        log_resource_metrics(
-                            logger,
-                            "export_data",
-                            operation="zip_creation_progress",
-                            files_processed=idx,
-                            total_files=stats['total_files']
-                        )
+                        metrics = collect_metrics(export_start_time)
+                        if metrics:
+                            log_resource_metrics(
+                                logger,
+                                **metrics,
+                                operation="zip_creation_progress",
+                                files_processed=idx,
+                                total_files=stats['total_files']
+                            )
 
                 except Exception as e:
                     log_warning(
@@ -378,7 +382,9 @@ def create_export(
             print(f"[export] Total files:     {stats['total_files'] + 1} (including manifest)")
 
             if PSUTIL_AVAILABLE:
-                log_resource_metrics(logger, "export_data", operation="export_complete")
+                metrics = collect_metrics(export_start_time)
+                if metrics:
+                    log_resource_metrics(logger, **metrics, operation="export_complete")
         else:
             log_error(logger, "Archive file was not created", expected_path=str(output_path))
             print("[export] Error: Archive file was not created")
@@ -387,8 +393,8 @@ def create_export(
     except Exception as e:
         log_error_with_context(
             logger,
-            e,
             "Failed to create archive",
+            exception=e,
             output_path=str(output_path)
         )
         print(f"[export] Error creating archive: {e}")
@@ -478,12 +484,44 @@ Note:
     return parser.parse_args()
 
 
+def collect_metrics(start_time: float) -> dict:
+    """
+    Collect resource usage metrics if psutil is available.
+
+    Args:
+        start_time: Service start time (from time.time())
+
+    Returns:
+        Dictionary of metrics including cpu_percent, memory_mb, disk_free_gb, uptime_hours
+    """
+    if not PSUTIL_AVAILABLE:
+        return {}
+
+    try:
+        process = psutil.Process()
+        cpu_percent = process.cpu_percent(interval=0.1)
+        memory_mb = process.memory_info().rss / (1024 * 1024)
+        disk_free_gb = psutil.disk_usage('/').free / (1024 * 1024 * 1024)
+        uptime_hours = (time.time() - start_time) / 3600
+
+        return {
+            "cpu_percent": cpu_percent,
+            "memory_mb": memory_mb,
+            "disk_free_gb": disk_free_gb,
+            "uptime_hours": uptime_hours,
+        }
+    except Exception:
+        return {}
+
+
 def main() -> None:
     """Main entry point for export script."""
     args = parse_args()
 
     # Setup structured logging
     logger = setup_logger("export_data", log_level="INFO", console_output=False)
+
+    start_time = time.time()
 
     # Determine verbosity
     verbose = args.verbose and not args.quiet
@@ -500,7 +538,9 @@ def main() -> None:
 
     # Collect initial resource metrics
     if PSUTIL_AVAILABLE:
-        log_resource_metrics(logger, "export_data", operation="start")
+        metrics = collect_metrics(start_time)
+        if metrics:
+            log_resource_metrics(logger, **metrics, operation="start")
 
     # Determine output path
     if args.output:
