@@ -334,11 +334,12 @@ These items improve the overall experience but are not blocking core functionali
 - **Source:** `src/Playback/Playback/Settings/SettingsView.swift:1450-1452`
 - **Currently:** `rebuildDatabase()` just sets `showRebuildProgress = true`, no actual rebuild logic.
 
-### 3.7 Settings: Reset All Doesn't Restart App
+### 3.7 Settings: Reset All With App Restart ✅ FIXED
 
-- [ ] **Add app restart after reset**
+- [x] **Add app restart after reset**
 - **Spec:** `specs/menu-bar.md` line 390
 - **Source:** `src/Playback/Playback/Settings/SettingsView.swift:1446-1448`
+- **Fix applied:** Added automatic app restart after resetAllSettings(). Uses Process with /usr/bin/open to relaunch the app, then terminates current instance with 0.5s delay to ensure config is written. Provides clean state after reset.
 
 ### 3.8 Settings: Export Logs Is Minimal
 

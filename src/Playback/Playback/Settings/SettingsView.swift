@@ -1579,6 +1579,16 @@ struct AdvancedSettingsTab: View {
 
     private func resetAllSettings() {
         configManager.updateConfig(Config.defaultConfig)
+
+        // Restart app after reset to ensure clean state
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            let appPath = Bundle.main.bundlePath
+            let task = Process()
+            task.launchPath = "/usr/bin/open"
+            task.arguments = [appPath]
+            task.launch()
+            NSApplication.shared.terminate(nil)
+        }
     }
 
     private func rebuildDatabase() {
