@@ -15,7 +15,11 @@ Based on comprehensive technical specifications in `specs/` and verified against
 - **Confirmed** = verified by reading the actual source file and line numbers
 - Items marked with checkboxes: `[ ]` = TODO, `[x]` = COMPLETE
 - Each item references the spec and exact source file + line numbers
-- **Ultimate Goals:** Fix SIGABRT crashes, consolidate storage paths, clean up remaining issues
+- **Ultimate Goals:**
+  1. Fix SIGABRT crash when `launchctl list` fails (pipe deadlock in LaunchAgentManager.swift:307)
+  2. Fix ConfigWatcher double-close SIGABRT crash
+  3. Ensure no custom storage location picker exists (confirmed: it doesn't)
+  4. Storage paths: `~/Library/Application Support/Playback/` for production, `dev_data/` for development (already correct in code)
 
 ---
 
@@ -53,6 +57,8 @@ Based on comprehensive technical specifications in `specs/` and verified against
 - [x] **Search result markers on timeline** -- `TimelineView.swift:262-279` renders yellow vertical line markers at search match timestamps within visible window
 - [x] **Processing tab features** -- `SettingsView.swift:182-517` has last run timestamp/duration/status display, "Process Now" button, auto-refresh every 10s
 - [x] **Processing interval picker** -- `SettingsView.swift:267-277` with 1/5/10/15/30/60 minute options
+- [x] **Custom storage location picker** -- Confirmed NOT present, which is correct. StorageSetupView.swift shows only the default path with no picker. NSSavePanel usage is limited to export operations (data export and log export), which is correct behavior.
+- [x] **Storage paths correct** -- Production paths use `~/Library/Application Support/Playback/` (Swift Paths.swift, Python paths.py, LaunchAgentManager.swift all consistent). Development uses `dev_data/`. No path changes needed.
 
 ---
 
@@ -60,7 +66,27 @@ Based on comprehensive technical specifications in `specs/` and verified against
 
 These bugs cause SIGABRT crashes and potential deadlocks. They must be fixed first.
 
-### 1.1 SIGABRT Crash: ConfigWatcher Double-Close File Descriptor
+### 1.1 SIGABRT Crash: Pipe Deadlock in LaunchAgentManager.swift:307
+
+- [ ] **Fix pipe deadlock in `runCommand()` that causes SIGABRT**
+- **Source:** `src/Playback/Playback/Services/LaunchAgentManager.swift` lines 296-318
+- **Root Cause:** `runCommand()` calls `process.waitUntilExit()` on line 307 BEFORE reading pipe data on lines 309-310. When `launchctl list com.playback.recording` returns "Could not find service" on stderr, the process may block if the pipe buffer fills, causing `waitUntilExit()` to deadlock. The system eventually sends SIGABRT.
+- **Exact crash sequence:**
+  1. `launchctl list com.playback.recording` is executed
+  2. Service not found -- launchctl writes error to stderr
+  3. `waitUntilExit()` blocks waiting for process to exit
+  4. If pipe buffer fills (>64KB), process blocks waiting for reader
+  5. Classic deadlock → SIGABRT
+- **Fix approach:** Read pipe data BEFORE calling `waitUntilExit()`:
+  ```swift
+  try process.run()
+  let outputData = outputPipe.fileHandleForReading.readDataToEndOfFile()
+  let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
+  process.waitUntilExit()
+  ```
+- **Also fix:** `getAgentStatus()` (line 153) calls `runLaunchctl(["list", type.label])` which hits this same deadlock code path when the service isn't loaded.
+
+### 1.2 SIGABRT Crash: ConfigWatcher Double-Close File Descriptor
 
 - [ ] **Fix ConfigWatcher deinit double-close**
 - **Source:** `src/Playback/Playback/Config/ConfigManager.swift` lines 163-209
@@ -69,14 +95,13 @@ These bugs cause SIGABRT crashes and potential deadlocks. They must be fixed fir
   - Lines 202-207: `deinit` calls `close(fileDescriptor)` on line 204 AND THEN calls `source?.cancel()` on line 207
 - **Crash sequence:**
   1. ConfigWatcher is deallocated, `deinit` runs
-  2. Line 204: `close(fileDescriptor)` closes the fd, sets `fileDescriptor = -1`
-  3. Line 207: `source?.cancel()` fires the cancel handler
-  4. Cancel handler (line 194) reads `self?.fileDescriptor` -- but `self` may already be partially torn down, or the fd value was cached before the `-1` assignment
-  5. If the cancel handler gets the original fd value (not -1), it calls `close()` on an already-closed fd
-  6. Double-close on a file descriptor -> **SIGABRT**
-- **Additional risk:** Between step 2 and the cancel handler executing, the OS may have reused the file descriptor number for another resource. Closing a reused fd corrupts unrelated state.
-- **Fix approach:** Remove `close(fileDescriptor)` from `deinit` entirely. Let the cancel handler be the sole owner of closing the fd. The `deinit` should only call `source?.cancel()`, which triggers the cancel handler to close the fd safely.
-- **Alternative fix:** Set `fileDescriptor = -1` atomically before closing, and check in the cancel handler:
+  2. Line 204: `close(fileDescriptor)` closes the fd
+  3. Line 205: `fileDescriptor = -1`
+  4. Line 207: `source?.cancel()` fires the cancel handler
+  5. Cancel handler (line 194) reads `self?.fileDescriptor` -- may see original fd value (not -1) due to timing
+  6. Double-close on a file descriptor → **SIGABRT**
+- **Additional risk:** Between step 2 and the cancel handler executing, the OS may have reused the file descriptor number for another resource.
+- **Fix approach:** Remove `close(fileDescriptor)` from `deinit` entirely. Let the cancel handler be the sole owner:
   ```swift
   deinit {
       source?.cancel()
@@ -84,33 +109,25 @@ These bugs cause SIGABRT crashes and potential deadlocks. They must be fixed fir
   }
   ```
 
-### 1.2 Pipe Deadlock: waitUntilExit() Before readDataToEndOfFile()
+### 1.3 Pipe Deadlock: 7 Additional Locations with Same Pattern
 
-- [ ] **Fix pipe deadlock in LaunchAgentManager.swift:296-318**
-- [ ] **Fix same pattern in ProcessMonitor.swift:70-91**
-- [ ] **Fix same pattern in DependencyCheckView.swift:162-188**
-- [ ] **Fix same pattern in SettingsView.swift (5 instances: lines 494-517, 834-857, 1065-1092, 1155-1178, 1502-1525)**
-- **Source:** 8 locations total across 4 files
-- **Root Cause:** All locations call `process.waitUntilExit()` BEFORE `pipe.fileHandleForReading.readDataToEndOfFile()`. If the child process writes more than ~64KB to stdout/stderr, the pipe buffer fills, the process blocks waiting for the reader to consume data, and `waitUntilExit()` blocks waiting for the process to exit. Classic deadlock.
+- [ ] **Fix pipe deadlock in ProcessMonitor.swift:81**
+- [ ] **Fix pipe deadlock in DependencyCheckView.swift:174**
+- [ ] **Fix pipe deadlock in SettingsView.swift (5 instances: lines 506, 846, 1084, 1167, 1514)**
+- **Source:** 7 additional locations across 3 files (8 total including 1.1)
+- **Root Cause:** All locations call `process.waitUntilExit()` BEFORE `pipe.fileHandleForReading.readDataToEndOfFile()`. Same deadlock pattern as 1.1.
 - **Affected files and lines:**
-  - `LaunchAgentManager.swift:307` -- `process.waitUntilExit()` then line 309 `readDataToEndOfFile()`
   - `ProcessMonitor.swift:81` -- `process.waitUntilExit()` then line 83 `readDataToEndOfFile()`
-  - `DependencyCheckView.swift:173-176` -- `process.run(); process.waitUntilExit(); readDataToEndOfFile()`
-  - `SettingsView.swift:505-508` -- ProcessingSettingsTab.runShellCommand()
-  - `SettingsView.swift:845-848` -- StorageSettingsTab.runShellCommand()
-  - `SettingsView.swift:1083-1086` -- PrivacySettingsTab.checkScreenRecordingPermission() (Python subprocess)
-  - `SettingsView.swift:1166-1169` -- PrivacySettingsTab.runShellCommand()
-  - `SettingsView.swift:1513-1516` -- AdvancedSettingsTab.runShellCommand()
-- **Fix approach:** Read pipe data BEFORE calling `waitUntilExit()`:
-  ```swift
-  try process.run()
-  let outputData = outputPipe.fileHandleForReading.readDataToEndOfFile()
-  let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
-  process.waitUntilExit()
-  ```
-- **Better fix:** Extract a shared `ShellCommand` utility to eliminate all 8 duplicated implementations (see item 1.4).
+  - `DependencyCheckView.swift:174` -- `process.run(); process.waitUntilExit(); readDataToEndOfFile()`
+  - `SettingsView.swift:506` -- ProcessingSettingsTab.runShellCommand()
+  - `SettingsView.swift:846` -- StorageSettingsTab.runShellCommand()
+  - `SettingsView.swift:1084` -- PrivacySettingsTab.checkScreenRecordingPermission() (Python subprocess)
+  - `SettingsView.swift:1167` -- PrivacySettingsTab.runShellCommand()
+  - `SettingsView.swift:1514` -- AdvancedSettingsTab.runShellCommand()
+- **Fix approach:** Read pipe data BEFORE calling `waitUntilExit()` in each location.
+- **Better fix:** Extract a shared `ShellCommand` utility to eliminate all 8 duplicated implementations (see item 1.5).
 
-### 1.3 Force Unwrap Crash: Paths.swift .first!
+### 1.4 Force Unwrap Crash: Paths.swift .first!
 
 - [ ] **Fix force unwrap in Paths.swift:24 and Paths.swift:58**
 - **Source:** `src/Playback/Playback/Paths.swift` lines 24 and 58
@@ -122,12 +139,11 @@ These bugs cause SIGABRT crashes and potential deadlocks. They must be fixed fir
       in: .userDomainMask
   ).first else {
       fatalError("Application Support directory not available")
-      // Or return a fallback path
   }
   ```
 - **Also fix in SettingsView.swift:** Lines 829 and 1150 have the same `.first!` pattern in `findProjectRoot()` methods within `StorageSettingsTab` and `PrivacySettingsTab`.
 
-### 1.4 Code Quality: 8 Duplicated Shell Command Implementations
+### 1.5 Code Quality: 8 Duplicated Shell Command Implementations
 
 - [ ] **Extract shared ShellCommand utility**
 - **Source:** 7 separate `runShellCommand()`/`runCommand()` implementations (8 call sites):
@@ -139,137 +155,31 @@ These bugs cause SIGABRT crashes and potential deadlocks. They must be fixed fir
   - `SettingsView.swift:1065-1092` -- async/await, PrivacySettingsTab.checkScreenRecordingPermission()
   - `SettingsView.swift:1155-1178` -- async/await, PrivacySettingsTab.runShellCommand()
   - `SettingsView.swift:1502-1525` -- async/await, AdvancedSettingsTab
-- **Problem:** Every implementation has the same pipe deadlock bug (1.2). Fixing in 8 places is error-prone. A shared utility fixes the bug once and prevents future drift.
-- **Fix approach:** Create `Utilities/ShellCommand.swift` with a single async function that reads pipe data before waiting. All 8 call sites should migrate to this shared utility.
+- **Problem:** Every implementation has the same pipe deadlock bug (1.1/1.3). Fixing in 8 places is error-prone.
+- **Fix approach:** Create `Utilities/ShellCommand.swift` with a single shared function that reads pipe data before waiting. All 8 call sites should migrate to this shared utility.
 
-### 1.5 Force-Unwrapped URLs in SettingsView.swift
+### 1.6 Force-Unwrapped URLs in SettingsView.swift
 
 - [ ] **Fix force-unwrapped URL(string:)! calls**
 - **Source:** `src/Playback/Playback/Settings/SettingsView.swift` lines 1100 and 1104
-- **Root Cause:** `URL(string: "x-apple.systempreferences:...")!` -- if the URL string is somehow invalid, this crashes. While unlikely for hardcoded strings, force unwraps are a code smell.
+- **Root Cause:** `URL(string: "x-apple.systempreferences:...")!` -- if the URL string is somehow invalid, this crashes.
 - **Fix approach:** Use `guard let url = URL(string: ...) else { return }` pattern.
 - **Also:** `DependencyCheckView.swift` line 279 has `URL(string: "https://brew.sh")!` -- same issue.
 
----
+### 1.7 Force Unwrap in DateTimePickerView.swift
 
-## Priority 2 -- Storage Path Consolidation
-
-Consolidate all production paths from `~/Library/Application Support/Playback/` to `~/Library/Application Support/com.falconer.Playback/`. Development paths (`dev_data/`, `dev_config.json`, `dev_logs/`) remain unchanged.
-
-### Target Path Layout
-
-| Resource | Current (WRONG) | Target (CORRECT) |
-|----------|-----------------|-------------------|
-| Data dir | `~/Library/Application Support/Playback/data/` | `~/Library/Application Support/com.falconer.Playback/data/` |
-| Config | `~/Library/Application Support/Playback/config.json` | `~/Library/Application Support/com.falconer.Playback/config.json` |
-| Logs | `~/Library/Logs/Playback/` | `~/Library/Logs/com.falconer.Playback/` |
-| LaunchAgents | `~/Library/LaunchAgents/com.playback.*.plist` | `~/Library/LaunchAgents/com.falconer.Playback.*.plist` |
-| Database | `~/Library/Application Support/Playback/data/meta.sqlite3` | `~/Library/Application Support/com.falconer.Playback/data/meta.sqlite3` |
-
-### 2.1 Update Paths.swift (Primary Swift Path Resolution)
-
-- [ ] **Update production paths in Paths.swift**
-- **Source:** `src/Playback/Playback/Paths.swift`
-- **Changes needed:**
-  - Line 20-28: `baseDataDirectory` -- change from `~/Library/Application Support/Playback/data/` to `~/Library/Application Support/com.falconer.Playback/data/`
-  - Line 54-62: `configPath()` -- change from `~/Library/Application Support/Playback/config.json` to `~/Library/Application Support/com.falconer.Playback/config.json`
-- **Note:** Development paths (lines 11-18, 48-53) remain unchanged (`dev_data/`, `dev_config.json`)
-- **No permissions issue:** `~/Library/Application Support/` is user-writable by default, no admin privileges needed.
-
-### 2.2 Update paths.py (Primary Python Path Resolution)
-
-- [ ] **Update production paths in paths.py**
-- **Source:** `src/lib/paths.py`
-- **Changes needed:**
-  - Line 77-78: `get_base_data_directory()` -- change from `home / "Library" / "Application Support" / "Playback" / "data"` to `home / "Library" / "Application Support" / "com.falconer.Playback" / "data"`
-  - Line 133-134: `get_config_path()` -- change from `home / "Library" / "Application Support" / "Playback" / "config.json"` to `home / "Library" / "Application Support" / "com.falconer.Playback" / "config.json"`
-  - Line 150-151: `get_logs_directory()` -- change from `home / "Library" / "Logs" / "Playback"` to `home / "Library" / "Logs" / "com.falconer.Playback"`
-- **Note:** Development paths remain unchanged. Update all docstrings to reflect new production paths.
-
-### 2.3 Update LaunchAgentManager.swift (Template Variables)
-
-- [ ] **Update buildVariables() production paths**
-- **Source:** `src/Playback/Playback/Services/LaunchAgentManager.swift` lines 227-275
-- **Changes needed:**
-  - Line 249-250: `workingDir` -- change from `~/Library/Application Support/Playback` to `~/Library/Application Support/com.falconer.Playback`
-  - Line 251-252: `logPath` -- change from `~/Library/Logs/Playback` to `~/Library/Logs/com.falconer.Playback`
-  - Line 253-254: `configPath` -- change from `~/Library/Application Support/Playback/config.json` to `~/Library/Application Support/com.falconer.Playback/config.json`
-  - Line 255-256: `dataDir` -- change from `~/Library/Application Support/Playback/data` to `~/Library/Application Support/com.falconer.Playback/data`
-- **Also update AgentType.label:** Lines 18-21 -- change from `com.playback` prefix to `com.falconer.Playback` prefix for production labels.
-
-### 2.4 Update DiagnosticsController.swift (Hardcoded Log Path)
-
-- [ ] **Update hardcoded log directory path**
-- **Source:** `src/Playback/Playback/Diagnostics/DiagnosticsController.swift`
-- **Changes needed:**
-  - Line 116: Change `"\(NSHomeDirectory())/Library/Logs/Playback"` to `"\(NSHomeDirectory())/Library/Logs/com.falconer.Playback"` (or better: use a `Paths.logsDirectory` helper)
-  - Line 212: Same change in `clearLogs()` method
-- **Note:** Both locations duplicate the same hardcoded path. Consider adding a `Paths.logsDirectory` computed property to centralize this.
-
-### 2.5 Update SettingsView.swift (Hardcoded Paths)
-
-- [ ] **Update hardcoded paths in SettingsView.swift**
-- **Source:** `src/Playback/Playback/Settings/SettingsView.swift`
-- **Changes needed:**
-  - Line 327: ProcessingSettingsTab `logPath` -- change from `~/Library/Logs/Playback/processing.log` to `~/Library/Logs/com.falconer.Playback/processing.log`
-  - Line 829: StorageSettingsTab `findProjectRoot()` -- uses `.first!` and appends `Playback`, should use Paths helper
-  - Line 1150: PrivacySettingsTab `findProjectRoot()` -- same issue
-  - Line 1470: AdvancedSettingsTab `exportLogsToFile()` -- change from `~/Library/Logs/Playback` to `~/Library/Logs/com.falconer.Playback`
-- **Recommendation:** All these should call `Paths` methods instead of duplicating path logic.
-
-### 2.6 Update logging_config.py (Log Directory Path)
-
-- [ ] **Update production log directory in logging_config.py**
-- **Source:** `src/lib/logging_config.py` line 84
-- **Change:** `Path.home() / "Library" / "Logs" / "Playback"` to `Path.home() / "Library" / "Logs" / "com.falconer.Playback"`
-- **Better approach:** Use `paths.get_logs_directory()` instead of duplicating the logic.
-
-### 2.7 Update StorageSetupView.swift
-
-- [ ] **Verify StorageSetupView uses Paths helper**
-- **Source:** `src/Playback/Playback/FirstRun/StorageSetupView.swift` line 12
-- **Current:** Uses `Paths.baseDataDirectory` (correct -- will automatically update when Paths.swift is changed)
-- **Status:** No direct changes needed if Paths.swift is updated (item 2.1). Just verify it displays correctly.
-
-### 2.8 Add Data Migration for Existing Installations
-
-- [ ] **Create migration logic for existing data**
-- **Source:** New logic needed in app startup
-- **Problem:** Existing users have data at `~/Library/Application Support/Playback/data/`. After path changes, the app will look at a new location and find no data.
-- **Implementation:**
-  - On first launch after update, check if old path exists and new path does not
-  - If so, move (or copy) data from old location to new location
-  - Preserve database, config, chunks, temp files
-  - Log the migration for diagnostics
-  - Delete old directory after successful migration (or leave a symlink)
-- **Critical:** Without migration, users lose all their recording history on update.
-
-### 2.9 Update Python Tests for New Paths
-
-- [ ] **Update test assertions referencing old paths**
-- **Source:** `src/lib/test_paths.py` and other test files
-- **Changes:** Update all assertions that check for `~/Library/Application Support/Playback/` to reference the new path structure.
-
-### 2.10 Update Spec Files and Documentation
-
-- [ ] **Update all spec files with new paths**
-- **Source:** `specs/` directory, `CLAUDE.md`, `README.md` (if exists)
-- **Files to update:** Any spec that documents production paths (architecture.md, configuration.md, installation-deployment.md, logging-diagnostics.md, etc.)
-- **Note:** Do NOT create new documentation files -- only update existing ones.
-
-### 2.11 Custom Storage Location Picker -- WON'T FIX
-
-- **Spec:** `specs/installation-deployment.md` mentions "Allow custom location selection (NSOpenPanel)"
-- **Decision:** Per project requirements, NO custom storage location picker should exist. The current `StorageSetupView.swift` correctly shows only the default path with no picker. This is the intended behavior.
-- **Status:** No changes needed. Mark as intentional deviation from spec.
+- [ ] **Fix force unwraps in calendar operations**
+- **Source:** `src/Playback/Playback/Timeline/DateTimePickerView.swift` lines 191-192
+- **Root Cause:** `calendar.range(of: .day, in: .month, for: currentMonth)!` and `calendar.date(from: ...)!` can fail with invalid date/calendar configurations.
+- **Fix approach:** Use `guard let` with safe fallbacks.
 
 ---
 
-## Priority 3 -- Important Missing Features
+## Priority 2 -- Important Missing Features
 
 These features are specified but not implemented. They impact UX but are not blocking core functionality.
 
-### 3.1 Settings: General Tab Missing Key Controls
+### 2.1 Settings: General Tab Missing Key Controls
 
 - [ ] **Add Launch at Login toggle**
 - [ ] **Add Hotkey Recorder**
@@ -281,166 +191,162 @@ These features are specified but not implemented. They impact UX but are not blo
   - Hotkey Recorder for customizing the timeline shortcut (currently read-only text display at line 85)
   - Permission status section showing Screen Recording and Accessibility status with visual indicators
 - **Currently:** Only shows notification toggles and a read-only shortcut display
-- **Implementation complexity:** SMAppService requires macOS 13+ API knowledge. Hotkey recorder requires Carbon API event monitoring. Permission status is partially addressed in Privacy tab but not in General tab per spec.
 
-### 3.2 Search: App Icon in Result Rows
+### 2.2 Search: App Icon in Result Rows
 
 - [ ] **Add app icon and app name to search results**
 - **Spec:** `specs/search-ocr.md` lines 101-103 -- "App icon (20x20), app name, timestamp, snippet"
 - **Source:** `src/Playback/Playback/Search/SearchResultRow.swift`
 - **Missing:** No app icon or app name shown; only timestamp + confidence + snippet displayed
-- **Implementation:** Use `NSWorkspace.shared.icon(forFile:)` to fetch app icons at runtime from bundle IDs stored in OCR metadata. Need image caching and placeholder icon for missing apps.
 
-### 3.3 Permission Checking Uses Python Subprocess Instead of Native API
+### 2.3 Permission Checking Uses Python Subprocess Instead of Native API
 
 - [ ] **Replace Python subprocess with CGPreflightScreenCaptureAccess()**
 - **Source:** `src/Playback/Playback/Settings/SettingsView.swift:1065-1092`
 - **Current:** The `checkScreenRecordingPermission()` function spawns a Python subprocess that imports `Quartz` and calls `CGWindowListCopyWindowInfo`. This is slow and fragile.
-- **Fix:** Replace with Swift's native `CGPreflightScreenCaptureAccess()` from the ApplicationServices framework -- a single synchronous function call that returns Bool immediately.
+- **Fix:** Replace with Swift's native `CGPreflightScreenCaptureAccess()` -- a single synchronous function call that returns Bool immediately.
 
-### 3.4 App Icon Missing
+### 2.4 App Icon Missing
 
 - [ ] **Create app icon assets** (requires graphic design work)
 - **Spec:** `specs/timeline-graphical-interface.md` lines 32-36
 - **Source:** `Assets.xcassets/AppIcon.appiconset/Contents.json` -- all 10 size slots defined but zero image files present
-- **Impact:** App has no icon in Dock, About panel, Finder, or menu bar
-- **Design requirements:**
-  - Style: Play button (rounded triangle pointing right) with vibrant blue/purple gradient background
-  - Sizes: 10 PNG files (16px, 32px, 64px, 128px, 256px, 512px, 1024px, plus @2x variants)
-  - Requires graphic design software (Sketch, Figma, etc.)
 - **Blocker:** Cannot be generated programmatically -- requires manual design work
 
 ---
 
-## Priority 4 -- UX Polish and Completeness
+## Priority 3 -- UX Polish and Completeness
 
 These items improve the overall experience but are not blocking core functionality.
 
-### 4.1 Timeline: Zoom Anchor Point Missing
+### 3.1 Timeline: Zoom Anchor Point Missing
 
 - [ ] **Implement cursor-anchored zoom**
 - **Spec:** `specs/timeline-graphical-interface.md` lines 179, 388
 - **Source:** `ContentView.swift:288-319`
-- **Problem:** Pinch zoom changes scale but doesn't maintain the timestamp under the cursor (the timeline drifts during zoom)
-- **Fix:** Calculate anchor timestamp at cursor position before zoom, then reposition scroll offset after zoom to keep that timestamp at the same screen position.
+- **Problem:** Pinch zoom changes scale but doesn't maintain the timestamp under the cursor
 
-### 4.2 Timeline: No Segment Preloading
+### 3.2 Timeline: No Segment Preloading
 
 - [ ] **Preload next segment at 80% playback**
 - **Spec:** `specs/timeline-graphical-interface.md` lines 329-332
 - **Source:** `PlaybackController.swift`
-- **Missing:** When 80% through a segment, the next segment should be preloaded in a background AVPlayer for seamless transition
-- **Currently:** Segments loaded reactively, causing 100-500ms pause on each segment transition
+- **Missing:** Segments loaded reactively, causing 100-500ms pause on each segment transition
 
-### 4.3 Timeline: Fullscreen Configuration Incomplete
+### 3.3 Timeline: Fullscreen Configuration Incomplete
 
 - [ ] **Add letterboxing, gesture disabling, presentation options**
 - **Spec:** `specs/timeline-graphical-interface.md` lines 69-88
 - **Source:** `PlaybackApp.swift`
-- **Missing:** Letterboxing for aspect ratio mismatches, three-finger swipe gesture disabling, Mission Control/Dock/Cmd+Tab presentation options
 
-### 4.4 Timeline: No Momentum Scrolling / Deceleration
+### 3.4 Timeline: No Momentum Scrolling / Deceleration
 
 - [ ] **Add logarithmic decay after scroll gesture ends**
 - **Spec:** `specs/timeline-graphical-interface.md` lines 361-364
 - **Source:** `ContentView.swift`
-- **Missing:** Timeline scrolling stops instantly when finger lifts. Spec calls for logarithmic decay momentum animation using CADisplayLink at 60fps.
 
-### 4.5 Settings: App Exclusion Only Supports Manual Entry
+### 3.5 Settings: App Exclusion Only Supports Manual Entry
 
 - [ ] **Add drag-drop from /Applications and file picker**
-- **Spec:** `specs/menu-bar.md` lines 314-316 -- supports NSOpenPanel, drag-drop, and manual entry
+- **Spec:** `specs/menu-bar.md` lines 314-316
 - **Source:** `src/Playback/Playback/Settings/SettingsView.swift:966-1001`
-- **Currently:** Only manual bundle ID text entry in a TextField. No file picker to browse /Applications or drag-drop support.
 
-### 4.6 Settings: Database Rebuild Is a Stub
+### 3.6 Settings: Database Rebuild Is a Stub
 
 - [ ] **Implement actual database rebuild logic with progress feedback**
 - **Spec:** `specs/menu-bar.md` lines 393-402
 - **Source:** `src/Playback/Playback/Settings/SettingsView.swift:1450-1452`
-- **Currently:** `rebuildDatabase()` just sets `showRebuildProgress = true`, which shows an alert saying "Database rebuild initiated" with no actual rebuild logic.
-- **Implementation:** Scan chunks directory, rebuild segments table from video file metadata, show progress bar during operation.
+- **Currently:** `rebuildDatabase()` just sets `showRebuildProgress = true`, no actual rebuild logic.
 
-### 4.7 Settings: Reset All Doesn't Restart App
+### 3.7 Settings: Reset All Doesn't Restart App
 
 - [ ] **Add app restart after reset**
 - **Spec:** `specs/menu-bar.md` line 390
 - **Source:** `src/Playback/Playback/Settings/SettingsView.swift:1446-1448`
-- **Currently:** `resetAllSettings()` calls `configManager.updateConfig(Config.defaultConfig)` but doesn't restart the app as spec requires.
 
-### 4.8 Settings: Export Logs Is Minimal
+### 3.8 Settings: Export Logs Is Minimal
 
 - [ ] **Improve log export with system info and structured archive**
 - **Spec:** `specs/menu-bar.md` lines 405-418
 - **Source:** `src/Playback/Playback/Settings/SettingsView.swift:1454-1474`
-- **Currently:** Simple `cd <logdir> && zip -r <dest> .` -- no system info, no specific file selection, no format structure.
 
-### 4.9 Config: Migration Logic Is a Stub
+### 3.9 Config: Migration Logic Is a Stub
 
 - [ ] **Implement actual config migration between versions**
 - **Source:** `src/Playback/Playback/Config/ConfigManager.swift:132-145`
-- **Currently:** `migrateConfig()` only matches version "1.0.0" and sets it back to "1.0.0" -- no actual field migration, no version bumping, no handling of added/removed/renamed fields.
-- **Impact:** Future config schema changes will silently lose data or fail to load.
+- **Currently:** `migrateConfig()` only matches version "1.0.0" and sets it back to "1.0.0" -- no-op.
 
-### 4.10 Config: Environment Variable Overrides Not Implemented
+### 3.10 Config: Environment Variable Overrides Not Implemented
 
 - [ ] **Support PLAYBACK_CONFIG and PLAYBACK_DATA_DIR env vars**
 - **Spec:** `specs/configuration.md` -- PLAYBACK_CONFIG and PLAYBACK_DATA_DIR environment variables
 - **Source:** `src/Playback/Playback/Paths.swift` -- only checks `PLAYBACK_DEV_MODE`
-- **Missing:** No support for overriding config path or data directory via environment variables.
 
-### 4.11 FirstRun: No Notification Listener for Permission Re-check
+### 3.11 FirstRun: No Notification Listener for Permission Re-check
 
 - [ ] **Auto-refresh permission status when app becomes active**
 - **Source:** `PermissionsView.swift`
-- **Problem:** When user returns from System Preferences after granting a permission, the UI doesn't auto-refresh. User must click "Check Status" manually.
-- **Fix:** Listen for `NSApplication.didBecomeActiveNotification` and re-check permissions automatically.
 
-### 4.12 Diagnostics: Tab Organization Differs from Spec
+### 3.12 Diagnostics: Tab Organization Differs from Spec
 
 - [ ] **Align diagnostics tabs with spec or document deviation**
 - **Spec:** `specs/logging-diagnostics.md` -- Overview, Recording Logs, Processing Logs, Resource Usage
 - **Source:** `Diagnostics/DiagnosticsView.swift` -- Logs (generic), Health, Performance, Reports
-- **Status:** Functionally similar but different organization. Consider aligning with spec or documenting as an intentional improvement.
 
-### 4.13 Portuguese Comments in Timeline Files
+### 3.13 Portuguese Comments in Source Files
 
 - [ ] **Translate Portuguese comments to English**
-- **Source:** 3 files with ~70+ Portuguese comments total:
-  - `src/Playback/Playback/TimelineView.swift` -- ~30 Portuguese comments
-  - `src/Playback/Playback/TimelineStore.swift` -- ~15 Portuguese comments
-  - `src/Playback/Playback/PlaybackController.swift` -- ~25 Portuguese comments
-- **Impact:** Code readability for English-speaking contributors
+- **Source:** 5 files with ~105 Portuguese comments total:
+  - `src/Playback/Playback/PlaybackController.swift` -- ~55 Portuguese comments
+  - `src/Playback/Playback/TimelineStore.swift` -- ~30 Portuguese comments
+  - `src/Playback/Playback/TimelineView.swift` -- ~20 Portuguese comments
+  - `src/scripts/build_chunks_from_temp.py` -- ~4 Portuguese comments
+  - `src/scripts/stop_record_screen.sh` -- 1 Portuguese comment
 
-### 4.14 Incorrect Bundle ID in MenuBarViewModel.swift
+### 3.14 Incorrect Bundle ID in MenuBarViewModel.swift
 
 - [ ] **Fix hardcoded bundle ID**
 - **Source:** `src/Playback/Playback/MenuBar/MenuBarViewModel.swift` line 130
-- **Current:** `"com.playback.timeline"` -- incorrect/stale bundle ID
+- **Current:** `"com.playback.timeline"` -- incorrect/stale bundle ID used to find timeline viewer
 - **Fix:** Change to `"com.falconer.Playback"` to match the actual bundle identifier
+- **Note:** In single-app architecture, this code likely doesn't work anyway since there's no separate timeline app to terminate.
 
 ---
 
-## Priority 5 -- Architectural Considerations
+## Priority 4 -- Architectural Considerations
 
 These are significant decisions that may or may not be pursued for MVP.
 
-### 5.1 Single-App vs Dual-App Architecture
+### 4.1 Single-App vs Dual-App Architecture
 
-- **Spec:** `specs/architecture.md`, `specs/README.md` -- describes dual-app: PlaybackMenuBar.app (LaunchAgent) + Playback.app (Timeline Viewer)
-- **Current:** Single `Playback.app` containing all functionality (menu bar, timeline, settings, diagnostics)
-- **Implications:**
-  - Quitting the app stops everything (menu bar disappears, recording loses control interface)
-  - Spec says: menu bar agent should survive timeline viewer quit
-  - Spec says: timeline viewer can be closed independently
-- **Decision needed:** Refactoring to dual-app requires new Xcode target, splitting code into a shared framework, and reworking app lifecycle. Single-app works for MVP but doesn't match the spec's UX model.
+- **Spec:** `specs/architecture.md`, `specs/README.md` -- describes dual-app
+- **Current:** Single `Playback.app` containing all functionality
+- **Decision needed:** Refactoring to dual-app requires new Xcode target, splitting code. Single-app works for MVP.
 
-### 5.2 Swift OCRService Wrapper Missing
+### 4.2 Swift OCRService Wrapper Missing
 
-- **Spec:** `specs/search-ocr.md` lines 10-20 -- `OCRService.swift` using Vision framework in Swift
-- **Source:** Only Python `ocr_processor.py` exists
-- **Impact:** OCR only works during Python processing; no real-time OCR capability from Swift
-- **Decision needed:** For MVP, Python OCR is sufficient. Swift OCR would enable future features (live search, real-time indexing).
+- **Spec:** `specs/search-ocr.md` -- `OCRService.swift` using Vision framework
+- **Current:** Only Python `ocr_processor.py` exists
+- **Decision needed:** For MVP, Python OCR is sufficient.
+
+---
+
+## Storage Path Reference (VERIFIED CORRECT)
+
+**Important:** The production storage paths are already correct in the codebase. No path consolidation changes are needed.
+
+| Resource | Production Path | Status |
+|----------|----------------|--------|
+| Data dir | `~/Library/Application Support/Playback/data/` | Correct (Paths.swift:20-28, paths.py:78) |
+| Config | `~/Library/Application Support/Playback/config.json` | Correct (Paths.swift:54-62, paths.py:134) |
+| Logs | `~/Library/Logs/Playback/` | Correct (logging_config.py:84, DiagnosticsController.swift:116) |
+| LaunchAgents | `~/Library/LaunchAgents/com.playback.*.plist` | Correct (LaunchAgentManager.swift:20) |
+| Database | `~/Library/Application Support/Playback/data/meta.sqlite3` | Correct (Paths.swift:32-34) |
+| Dev data | `dev_data/` | Correct (Paths.swift:11-18) |
+| Dev config | `dev_config.json` | Correct (Paths.swift:48-53) |
+| Dev logs | `dev_logs/` | Correct (logging_config.py:82) |
+
+**Custom storage location picker:** Confirmed NOT present in the UI (correct per requirements). StorageSetupView.swift shows only the default path.
 
 ---
 
