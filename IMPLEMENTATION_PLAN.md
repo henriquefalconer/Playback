@@ -288,9 +288,9 @@ Playback consists of separate components:
 
 ## Phase 5: Testing & Quality
 
-### 5.1 Unit Tests (Swift) - ✅ INFRASTRUCTURE READY (Ready for Test Implementation)
+### 5.1 Unit Tests (Swift) - 🟡 IN PROGRESS (Infrastructure Ready, Test Implementation Started)
 
-**Setup Complete:**
+**Infrastructure Complete:**
 - ✅ PlaybackTests target successfully added to Xcode project
 - ✅ PlaybackUITests target successfully added to Xcode project
 - ✅ Test schemes configured and building correctly
@@ -298,25 +298,24 @@ Playback consists of separate components:
 - ✅ Main app builds successfully (Playback-Development scheme)
 - ✅ Placeholder tests execute successfully
 
-**Next Steps - Test Implementation:**
-- Implement actual test classes (currently have placeholder test stubs)
-- Add comprehensive assertions and test scenarios
-- Target: 80%+ code coverage for core logic
-
-**Test Classes to Implement:**
-- **TimelineStoreTests:** segment selection, time mapping, gap handling, auto-refresh
-- **ConfigManagerTests:** loading, saving, validation, migration, hot-reloading
-- **PathsTests:** environment detection, path resolution, directory creation
-- **LaunchAgentManagerTests:** install, load, start, stop, status checks (requires mocked launchctl)
-- **PlaybackControllerTests:** video playback, scrubbing, frozen frames
-- **SearchControllerTests:** FTS5 queries, caching, result parsing
-- **MenuBarViewModelTests:** state management, recording toggle, status monitoring
-- **GlobalHotkeyManagerTests:** hotkey registration, accessibility checks
+**Test Implementation Progress:**
+- ✅ **PathsTests:** Completed (18 tests passing)
+  - Environment detection, path resolution, directory creation, permission handling
+- 📋 **7 Test Classes Remaining:**
+  - **ConfigManagerTests:** loading, saving, validation, migration, hot-reloading
+  - **TimelineStoreTests:** segment selection, time mapping, gap handling, auto-refresh
+  - **LaunchAgentManagerTests:** install, load, start, stop, status checks (requires mocked launchctl)
+  - **PlaybackControllerTests:** video playback, scrubbing, frozen frames
+  - **SearchControllerTests:** FTS5 queries, caching, result parsing
+  - **MenuBarViewModelTests:** state management, recording toggle, status monitoring
+  - **GlobalHotkeyManagerTests:** hotkey registration, accessibility checks
 
 **Test Infrastructure:**
 - Framework: XCTest (native Xcode testing)
 - Python tests complete: 280/280 passing, zero bugs
-- Ready for comprehensive Swift unit test implementation
+- Swift unit tests underway - core infrastructure in place for rapid test implementation
+
+**Target:** 80%+ code coverage for core logic across all 8 test classes
 
 ### 5.2 Unit Tests (Python) - ✅ COMPLETE (100%)
 
@@ -569,7 +568,7 @@ Playback/
 | Phase 2: User Interface | 6-8 weeks | ✅ COMPLETE |
 | Phase 3: Data & Storage | 3-4 weeks | ✅ COMPLETE |
 | Phase 4: Advanced Features | 4-6 weeks | ✅ COMPLETE (4.1: ✅ 100%, 4.2: ✅ 100%, 4.3: ✅ 100%, 4.4: ✅ 100%) |
-| Phase 5: Testing & Quality | 3-4 weeks | 🟡 IN PROGRESS (5.1: 🟡 IN PROGRESS, 5.2: ✅ 100%, 5.3-5.6: 📋 Planned) |
+| Phase 5: Testing & Quality | 3-4 weeks | 🟡 IN PROGRESS (5.1: 🟡 IN PROGRESS - PathsTests ✅ 18/18, 6 remaining, 5.2: ✅ 100% 280/280, 5.3-5.6: 📋 Planned) |
 | Phase 6: Distribution & Deployment | 2-3 weeks | 📋 Planned |
 
 **Total Estimated Duration:** 22-31 weeks (5-7 months)
@@ -640,11 +639,17 @@ Playback/
 
 ---
 
-### Next Priority: Phase 5 - Testing & Quality 🟡
+### Phase 5: Testing & Quality - 🟡 IN PROGRESS
 
-**Python implementation complete (280/280 tests passing). Ready for macOS environment transition.**
+**Python Testing:** ✅ 100% COMPLETE (280/280 tests passing, zero bugs)
 
-All remaining work in Phases 5 and 6 requires macOS with Xcode installed.
+**Swift Unit Tests:** 🟡 IN PROGRESS
+- ✅ Infrastructure complete - test targets configured, test schemes building
+- ✅ PathsTests completed - 18 tests passing
+- 📋 7 test classes remaining: ConfigManagerTests, TimelineStoreTests, LaunchAgentManagerTests, PlaybackControllerTests, SearchControllerTests, MenuBarViewModelTests, GlobalHotkeyManagerTests
+- Target: 80%+ code coverage for core logic
+
+**Remaining Phases (5.3-5.6 and Phase 6)** all require macOS with Xcode installed.
 
 ---
 
