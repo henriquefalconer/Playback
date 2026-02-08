@@ -90,10 +90,20 @@ class Config:
         if self.exclusion_mode not in ["invisible", "skip"]:
             self.exclusion_mode = "skip"
 
-        self.excluded_apps = [
-            app.strip() for app in self.excluded_apps
-            if app.strip() and all(c.isalnum() or c in ".-" for c in app.strip())
-        ]
+        if not isinstance(self.excluded_apps, list):
+            if isinstance(self.excluded_apps, str) and self.excluded_apps.strip():
+                stripped = self.excluded_apps.strip()
+                if all(c.isalnum() or c in ".-" for c in stripped):
+                    self.excluded_apps = [stripped]
+                else:
+                    self.excluded_apps = []
+            else:
+                self.excluded_apps = []
+        else:
+            self.excluded_apps = [
+                app.strip() for app in self.excluded_apps
+                if isinstance(app, str) and app.strip() and all(c.isalnum() or c in ".-" for c in app.strip())
+            ]
 
         if not (0 <= self.ffmpeg_crf <= 51):
             self.ffmpeg_crf = 28

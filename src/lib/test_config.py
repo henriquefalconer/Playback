@@ -193,17 +193,42 @@ class TestExcludedAppsValidation:
             "com.another.valid"
         ]
 
-    def test_non_list_excluded_apps_behavior(self):
-        """String excluded_apps iterates over characters, None crashes."""
-        # String is iterable, so it iterates over characters
-        # Each character passes validation (alphanumeric or ".-")
-        config = Config({"excluded_apps": "com.test.app"})
-        # Result is list of individual characters
-        assert config.excluded_apps == ['c', 'o', 'm', '.', 't', 'e', 's', 't', '.', 'a', 'p', 'p']
+    def test_non_string_items_in_list_filtered_out(self):
+        """Non-string items in excluded_apps list should be filtered."""
+        config = Config({"excluded_apps": [
+            "com.valid.app",
+            123,
+            None,
+            "com.another.valid",
+            {"key": "value"},
+            ["nested", "list"]
+        ]})
+        assert config.excluded_apps == [
+            "com.valid.app",
+            "com.another.valid"
+        ]
 
-        # None is not iterable, crashes during validation
-        with pytest.raises(TypeError):
-            Config({"excluded_apps": None})
+    def test_non_list_excluded_apps_behavior(self):
+        """Non-list excluded_apps should be handled gracefully."""
+        # Valid string bundle ID should be converted to single-item list
+        config = Config({"excluded_apps": "com.test.app"})
+        assert config.excluded_apps == ["com.test.app"]
+
+        # Invalid string bundle ID should result in empty list
+        config = Config({"excluded_apps": "invalid/bundle@id"})
+        assert config.excluded_apps == []
+
+        # Empty string should result in empty list
+        config = Config({"excluded_apps": ""})
+        assert config.excluded_apps == []
+
+        # None should result in empty list (graceful handling)
+        config = Config({"excluded_apps": None})
+        assert config.excluded_apps == []
+
+        # Number should result in empty list
+        config = Config({"excluded_apps": 123})
+        assert config.excluded_apps == []
 
 
 class TestFFmpegCRFValidation:

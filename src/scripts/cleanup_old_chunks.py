@@ -48,6 +48,7 @@ from lib.logging_config import (
     log_resource_metrics,
     log_error_with_context,
 )
+from lib.utils import format_size
 import time
 
 # Import psutil for resource metrics (optional)
@@ -56,26 +57,6 @@ try:
     PSUTIL_AVAILABLE = True
 except ImportError:
     PSUTIL_AVAILABLE = False
-
-
-def format_size(bytes_count: int) -> str:
-    """
-    Format byte count as human-readable string.
-
-    Args:
-        bytes_count: Number of bytes
-
-    Returns:
-        Formatted string (e.g., "1.5 GB", "250 MB")
-    """
-    if bytes_count < 1024:
-        return f"{bytes_count} B"
-    elif bytes_count < 1024 ** 2:
-        return f"{bytes_count / 1024:.1f} KB"
-    elif bytes_count < 1024 ** 3:
-        return f"{bytes_count / (1024 ** 2):.1f} MB"
-    else:
-        return f"{bytes_count / (1024 ** 3):.2f} GB"
 
 
 def calculate_storage_usage() -> Dict[str, int]:

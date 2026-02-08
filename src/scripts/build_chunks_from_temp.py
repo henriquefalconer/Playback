@@ -62,6 +62,16 @@ except ImportError:
 
 @dataclass
 class FrameInfo:
+    """
+    Representa informações sobre um frame de screenshot individual.
+
+    Attributes:
+        path: Caminho completo para o arquivo de imagem do frame
+        ts: Timestamp em segundos epoch de quando o frame foi capturado
+        app_id: Bundle ID do aplicativo ativo quando o frame foi capturado (None se desconhecido)
+        width: Largura da imagem em pixels (None se não determinada)
+        height: Altura da imagem em pixels (None se não determinada)
+    """
     path: Path
     ts: float  # epoch seconds
     app_id: Optional[str]
@@ -621,6 +631,19 @@ def process_day(
 
 
 def parse_args() -> argparse.Namespace:
+    """
+    Analisa argumentos de linha de comando para o script de processamento.
+
+    Returns:
+        argparse.Namespace contendo argumentos parseados:
+            - day: Dia específico para processar (YYYYMMDD)
+            - auto: Flag para modo automático (últimos 7 dias pendentes)
+            - no_cleanup: Flag para manter arquivos temporários
+            - fps: Taxa de frames por segundo para vídeo de saída
+            - segment_duration: Duração alvo de cada segmento em segundos
+            - crf: Constant Rate Factor para compressão
+            - preset: Preset do FFmpeg para velocidade/qualidade
+    """
     parser = argparse.ArgumentParser(
         description="Converte screenshots em temp/YYYYMM/DD em vídeos em chunks/YYYYMM/DD"
     )
@@ -708,6 +731,14 @@ def find_pending_days(logger) -> List[str]:
 
 
 def main() -> None:
+    """
+    Ponto de entrada principal do script de processamento de chunks.
+
+    Carrega configurações, inicializa logging estruturado, e processa dias em modo
+    automático (últimos 7 dias pendentes) ou manual (dia específico). Converte
+    screenshots em temp/ para segmentos de vídeo em chunks/, executa OCR quando
+    disponível, e registra metadados no banco de dados.
+    """
     args = parse_args()
 
     # Setup structured logging

@@ -28,7 +28,7 @@ Playback consists of separate components:
 - No access to macOS-specific frameworks (SwiftUI, AVFoundation, Vision)
 
 ### Work Complete in Current Environment
-- ✅ **All Python services implemented and tested** (272 passing tests)
+- ✅ **All Python services implemented and tested** (280 passing tests)
   - Core libraries: paths, timestamps, config, database, video, macos, logging_config
   - Background services: record_screen, build_chunks_from_temp, cleanup_old_chunks, ocr_processor
   - Security & networking tests: test_security (24 tests), test_network (14 tests)
@@ -75,6 +75,15 @@ Playback consists of separate components:
 - Notarization via xcrun notarytool
 - Arc-style .zip packaging
 - **Blocker:** Requires Xcode and macOS build tools
+
+### Recent Fixes (2026-02-08)
+
+**Critical bug fixes and improvements completed:**
+- ✅ **Fixed FTS5 batch insert ID calculation** - Corrected `last_insert_rowid()` retrieval to prevent potential data corruption
+- ✅ **Fixed config validation bug** - String values for `excluded_apps` no longer iterated as characters
+- ✅ **Added missing docstrings** - Completed documentation for `build_chunks_from_temp.py` (FrameInfo, parse_args, main)
+- ✅ **Created shared utils module** - Consolidated duplicate `format_size()` functions into `src/lib/utils.py`
+- ✅ **Test count increased to 280** - Added 8 new tests for utils and config validation (272 → 280)
 
 ### Next Steps
 
@@ -187,7 +196,7 @@ Playback consists of separate components:
 - **Phase 4.4 Status:** 100% COMPLETE (Performance metrics visualization, service-level aggregation, resource usage charts)
 - **Files Created:** 9 new Swift files, 4 Python files (OCR + security scripts), 4 test suites
 - **Lines of Code:** ~3350+ lines (800 Phase 4.1 + 800 Phase 4.2 + 900 Phase 4.3 + 350 Phase 4.4 + 500 diagnostics UI)
-- **Test Coverage:** 272 total tests (244 previous + 28 new logging tests)
+- **Test Coverage:** 280 total tests (244 previous + 28 logging + 8 utils/config)
 - **Status:** ✅ COMPLETE (100%)
 - **Completion:** OCR processing, FTS5 search, file permissions, security tests, network isolation, data export, uninstall script, privacy UI, storage cleanup UI, structured logging, diagnostics UI, performance monitoring all operational
 
@@ -266,7 +275,7 @@ Playback consists of separate components:
 **Current State:**
 - No test targets configured in Xcode project (PlaybackTests, PlaybackUITests)
 - No Swift test files exist yet
-- Python tests complete (272 passing)
+- Python tests complete (280 passing)
 
 **Required Setup:**
 1. Add PlaybackTests target to Xcode project
@@ -289,7 +298,7 @@ Playback consists of separate components:
 
 ### 5.2 Unit Tests (Python) - ✅ COMPLETE
 
-**Achievement: All core Python libraries fully tested with 272 passing tests**
+**Achievement: All core Python libraries fully tested with 280 passing tests**
 
 **Core Library Test Coverage:**
 - paths.py - 32 tests (environment-aware paths, secure file creation)
@@ -305,7 +314,7 @@ Playback consists of separate components:
 - test_macos.py - 6 tests (macOS integration functions)
 
 **Test Statistics:**
-- Total: 272 passing tests
+- Total: 280 passing tests
 - Duration: <0.5 seconds
 - Framework: pytest
 - Coverage: 100% for all core Python libraries
@@ -580,7 +589,7 @@ Playback/
 - 9 new Swift files
 - 4 Python files
 - ~3350+ lines of code
-- 272 total tests passing
+- 280 total tests passing
 
 ---
 

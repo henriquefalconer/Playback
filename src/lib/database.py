@@ -766,14 +766,32 @@ class DatabaseManager:
                 VALUES (?, ?, ?, ?, ?, ?)
             """, ocr_records)
 
-            # Get the IDs of inserted records
-            first_id = cursor.lastrowid - len(ocr_records) + 1
+            # CRITICAL FIX: lastrowid after executemany is unreliable for calculating
+            # first_id when autoincrement may have gaps. Instead, query back the actual
+            # IDs based on the data we just inserted (timestamp + frame_path uniquely
+            # identify recent inserts within this transaction).
+            #
+            # We retrieve IDs for all records just inserted by matching on timestamp
+            # and frame_path, ordered by id to maintain insertion order.
+            timestamp_paths = [(rec[1], rec[0]) for rec in ocr_records]
+            placeholders = ','.join(['(?,?)' for _ in timestamp_paths])
+            flat_params = [item for pair in timestamp_paths for item in pair]
 
-            # Insert into FTS5 index
+            cursor.execute(f"""
+                SELECT id, timestamp, frame_path, text_content, segment_id
+                FROM ocr_text
+                WHERE (timestamp, frame_path) IN (VALUES {placeholders})
+                ORDER BY id
+            """, flat_params)
+
+            inserted_rows = cursor.fetchall()
+
+            # Build FTS5 records using actual IDs from database
             fts_records = [
-                (first_id + i, rec[2], rec[4], rec[1])
-                for i, rec in enumerate(ocr_records)
+                (row[0], row[3], row[4], row[1])  # (id, text_content, segment_id, timestamp)
+                for row in inserted_rows
             ]
+
             cursor.executemany("""
                 INSERT INTO ocr_search (rowid, text_content, segment_id, timestamp)
                 VALUES (?, ?, ?, ?)
