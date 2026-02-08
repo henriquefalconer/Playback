@@ -1,13 +1,12 @@
 #!/bin/bash
 set -euo pipefail   # Exit on error, undefined vars, and pipe failures
 
-# Usage: ./loop.sh [plan] [max_iterations] [--no-sandbox]
+# Usage: ./loop.sh [plan] [max_iterations] [--goal <text> | -g <text> | ...]
 # Examples:
-#   ./loop.sh                       # Build mode, unlimited, via docker sandbox
-#   ./loop.sh --no-sandbox          # Build mode, unlimited, via claude CLI directly + confirmation
-#   ./loop.sh plan 5                # Plan mode, max 5 iters, docker
-#   ./loop.sh plan 5 --no-sandbox   # Plan mode, max 5 iters, claude CLI + confirmation
-#   ./loop.sh 20 --no-sandbox       # Build mode, max 20, claude CLI + confirmation
+#   ./loop.sh plan --goal "a beautiful dark-mode todo app with offline sync"
+#   ./loop.sh plan 8 -g "a minimal blog engine with RSS and markdown editor"
+#   ./loop.sh --goal "a CLI password manager in Rust" 10
+#   ./loop.sh plan                                      # ← will ask you interactively
 
 # Color and style definitions
 GREEN_BOLD="\033[1;38;2;40;254;20m"    # #28FE14 + bold
@@ -20,16 +19,24 @@ RESET="\033[0m"
 # ────────────────────────────────────────────────
 
 USE_SANDBOX=true
+GOAL_TEXT=""
 POSITIONAL=()
 
-for arg in "$@"; do
-    case "$arg" in
+while [[ $# -gt 0 ]]; do
+    case "$1" in
         --no-sandbox)
             USE_SANDBOX=false
             shift
             ;;
+        --goal|--project-goal|-g|--project_specific_goal)
+            shift
+            [[ $# -eq 0 ]] && { echo -e "${RED_BOLD}Error: --goal requires a value${RESET}"; exit 1; }
+            GOAL_TEXT="$1"
+            shift
+            ;;
         *)
-            POSITIONAL+=("$arg")
+            POSITIONAL+=("$1")
+            shift
             ;;
     esac
 done
@@ -37,21 +44,122 @@ done
 set -- "${POSITIONAL[@]:-}"   # restore positional parameters
 
 # ────────────────────────────────────────────────
-# Mode & prompt file
+# Mode, iterations, prompt file
 # ────────────────────────────────────────────────
 
 if [ "${1:-}" = "plan" ]; then
     MODE="plan"
     PROMPT_FILE="PROMPT_plan.md"
-    MAX_ITERATIONS=${2:-0}
+    shift
+    MAX_ITERATIONS="${1:-0}"
+    [[ "$MAX_ITERATIONS" =~ ^[0-9]+$ ]] && shift || MAX_ITERATIONS=0
 elif [[ "${1:-}" =~ ^[0-9]+$ ]]; then
     MODE="build"
     PROMPT_FILE="PROMPT_build.md"
-    MAX_ITERATIONS=$1
+    MAX_ITERATIONS="$1"
+    shift
 else
     MODE="build"
     PROMPT_FILE="PROMPT_build.md"
     MAX_ITERATIONS=0
+fi
+
+# Last positional argument can be the goal (legacy style)
+if [ -z "$GOAL_TEXT" ] && [ $# -ge 1 ]; then
+    GOAL_TEXT="$1"
+    shift
+fi
+
+# Project-specific goal (only interactive in plan mode if missing)
+# ────────────────────────────────────────────────
+# Project-specific goal – interactive only in plan mode if missing
+# ────────────────────────────────────────────────
+
+if [ "$MODE" = "plan" ] && [ -z "$GOAL_TEXT" ]; then
+    echo -e "${YELLOW_BOLD}PLAN mode – let's define the goal${RESET}"
+    echo -e ""
+    echo -e "The prompt will complete this sentence:"
+    echo -e "   ${GREEN_BOLD}ULTIMATE GOAL: We want to achieve …${RESET}"
+    echo -e ""
+
+    # Default starting text (user can edit from here)
+    GOAL_TEXT="a "
+
+    while true; do
+        # Clear screen to simulate "live preview" (works almost everywhere)
+        clear 2>/dev/null || printf "\033c"  # fallback for very old terminals
+
+        echo -e "${GREEN_BOLD}Define your project goal${RESET}"
+        echo -e "────────────────────────────────────────────────────────────"
+        echo -e "ULTIMATE GOAL: We want to achieve ${YELLOW_BOLD}${GOAL_TEXT}${RESET}."
+        echo -e "Consider missing elements and plan accordingly."
+        echo -e "If an element is missing, search first to confirm it doesn't exist,"
+        echo -e "then if needed author the specification at specs/FILENAME.md ..."
+        echo -e "────────────────────────────────────────────────────────────"
+        echo -e ""
+        echo -e "${YELLOW_BOLD}Examples:${RESET}"
+        echo -e "  • a beautiful dark mode to this application"
+        echo -e "  • a detailed analytics system based on specs/analytics.md"
+        echo -e "  • a great working ui and ux"
+        echo -e "  • an AI-powered data import system based on specs/data-import.md"
+        echo -e ""
+        echo -en "${GREEN_BOLD}Your goal (edit and press Enter when done): ${RESET}"
+
+        # Read new value – no -i, no -e → compatible with bash 3.2
+        read -r input
+
+        # User pressed Enter without typing anything new → keep previous
+        if [ -z "$input" ]; then
+            input="$GOAL_TEXT"
+        fi
+
+        # Trim leading/trailing whitespace (POSIX compatible)
+        GOAL_TEXT=$(echo "$input" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+
+        if [ -z "$GOAL_TEXT" ]; then
+            echo -e "\n${RED_BOLD}Goal cannot be empty. Please try again.${RESET}"
+            echo -e "Press Enter to continue..."
+            read -r dummy
+            continue
+        fi
+
+        # Show confirmation with preview
+        clear 2>/dev/null || printf "\033c"
+
+        echo -e "${GREEN_BOLD}Confirm this goal?${RESET}"
+        echo -e "────────────────────────────────────────────────────────────"
+        echo -e "ULTIMATE GOAL: We want to achieve ${YELLOW_BOLD}${GOAL_TEXT}${RESET}."
+        echo -e "────────────────────────────────────────────────────────────"
+        echo -e ""
+        echo -en "${GREEN_BOLD}Looks good? [Y/n] ${RESET}"
+        read -n 1 -r confirm
+        echo
+
+        if [ -z "$confirm" ] || [[ "$confirm" =~ ^[Yy]$ ]]; then
+            break
+        else
+            echo -e "${YELLOW_BOLD}Let's edit it again...${RESET}"
+            echo ""
+        fi
+    done
+
+    echo -e "${GREEN_BOLD}Goal locked in:${RESET} ${YELLOW_BOLD}${GOAL_TEXT}${RESET}\n"
+fi
+
+# Prepare final prompt
+if [ ! -f "$PROMPT_FILE" ]; then
+    echo -e "${RED_BOLD}Error: $PROMPT_FILE not found${RESET}"
+    exit 1
+fi
+
+PROMPT_CONTENT=$(cat "$PROMPT_FILE")
+
+if [ -n "$GOAL_TEXT" ]; then
+    # Simple literal replacement – safe and exact
+    FINAL_PROMPT="${PROMPT_CONTENT//\[project-specific goal\]/$GOAL_TEXT}"
+    echo -e "${GREEN_BOLD}Goal injected:${RESET} $GOAL_TEXT"
+else
+    FINAL_PROMPT="$PROMPT_CONTENT"
 fi
 
 # Select model
@@ -66,21 +174,17 @@ fi
 # ────────────────────────────────────────────────
 
 ITERATION=0
-CURRENT_BRANCH=$(git branch --show-current)
+CURRENT_BRANCH=$(git branch --show-current 2>/dev/null || echo "main")
 
 echo -e "${GREEN_BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
 echo -e "${GREEN_BOLD}Mode:         $MODE${RESET}"
 echo -e "${GREEN_BOLD}Model:        $MODEL${RESET}"
 echo -e "${GREEN_BOLD}Prompt:       $PROMPT_FILE${RESET}"
+[ -n "$GOAL_TEXT" ] && echo -e "${GREEN_BOLD}Goal:         $GOAL_TEXT${RESET}"
 echo -e "${GREEN_BOLD}Branch:       $CURRENT_BRANCH${RESET}"
-echo -e "${GREEN_BOLD}Execution:    $(if $USE_SANDBOX; then echo "docker sandbox"; else echo "claude CLI (direct / no sandbox)${RESET}"; fi)${RESET}"
+echo -e "${GREEN_BOLD}Execution:    $(if $USE_SANDBOX; then echo "docker sandbox"; else echo "claude CLI (direct)${RESET}"; fi)${RESET}"
 [ $MAX_ITERATIONS -gt 0 ] && echo -e "${GREEN_BOLD}Max:          $MAX_ITERATIONS iterations${RESET}"
 echo -e "${GREEN_BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
-
-if [ ! -f "$PROMPT_FILE" ]; then
-    echo -e "${GREEN_BOLD}Error: $PROMPT_FILE not found${RESET}"
-    exit 1
-fi
 
 # ────────────────────────────────────────────────
 # Confirmation when using --no-sandbox
@@ -132,7 +236,7 @@ while true; do
             --output-format=stream-json \
             --model "$MODEL" \
             --verbose \
-            "$(cat "$PROMPT_FILE")"
+            "$FINAL_PROMPT"
     else
         # Run Ralph iteration without sandbox with selected prompt
         # -p: Headless mode (non-interactive, reads from stdin)
@@ -141,7 +245,7 @@ while true; do
         # --model ...: selects the model
         #               Can use 'sonnet' in build mode for speed if plan is clear and tasks well-defined
         # --verbose: Detailed execution logging
-        cat "$PROMPT_FILE" | claude -p \
+        echo "$FINAL_PROMPT" | claude -p \
             --output-format=stream-json \
             --model "$MODEL" \
             --verbose \
