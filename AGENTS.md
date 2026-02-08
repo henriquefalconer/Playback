@@ -36,6 +36,7 @@ Key operational learnings from Phase 2 development (2026-02-07):
 - **SimpleBarChart pattern:** Fixed-height (70px) with dynamic bar heights calculated as (value / max) * 60, showing min/avg/max stats below
 - **ServiceStats calculation:** Dictionary keyed by component name, accumulating per-service error/warning counts and CPU/memory averages
 - **Phase 4 complete:** All 4 subphases (OCR search, privacy & security, diagnostics UI, performance monitoring) now 100% implemented
+- **Environment constraints:** Linux sandbox (Docker) cannot run Xcode or macOS build tools. Swift testing, integration testing, and distribution phases require macOS environment. When blocked by environment, document blocker clearly in IMPLEMENTATION_PLAN.md with next steps for continuing on proper environment
 
 ## Specifications
 
