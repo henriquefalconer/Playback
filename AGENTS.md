@@ -71,6 +71,9 @@ Key operational learnings from Phase 2 development (2026-02-07):
 - **Performance test async issues:** XCTest performance tests cannot reliably measure async operations. SearchController and other async patterns that depend on RunLoop may timeout (110+ seconds). Solution: Use direct SQLite C API queries for synchronous performance measurement instead of async Swift wrappers
 - **SQLITE_TRANSIENT binding:** When using sqlite3_bind_text in Swift, use `unsafeBitCast(-1, to: sqlite3_destructor_type.self)` for SQLITE_TRANSIENT to ensure proper string binding
 - **FTS5 rank function:** FTS5 rank is accessed via `rank` function in WHERE/ORDER BY clauses, not as a column (e.g., `ORDER BY o.timestamp DESC` not `ORDER BY s.rank`)
+- **SwiftUI openWindow environment action:** Use `@Environment(\.openWindow)` in views to open WindowGroup scenes by ID. Cannot be accessed from ObservableObject view models - must be called directly from view layer
+- **Screen Recording permission check:** Use `CGPreflightScreenCaptureAccess()` from ApplicationServices framework for immediate synchronous permission status. Shows NSAlert with "Open Settings" button that opens System Settings → Privacy & Security → Screen Recording via URL scheme
+- **Gating debug output:** Wrap all print() statements with `if Paths.isDevelopment { ... }` to prevent console spam in production builds while preserving debugging information during development
 
 ## Specifications
 
