@@ -74,6 +74,13 @@ Key operational learnings from Phase 2 development (2026-02-07):
 - **SwiftUI openWindow environment action:** Use `@Environment(\.openWindow)` in views to open WindowGroup scenes by ID. Cannot be accessed from ObservableObject view models - must be called directly from view layer
 - **Screen Recording permission check:** Use `CGPreflightScreenCaptureAccess()` from ApplicationServices framework for immediate synchronous permission status. Shows NSAlert with "Open Settings" button that opens System Settings → Privacy & Security → Screen Recording via URL scheme
 - **Gating debug output:** Wrap all print() statements with `if Paths.isDevelopment { ... }` to prevent console spam in production builds while preserving debugging information during development
+- **Xcode scheme names:** Project only has "Playback" scheme (not "Playback-Development" or "Playback-Release"). Use `-configuration Debug` or `-configuration Release` flags instead
+- **Correct build commands:** `cd /Users/vm/Playback/src/Playback && xcodebuild -scheme Playback -configuration Debug build` for development builds
+- **Error state patterns:** Use @Published enum with associated values for flexible error handling (e.g., `enum LoadingState { case loading, loaded, empty, error(String) }`). Allows pattern matching in UI layer
+- **Conditional UI rendering pattern:** Restructure SwiftUI body to return different views based on state rather than conditionally showing/hiding. Use `if/else if/else` at top level of ZStack for clean state-based rendering
+- **State propagation for error handling:** ObservableObject stores (TimelineStore, PlaybackController) publish loading/error state via @Published properties. ContentView observes and renders appropriate view (LoadingStateView, EmptyStateView, ErrorStateView, or main content)
+- **Consecutive failure tracking:** Track failure counts in controller, trigger error state after threshold (e.g., 3 consecutive failures) to avoid silent failures and blank screens
+- **NotificationCenter for retry actions:** Use NotificationCenter.default.post to communicate from error state views back to data loading layers for retry operations
 
 ## Specifications
 
@@ -89,19 +96,19 @@ Key operational learnings from Phase 2 development (2026-02-07):
 ### Building with Xcode (Primary)
 Use Xcode for development and production builds. All builds require macOS 26.0+ and Apple Silicon.
 
-- **Development build:** `xcodebuild -scheme Playback-Development -configuration Debug`
-- **Release build:** `xcodebuild -scheme Playback-Release -configuration Release`
+- **Development build:** `cd src/Playback && xcodebuild -scheme Playback -configuration Debug build`
+- **Release build:** `cd src/Playback && xcodebuild -scheme Playback -configuration Release build`
 - **Build output:** `build/Debug/Playback.app` or `build/Release/Playback.app`
-- **Clean build:** `xcodebuild clean -scheme Playback-Development`
-- **Archive:** `xcodebuild archive -scheme Playback-Release -archivePath build/Playback.xcarchive`
+- **Clean build:** `cd src/Playback && xcodebuild -scheme Playback clean`
+- **Archive:** `cd src/Playback && xcodebuild -scheme Playback -configuration Release archive -archivePath build/Playback.xcarchive`
 
 ### Testing
 Run tests early and often to catch regressions.
 
-- **All tests:** `xcodebuild test -scheme Playback-Development -destination 'platform=macOS'`
-- **Fast tests only:** `xcodebuild test -scheme Playback-Development -only-testing:PlaybackTests/FastTests`
-- **Single test:** `xcodebuild test -scheme Playback-Development -only-testing:PlaybackTests/<TestName>`
-- **UI tests:** `xcodebuild test -scheme Playback-Development -only-testing:PlaybackUITests`
+- **All tests:** `cd src/Playback && xcodebuild test -scheme Playback -configuration Debug -destination 'platform=macOS'`
+- **Fast tests only:** `cd src/Playback && xcodebuild test -scheme Playback -configuration Debug -only-testing:PlaybackTests/FastTests`
+- **Single test:** `cd src/Playback && xcodebuild test -scheme Playback -configuration Debug -only-testing:PlaybackTests/<TestName>`
+- **UI tests:** `cd src/Playback && xcodebuild test -scheme Playback -configuration Debug -only-testing:PlaybackUITests`
 - **Python tests (all):** `python3 -m pytest src/ -v`
 - **Python tests (specific):** `python3 -m pytest src/lib/test_<module>.py -v`
 - **Python linting:** `flake8 src/scripts/ --max-line-length=120`
@@ -149,7 +156,7 @@ Use the build script for production-ready builds with code signing and notarizat
 ### Manual Steps
 If the build script fails or you need manual control:
 
-1. **Build:** `xcodebuild -scheme Playback-Release -configuration Release`
+1. **Build:** `cd src/Playback && xcodebuild -scheme Playback -configuration Release build`
 2. **Sign:** `codesign --sign "Developer ID Application" --deep --force --options runtime build/Release/Playback.app`
 3. **Verify signature:** `codesign --verify --verbose build/Release/Playback.app`
 4. **Create zip:** `ditto -c -k --keepParent build/Release/Playback.app dist/Playback.zip`
@@ -220,10 +227,10 @@ Before releasing or deploying changes, test locally to verify behavior:
 Run the full integration test suite before major releases:
 ```bash
 # Run all integration tests
-xcodebuild test -scheme Playback-Development -only-testing:PlaybackTests/IntegrationTests
+cd src/Playback && xcodebuild test -scheme Playback -configuration Debug -only-testing:PlaybackTests/IntegrationTests
 
 # Test recording → processing → playback pipeline
-xcodebuild test -scheme Playback-Development -only-testing:PlaybackTests/IntegrationTests/testFullPipeline
+cd src/Playback && xcodebuild test -scheme Playback -configuration Debug -only-testing:PlaybackTests/IntegrationTests/testFullPipeline
 ```
 
 ## Troubleshooting
