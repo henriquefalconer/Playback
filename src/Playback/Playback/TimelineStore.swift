@@ -111,6 +111,16 @@ final class TimelineStore: ObservableObject {
         startAutoRefresh()
     }
 
+    init(dbPath: String, baseDir: URL, autoRefresh: Bool = true) {
+        self.dbPath = dbPath
+        self.baseDir = baseDir
+
+        loadSegments()
+        if autoRefresh {
+            startAutoRefresh()
+        }
+    }
+
     private func startAutoRefresh() {
         refreshTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in
             self?.refreshIfNeeded()
