@@ -99,10 +99,14 @@ final class GlobalHotkeyManagerWrapper: ObservableObject {
             let (keyCode, modifiers) = GlobalHotkeyManager.optionShiftSpace
             try manager.register(keyCode: keyCode, modifiers: modifiers, callback: callback)
         } catch HotkeyError.accessibilityPermissionDenied {
-            print("[Playback] Accessibility permission denied. Global hotkey will not work.")
+            if Paths.isDevelopment {
+                print("[Playback] Accessibility permission denied. Global hotkey will not work.")
+            }
             showPermissionAlert()
         } catch {
-            print("[Playback] Failed to register global hotkey: \(error)")
+            if Paths.isDevelopment {
+                print("[Playback] Failed to register global hotkey: \(error)")
+            }
         }
     }
 
@@ -133,7 +137,9 @@ final class SignalFileManagerWrapper: ObservableObject {
         do {
             try manager.createSignalFile()
         } catch {
-            print("[Playback] Error creating signal file: \(error)")
+            if Paths.isDevelopment {
+                print("[Playback] Error creating signal file: \(error)")
+            }
         }
     }
 

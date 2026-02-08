@@ -98,7 +98,9 @@ final class SignalFileManager {
         let content = "Timeline viewer opened at \(timestamp)\n"
         try content.write(to: signalPath, atomically: true, encoding: .utf8)
 
-        print("[Playback] Signal file created: \(signalPath.path)")
+        if Paths.isDevelopment {
+            print("[Playback] Signal file created: \(signalPath.path)")
+        }
     }
 
     /// Remove the signal file to indicate timeline viewer is closed
@@ -109,9 +111,13 @@ final class SignalFileManager {
 
         do {
             try fileManager.removeItem(at: signalPath)
-            print("[Playback] Signal file removed: \(signalPath.path)")
+            if Paths.isDevelopment {
+                print("[Playback] Signal file removed: \(signalPath.path)")
+            }
         } catch {
-            print("[Playback] Warning: Failed to remove signal file: \(error)")
+            if Paths.isDevelopment {
+                print("[Playback] Warning: Failed to remove signal file: \(error)")
+            }
         }
     }
 

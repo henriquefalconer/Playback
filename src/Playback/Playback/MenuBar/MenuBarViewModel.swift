@@ -97,7 +97,9 @@ final class MenuBarViewModel: ObservableObject {
                     recordingState = .paused
                 }
             } catch {
-                print("[MenuBar] Error toggling recording: \(error)")
+                if Paths.isDevelopment {
+                    print("[MenuBar] Error toggling recording: \(error)")
+                }
                 recordingState = .error
                 isRecordingEnabled.toggle()
             }

@@ -81,10 +81,14 @@ final class PlaybackController: ObservableObject {
                         self.showFrozenFrame = true
                     }
                 } else if let error = error {
-                    let message = error.localizedDescription
-                    print("[Playback] Falha ao gerar frozen frame (async) para \(url.path) em offset=\(offset): \(message)")
+                    if Paths.isDevelopment {
+                        let message = error.localizedDescription
+                        print("[Playback] Failed to generate async frozen frame for \(url.path) at offset=\(offset): \(message)")
+                    }
                 } else {
-                    print("[Playback] Geração de frozen frame (async) não retornou imagem nem erro para \(url.path) em offset=\(offset)")
+                    if Paths.isDevelopment {
+                        print("[Playback] Async frozen frame generation returned no image or error for \(url.path) at offset=\(offset)")
+                    }
                 }
             }
         }
@@ -106,7 +110,9 @@ final class PlaybackController: ObservableObject {
 
         let segments = store.segments
         guard let first = segments.first, let last = segments.last else {
-            print("[Playback] (scrub) Nenhum segmento disponível (lista vazia)")
+            if Paths.isDevelopment {
+                print("[Playback] (scrub) No segments available (empty list)")
+            }
             isScrubbing = false
             return
         }
@@ -160,23 +166,29 @@ final class PlaybackController: ObservableObject {
         //  - buracos entre segmentos (considerando direção)
         //  - antes do primeiro / depois do último segmento
         guard let (seg, offset) = store.segment(for: clampedTime, direction: direction) else {
-            print("[Playback] (scrub) segment(for: \(clampedTime), dir=\(direction)) retornou nil")
+            if Paths.isDevelopment {
+                print("[Playback] (scrub) segment(for: \(clampedTime), dir=\(direction)) returned nil")
+            }
             return
         }
 
         // Atualiza o tempo absoluto atual na timeline (coordenada contínua).
         currentTime = clampedTime
 
-        print("[Playback] (scrub) time=\(time), clamped=\(clampedTime), effectiveTime=\(clampedTime), direction=\(direction)")
+        if Paths.isDevelopment {
+            print("[Playback] (scrub) time=\(time), clamped=\(clampedTime), effectiveTime=\(clampedTime), direction=\(direction)")
+        }
 
         let distToStart = clampedTime - seg.startTS
         let distToEnd = seg.endTS - clampedTime
 
-        print(
-            "[Playback] (scrub) usando segment(for:): id=\(seg.id), " +
-            "videoOffset=\(offset), " +
-            "distToStart=\(distToStart), distToEnd=\(distToEnd)"
-        )
+        if Paths.isDevelopment {
+            print(
+                "[Playback] (scrub) using segment(for:): id=\(seg.id), " +
+                "videoOffset=\(offset), " +
+                "distToStart=\(distToStart), distToEnd=\(distToEnd)"
+            )
+        }
         seek(to: seg, offset: offset, isScrub: true)
 
         // Agenda o fim do scrubbing um pouco após o último evento de scroll.
@@ -232,7 +244,9 @@ final class PlaybackController: ObservableObject {
                 guard let self else { return }
                 switch item.status {
                 case .readyToPlay:
-                    print("[Playback] \(isScrub ? "(scrub) " : "")READY to play \(url.path)")
+                    if Paths.isDevelopment {
+                        print("[Playback] \(isScrub ? "(scrub) " : "")READY to play \(url.path)")
+                    }
                     DispatchQueue.main.async {
                         // Só escondemos o frame congelado se não estivermos
                         // mais em scrubbing. Durante scrubbing, mantemos o
@@ -243,16 +257,22 @@ final class PlaybackController: ObservableObject {
                         }
                     }
                 case .failed:
-                    print("[Playback] \(isScrub ? "(scrub) " : "")FAILED for \(url.path): \(item.error?.localizedDescription ?? "(sem erro)")")
+                    if Paths.isDevelopment {
+                        print("[Playback] \(isScrub ? "(scrub) " : "")FAILED for \(url.path): \(item.error?.localizedDescription ?? "(no error)")")
+                    }
                     DispatchQueue.main.async {
                         if !self.isScrubbing {
                             self.showFrozenFrame = false
                         }
                     }
                 case .unknown:
-                    print("[Playback] \(isScrub ? "(scrub) " : "")status UNKNOWN para \(url.path)")
+                    if Paths.isDevelopment {
+                        print("[Playback] \(isScrub ? "(scrub) " : "")status UNKNOWN for \(url.path)")
+                    }
                 @unknown default:
-                    print("[Playback] \(isScrub ? "(scrub) " : "")status desconhecido para \(url.path)")
+                    if Paths.isDevelopment {
+                        print("[Playback] \(isScrub ? "(scrub) " : "")unknown status for \(url.path)")
+                    }
                 }
             }
 
@@ -271,12 +291,16 @@ final class PlaybackController: ObservableObject {
 
     func update(for time: TimeInterval, store: TimelineStore) {
         guard let (segment, offset) = store.segment(for: time) else {
-            print("[Playback] Nenhum segmento encontrado para time=\(time)")
+            if Paths.isDevelopment {
+                print("[Playback] No segment found for time=\(time)")
+            }
             return
         }
-        print("[Playback] Atualizando para segmento \(segment.id) (videoOffset=\(offset))")
-        print("          URL: \(segment.videoURL.path)")
-        print("          exists: \(FileManager.default.fileExists(atPath: segment.videoURL.path))")
+        if Paths.isDevelopment {
+            print("[Playback] Updating to segment \(segment.id) (videoOffset=\(offset))")
+            print("          URL: \(segment.videoURL.path)")
+            print("          exists: \(FileManager.default.fileExists(atPath: segment.videoURL.path))")
+        }
         currentTime = time
 
         if currentSegment?.id != segment.id {
@@ -295,23 +319,31 @@ final class PlaybackController: ObservableObject {
                 guard let self else { return }
                 switch item.status {
                 case .readyToPlay:
-                    print("[Playback] READY to play \(url.path)")
+                    if Paths.isDevelopment {
+                        print("[Playback] READY to play \(url.path)")
+                    }
                     DispatchQueue.main.async {
                         if !self.isScrubbing {
                             self.showFrozenFrame = false
                         }
                     }
                 case .failed:
-                    print("[Playback] FAILED for \(url.path): \(item.error?.localizedDescription ?? "(sem erro)")")
+                    if Paths.isDevelopment {
+                        print("[Playback] FAILED for \(url.path): \(item.error?.localizedDescription ?? "(no error)")")
+                    }
                     DispatchQueue.main.async {
                         if !self.isScrubbing {
                             self.showFrozenFrame = false
                         }
                     }
                 case .unknown:
-                    print("[Playback] status UNKNOWN para \(url.path)")
+                    if Paths.isDevelopment {
+                        print("[Playback] status UNKNOWN for \(url.path)")
+                    }
                 @unknown default:
-                    print("[Playback] status desconhecido para \(url.path)")
+                    if Paths.isDevelopment {
+                        print("[Playback] unknown status for \(url.path)")
+                    }
                 }
             }
 

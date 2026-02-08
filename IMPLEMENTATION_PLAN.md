@@ -69,11 +69,6 @@ These items prevent basic usability. They should be fixed first.
 - **Source:** `Assets.xcassets/AppIcon.appiconset/Contents.json` — all 10 size slots defined but **zero image files present**
 - **Impact:** App has no icon in Dock, About panel, Finder, or menu bar
 
-### 1.4 65 Debug Print Statements in Production Code
-- **Source:** All 13 Swift source files contain `print()` calls (15 in TimelineStore, 15 in PlaybackController, 8 in ContentView, etc.)
-- **Problem:** Console spam, potential performance impact during scrolling/scrubbing, some messages in Portuguese
-- **Fix:** Remove all debug prints or gate behind `Paths.isDevelopment` check; use `os.log` for operational messages
-
 ---
 
 ## Priority 2 — Important Missing Features

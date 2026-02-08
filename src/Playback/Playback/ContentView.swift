@@ -10,16 +10,16 @@ struct ContentView: View {
     @State private var showDatePicker = false
     @State private var showSearch = false
     @StateObject private var searchController: SearchController
-    // Janela de tempo visível na timeline (em segundos).
-    // 3600s = 1h visível ao redor do instante atual.
+    // Visible time window in timeline (in seconds).
+    // 3600s = 1h visible around current instant.
     @State private var visibleWindowSeconds: TimeInterval = 60 * 1
-    // Limites de zoom: não permite dar zoom in/out além desses valores.
-    private let minVisibleWindowSeconds: TimeInterval = 60          // 1 minuto
-    private let maxVisibleWindowSeconds: TimeInterval = 60 * 60     // 60 minutos
-    // Base usada para o gesto de pinça (zoom) aplicado na janela inteira.
+    // Zoom limits: prevents zooming in/out beyond these values.
+    private let minVisibleWindowSeconds: TimeInterval = 60          // 1 minute
+    private let maxVisibleWindowSeconds: TimeInterval = 60 * 60     // 60 minutes
+    // Base used for pinch gesture (zoom) applied to entire window.
     @State private var pinchBaseVisibleWindowSeconds: TimeInterval?
-    // Exponente que controla a sensibilidade do zoom por pinça.
-    // Valores maiores => zoom mais agressivo para a mesma distância de pinça.
+    // Exponent that controls pinch zoom sensitivity.
+    // Higher values => more aggressive zoom for same pinch distance.
     private let pinchZoomExponent: Double = 3.0
     @State private var keyMonitor: Any?
     @State private var scrollMonitor: Any?
@@ -34,12 +34,10 @@ struct ContentView: View {
             VideoBackgroundView(player: playbackController.player)
                 .ignoresSafeArea()
 
-            // Enquanto um novo segmento está carregando (ou quando navegamos
-            // para fora da faixa gravada), mostramos o último frame conhecido
-            // como fallback para evitar "telas pretas" bruscas.
-            // Para garantir que nenhuma outra imagem de fundo apareça ao redor
-            // do frozen frame, renderizamos a imagem por cima de um fundo preto
-            // que preenche toda a tela.
+            // While a new segment is loading (or when navigating outside recorded range),
+            // show the last known frame as fallback to avoid abrupt black screens.
+            // To ensure no other background image appears around the frozen frame,
+            // render the image on top of a black background that fills the entire screen.
             if playbackController.showFrozenFrame, let image = playbackController.frozenFrame {
                 ZStack {
                     Color.black
@@ -52,13 +50,13 @@ struct ContentView: View {
                 }
             }
 
-            // Gradiente inferior bem sutil em tons de cinza
+            // Subtle bottom gradient in gray-blue tones
             VStack {
                 Spacer()
                 LinearGradient(
                     gradient: Gradient(colors: [
                         Color.clear,
-                        Color(.sRGB, red: 0.60, green: 0.68, blue: 0.98, opacity: 0.25) // cinza-azulado sutil
+                        Color(.sRGB, red: 0.60, green: 0.68, blue: 0.98, opacity: 0.25) // subtle blue-gray
                     ]),
                     startPoint: .top,
                     endPoint: .bottom
@@ -82,8 +80,8 @@ struct ContentView: View {
                     .environmentObject(playbackController)
                     .frame(height: 120)
                     .padding(.bottom, 40)
-                    // Anima suavemente mudanças de zoom (visibleWindowSeconds),
-                    // dando uma sensação de inércia ao gesto de pinça.
+                    // Smoothly animate zoom changes (visibleWindowSeconds),
+                    // giving an inertia feel to the pinch gesture.
                     .animation(
                         .spring(response: 0.35, dampingFraction: 0.8, blendDuration: 0.15),
                         value: visibleWindowSeconds
@@ -126,8 +124,8 @@ struct ContentView: View {
 
         }
         .onAppear {
-            // Se os segmentos já estiverem carregados quando a view aparecer,
-            // posiciona imediatamente no instante mais recente.
+            // If segments are already loaded when view appears,
+            // immediately position at the most recent instant.
             if let latest = timelineStore.latestTS {
                 centerTime = latest
                 playbackController.update(for: latest, store: timelineStore)
@@ -145,7 +143,7 @@ struct ContentView: View {
                 }
             }
 
-            // Monitor de teclado para atalhos globais
+            // Keyboard monitor for global shortcuts
             keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [self] event in
                 // keyCode 53 = ESC, 49 = Space, 123 = Left Arrow, 124 = Right Arrow, 3 = F (for Command+F)
 
@@ -184,21 +182,22 @@ struct ContentView: View {
                     return event
                 }
             }
-            // Monitor global de scroll para controlar o tempo do vídeo sem bloquear cliques
-            // na timeline. Diferente do ScrollCaptureView anterior (que usava uma NSView
-            // transparente por cima de tudo), este monitor apenas observa eventos de scroll,
-            // sem interferir na hierarquia de hit-test da UI.
+            // Global scroll monitor to control video time without blocking clicks on timeline.
+            // Unlike the previous ScrollCaptureView (which used a transparent NSView over everything),
+            // this monitor only observes scroll events without interfering with UI hit-test hierarchy.
             scrollMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { event in
                 let rawDx = event.scrollingDeltaX
                 let rawDy = event.scrollingDeltaY
 
-                print("[ScrollCapture] event dx=\(rawDx), dy=\(rawDy), inverted=\(event.isDirectionInvertedFromDevice)")
+                if Paths.isDevelopment {
+                    print("[ScrollCapture] event dx=\(rawDx), dy=\(rawDy), inverted=\(event.isDirectionInvertedFromDevice)")
+                }
 
-                // Usamos o eixo de maior magnitude como direção principal do gesto.
+                // Use the axis with greater magnitude as primary direction of gesture.
                 guard rawDx != 0 || rawDy != 0 else { return nil }
                 let primaryRaw: CGFloat = abs(rawDx) >= abs(rawDy) ? rawDx : rawDy
 
-                // Direção real do dedo (corrigida para "natural scrolling").
+                // Real finger direction (corrected for "natural scrolling").
                 let fingerDelta: CGFloat
                 if event.isDirectionInvertedFromDevice {
                     fingerDelta = -primaryRaw
@@ -206,30 +205,37 @@ struct ContentView: View {
                     fingerDelta = primaryRaw
                 }
 
-                print("[ScrollCapture] primaryRaw=\(primaryRaw), fingerDelta=\(fingerDelta)")
+                if Paths.isDevelopment {
+                    print("[ScrollCapture] primaryRaw=\(primaryRaw), fingerDelta=\(fingerDelta)")
+                }
 
-                // Fator de sensibilidade (ajuste fino da velocidade do scroll).
-                // Em vez de um valor fixo muito pequeno (que praticamente não move a timeline),
-                // escalamos pela janela visível: para uma janela de 1h, cada "ponto" de scroll
-                // muda alguns segundos, o suficiente para perceber deslocamento contínuo.
+                // Sensitivity factor (fine-tuning scroll speed).
+                // Instead of a fixed very small value (which barely moves timeline),
+                // we scale by visible window: for 1h window, each scroll "point"
+                // changes a few seconds, enough to perceive continuous displacement.
                 //
-                // Exemplo: visibleWindowSeconds = 3600 -> ~3.6s por ponto.
+                // Example: visibleWindowSeconds = 3600 -> ~3.6s per point.
                 let secondsPerPoint: Double = visibleWindowSeconds / 1000.0
 
-                // Regra de UX (invertida agora):
-                //  - dedo/ponteiro para a DIREITA  => tempo MAIOR (futuro)
-                //  - dedo/ponteiro para a ESQUERDA => tempo MENOR (passado)
+                // UX rule (now inverted):
+                //  - finger/pointer to RIGHT => HIGHER time (future)
+                //  - finger/pointer to LEFT  => LOWER time (past)
                 let secondsDelta = Double(fingerDelta) * secondsPerPoint
 
                 guard secondsDelta != 0 else {
-                    print("[ScrollCapture] secondsDelta == 0, ignorando")
+                    if Paths.isDevelopment {
+                        print("[ScrollCapture] secondsDelta == 0, ignoring")
+                    }
                     return nil
                 }
 
-                // Baseamos o cálculo no currentTime do playbackController (sincronizado pelo timeObserver).
+                // Base calculation on playbackController's currentTime (synchronized by timeObserver).
                 let base = playbackController.currentTime
                 var newTime = base + secondsDelta
-                print("[ScrollCapture] baseTime=\(base), secondsDelta=\(secondsDelta), tentative newTime=\(newTime)")
+
+                if Paths.isDevelopment {
+                    print("[ScrollCapture] baseTime=\(base), secondsDelta=\(secondsDelta), tentative newTime=\(newTime)")
+                }
 
                 if let start = timelineStore.timelineStart {
                     newTime = max(start, newTime)
@@ -238,21 +244,27 @@ struct ContentView: View {
                     newTime = min(end, newTime)
                 }
 
-                print("[ScrollCapture] clamped newTime=\(newTime), timelineStart=\(String(describing: timelineStore.timelineStart)), timelineEnd=\(String(describing: timelineStore.timelineEnd))")
+                if Paths.isDevelopment {
+                    print("[ScrollCapture] clamped newTime=\(newTime), timelineStart=\(String(describing: timelineStore.timelineStart)), timelineEnd=\(String(describing: timelineStore.timelineEnd))")
+                }
 
-                // Atualiza estado da UI e faz scrubbing IMEDIATO (sem debounce),
-                // mantendo o vídeo PAUSADO enquanto o usuário está scrollando.
-                let beforeScrubCurrent = playbackController.currentTime
-                print("[ScrollCapture] -> calling scrub(to: \(newTime)). currentTime(before)=\(beforeScrubCurrent), centerTime(before)=\(centerTime)")
+                // Update UI state and perform IMMEDIATE scrubbing (no debounce),
+                // keeping video PAUSED while user is scrolling.
+                if Paths.isDevelopment {
+                    let beforeScrubCurrent = playbackController.currentTime
+                    print("[ScrollCapture] -> calling scrub(to: \(newTime)). currentTime(before)=\(beforeScrubCurrent), centerTime(before)=\(centerTime)")
+                }
                 playbackController.scrub(to: newTime, store: timelineStore)
-                // Após o scrub, sempre alinhamos o centerTime com o currentTime
-                // efetivo do player (que pode ter sido "encaixado" no fim/início
-                // de um segmento durante transições entre segmentos).
+                // After scrub, always align centerTime with player's effective currentTime
+                // (which may have been "snapped" to segment end/start during segment transitions).
                 centerTime = playbackController.currentTime
-                print("[ScrollCapture] <- after scrub. playback.currentTime=\(playbackController.currentTime), centerTime=\(centerTime)")
 
-                // Retornamos nil para evitar que alguma view padrão (ex: NSScrollView)
-                // também processe esse scroll.
+                if Paths.isDevelopment {
+                    print("[ScrollCapture] <- after scrub. playback.currentTime=\(playbackController.currentTime), centerTime=\(centerTime)")
+                }
+
+                // Return nil to prevent any default view (e.g. NSScrollView)
+                // from also processing this scroll.
                 return nil
             }
         }
@@ -266,25 +278,29 @@ struct ContentView: View {
                 scrollMonitor = nil
             }
         }
-        // Sempre que a contagem de segmentos mudar (carregamento inicial ou reload),
-        // reposicionamos o centerTime para o último timestamp disponível.
+        // Whenever segment count changes (initial load or reload),
+        // reposition centerTime to the latest available timestamp.
         .onChange(of: timelineStore.segments.count) { _, newCount in
             guard newCount > 0, let latest = timelineStore.latestTS else { return }
-            print("[ContentView] segments.count mudou para \(newCount); reposicionando centerTime em latestTS=\(latest)")
+            if Paths.isDevelopment {
+                print("[ContentView] segments.count changed to \(newCount); repositioning centerTime to latestTS=\(latest)")
+            }
             centerTime = latest
             playbackController.update(for: latest, store: timelineStore)
         }
-        // IMPORTANTE: durante o scrubbing via ScrollCapture/Timeline, quem controla
-        // o player é o PlaybackController.scrub(...). Chamadas adicionais de
-        // scheduleUpdate aqui podem brigar com o scrubbing e causar "saltos"
-        // inesperados. Por isso, este hook fica temporariamente desativado.
+        // IMPORTANT: during scrubbing via ScrollCapture/Timeline, who controls
+        // the player is PlaybackController.scrub(...). Additional calls to
+        // scheduleUpdate here can conflict with scrubbing and cause unexpected "jumps".
+        // Therefore, this hook is temporarily disabled.
         /*
         .onChange(of: centerTime) { _, newValue in
-            print("[ContentView] centerTime mudou para \(newValue); chamando scheduleUpdate")
+            if Paths.isDevelopment {
+                print("[ContentView] centerTime changed to \(newValue); calling scheduleUpdate")
+            }
             playbackController.scheduleUpdate(for: newValue, store: timelineStore)
         }
         */
-        // Permite zoom por pinça em QUALQUER área da janela, não apenas sobre a barra de segmentos.
+        // Allow pinch zoom in ANY window area, not just over segment bar.
         .simultaneousGesture(
             MagnificationGesture()
                 .onChanged { value in
@@ -295,12 +311,12 @@ struct ContentView: View {
                     }
                     guard let base = pinchBaseVisibleWindowSeconds else { return }
 
-                    // Aumentamos a sensibilidade do zoom aplicando um expoente
-                    // sobre o valor da pinça. Assim, pequenos gestos geram
-                    // mudanças mais perceptíveis na escala de tempo.
+                    // Increase zoom sensitivity by applying an exponent
+                    // to the pinch value. This way, small gestures generate
+                    // more perceptible changes in time scale.
                     let factor = pow(Double(value), pinchZoomExponent)
 
-                    // Zoom in => menor janela (menos segundos visíveis).
+                    // Zoom in => smaller window (fewer visible seconds).
                     var newWindow = base / factor
                     if newWindow < minVisibleWindowSeconds {
                         newWindow = minVisibleWindowSeconds
@@ -310,7 +326,9 @@ struct ContentView: View {
 
                     if abs(newWindow - visibleWindowSeconds) > 0.001 {
                         visibleWindowSeconds = newWindow
-                        print("[ContentView] Pinch zoom -> visibleWindowSeconds=\(visibleWindowSeconds)")
+                        if Paths.isDevelopment {
+                            print("[ContentView] Pinch zoom -> visibleWindowSeconds=\(visibleWindowSeconds)")
+                        }
                     }
                 }
                 .onEnded { _ in

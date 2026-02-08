@@ -313,15 +313,21 @@ struct TimelineView: View {
                         let rawLocation = value.location
                         let geoWidth = geo.size.width
                         let leftEdgeX = (geoWidth - width) / 2
-                        print("[TimelineView] Click/drag terminou. rawLocation=\(rawLocation), geoWidth=\(geoWidth), width=\(width), leftEdgeX=\(leftEdgeX)")
+                        if Paths.isDevelopment {
+                            print("[TimelineView] Click/drag ended. rawLocation=\(rawLocation), geoWidth=\(geoWidth), width=\(width), leftEdgeX=\(leftEdgeX)")
+                        }
 
                         // Coordenada X do clique **relativa à barra** (0 ... width)
                         let localX = max(0, min(rawLocation.x - leftEdgeX, width))
-                        print("[TimelineView]   localX (ajustado)=\(localX)")
+                        if Paths.isDevelopment {
+                            print("[TimelineView]   localX (adjusted)=\(localX)")
+                        }
 
                         // Converte posição em tempo absoluto dentro da janela visível
                         var newTime = windowStart + TimeInterval(localX / width) * visibleWindowSeconds
-                        print("[TimelineView]   newTime (antes clamp)=\(newTime), windowStart=\(windowStart), visibleWindowSeconds=\(visibleWindowSeconds)")
+                        if Paths.isDevelopment {
+                            print("[TimelineView]   newTime (before clamp)=\(newTime), windowStart=\(windowStart), visibleWindowSeconds=\(visibleWindowSeconds)")
+                        }
 
                         // Garante que não passamos dos limites globais da timeline
                         if let start = timelineStore.timelineStart {
@@ -331,13 +337,19 @@ struct TimelineView: View {
                             newTime = min(end, newTime)
                         }
 
-                        print("[TimelineView]   newTime (após clamp)=\(newTime)")
+                        if Paths.isDevelopment {
+                            print("[TimelineView]   newTime (after clamp)=\(newTime)")
+                        }
 
                         // Atualiza o vídeo e o centro da janela para o novo tempo
                         playbackController.scrub(to: newTime, store: timelineStore)
-                        print("[TimelineView]   playbackController.currentTime após scrub=\(playbackController.currentTime)")
+                        if Paths.isDevelopment {
+                            print("[TimelineView]   playbackController.currentTime after scrub=\(playbackController.currentTime)")
+                        }
                         centerTime = playbackController.currentTime
-                        print("[TimelineView]   centerTime atualizado=\(centerTime)")
+                        if Paths.isDevelopment {
+                            print("[TimelineView]   centerTime updated=\(centerTime)")
+                        }
                     }
             )
         }

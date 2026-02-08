@@ -94,7 +94,9 @@ final class DiagnosticsController: ObservableObject {
                     self.isLoading = false
                 }
             } catch {
-                print("[Diagnostics] Failed to load logs: \(error)")
+                if Paths.isDevelopment {
+                    print("[Diagnostics] Failed to load logs: \(error)")
+                }
                 await MainActor.run {
                     self.isLoading = false
                 }
@@ -220,7 +222,9 @@ final class DiagnosticsController: ObservableObject {
                     loadLogs()
                 }
             } catch {
-                print("[Diagnostics] Failed to clear logs: \(error)")
+                if Paths.isDevelopment {
+                    print("[Diagnostics] Failed to clear logs: \(error)")
+                }
             }
         }
     }
@@ -274,7 +278,9 @@ final class DiagnosticsController: ObservableObject {
             try report.write(to: reportURL, atomically: true, encoding: .utf8)
             return reportURL
         } catch {
-            print("[Diagnostics] Failed to write report: \(error)")
+            if Paths.isDevelopment {
+                print("[Diagnostics] Failed to write report: \(error)")
+            }
             return nil
         }
     }

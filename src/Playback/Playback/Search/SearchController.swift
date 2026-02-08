@@ -109,7 +109,9 @@ final class SearchController: ObservableObject {
             // Open database in read-only mode
             let flags = SQLITE_OPEN_READONLY
             guard sqlite3_open_v2(dbPath, &db, flags, nil) == SQLITE_OK else {
-                print("[SearchController] Failed to open database: \(dbPath)")
+                if Paths.isDevelopment {
+                    print("[SearchController] Failed to open database: \(dbPath)")
+                }
                 return results
             }
 
@@ -137,7 +139,9 @@ final class SearchController: ObservableObject {
             var statement: OpaquePointer?
             guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
                 let error = String(cString: sqlite3_errmsg(db))
-                print("[SearchController] Failed to prepare statement: \(error)")
+                if Paths.isDevelopment {
+                    print("[SearchController] Failed to prepare statement: \(error)")
+                }
                 return results
             }
 
@@ -168,7 +172,9 @@ final class SearchController: ObservableObject {
                 results.append(result)
             }
 
-            print("[SearchController] Search '\(query)' returned \(results.count) results")
+            if Paths.isDevelopment {
+                print("[SearchController] Search '\(query)' returned \(results.count) results")
+            }
             return results
         }.value
     }

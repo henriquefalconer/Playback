@@ -104,7 +104,9 @@ final class TimelineStore: ObservableObject {
         do {
             try Paths.ensureDirectoriesExist()
         } catch {
-            print("[TimelineStore] Error creating directories: \(error)")
+            if Paths.isDevelopment {
+                print("[TimelineStore] Error creating directories: \(error)")
+            }
         }
 
         loadSegments()
@@ -131,7 +133,9 @@ final class TimelineStore: ObservableObject {
         let previousCount = segments.count
         loadSegments()
         if segments.count != previousCount {
-            print("[TimelineStore] Auto-refreshed: \(segments.count) segments (was \(previousCount))")
+            if Paths.isDevelopment {
+                print("[TimelineStore] Auto-refreshed: \(segments.count) segments (was \(previousCount))")
+            }
         }
     }
 
@@ -148,9 +152,11 @@ final class TimelineStore: ObservableObject {
                 errorMessage = String(cString: sqlite3_errmsg(db))
                 sqlite3_close(db)
             } else {
-                errorMessage = "sqlite3_open returned code \(rc) e db == nil"
+                errorMessage = "sqlite3_open returned code \(rc) and db == nil"
             }
-            print("[TimelineStore] Não foi possível abrir meta.sqlite3 em \(dbPath). rc=\(rc), erro=\(errorMessage)")
+            if Paths.isDevelopment {
+                print("[TimelineStore] Failed to open meta.sqlite3 at \(dbPath). rc=\(rc), error=\(errorMessage)")
+            }
             return
         }
         defer { sqlite3_close(db) }
@@ -163,7 +169,9 @@ final class TimelineStore: ObservableObject {
 
         var stmt: OpaquePointer?
         guard sqlite3_prepare_v2(db, query, -1, &stmt, nil) == SQLITE_OK, let stmt else {
-            print("[TimelineStore] Erro ao preparar query segments")
+            if Paths.isDevelopment {
+                print("[TimelineStore] Error preparing segments query")
+            }
             return
         }
         defer { sqlite3_finalize(stmt) }
@@ -234,13 +242,17 @@ final class TimelineStore: ObservableObject {
                 )
             }
         } else {
-            print("[TimelineStore] Tabela appsegments não encontrada ou erro ao preparar query; apenas segments serão carregados.")
+            if Paths.isDevelopment {
+                print("[TimelineStore] appsegments table not found or error preparing query; only segments will be loaded.")
+            }
         }
 
         DispatchQueue.main.async {
             self.segments = loaded
             self.appSegments = loadedAppSegments
-            print("[TimelineStore] Carregados \(loaded.count) segments e \(loadedAppSegments.count) appsegments")
+            if Paths.isDevelopment {
+                print("[TimelineStore] Loaded \(loaded.count) segments and \(loadedAppSegments.count) appsegments")
+            }
         }
     }
 
@@ -273,12 +285,16 @@ final class TimelineStore: ObservableObject {
         // 1) Fora da faixa global (antes do primeiro ou depois do último)?
         if let first = segments.first, time < first.startTS {
             let offset = first.videoOffset(forAbsoluteTime: first.startTS)
-            print("[TimelineStore] segment(for:\(time), dir=\(direction)) -> antes do primeiro, usando \(first.id) @ start, videoOffset=\(offset)")
+            if Paths.isDevelopment {
+                print("[TimelineStore] segment(for:\(time), dir=\(direction)) -> before first, using \(first.id) @ start, videoOffset=\(offset)")
+            }
             return (first, offset)
         }
         if let last = segments.last, time > last.endTS {
             let offset = last.videoOffset(forAbsoluteTime: last.endTS)
-            print("[TimelineStore] segment(for:\(time), dir=\(direction)) -> depois do último, usando \(last.id) @ end, videoOffset=\(offset)")
+            if Paths.isDevelopment {
+                print("[TimelineStore] segment(for:\(time), dir=\(direction)) -> after last, using \(last.id) @ end, videoOffset=\(offset)")
+            }
             return (last, offset)
         }
 
@@ -286,7 +302,9 @@ final class TimelineStore: ObservableObject {
         for seg in segments {
             if time >= seg.startTS && time <= seg.endTS {
                 let offset = seg.videoOffset(forAbsoluteTime: time)
-                print("[TimelineStore] segment(for:\(time), dir=\(direction)) -> dentro de \(seg.id), videoOffset=\(offset)")
+                if Paths.isDevelopment {
+                    print("[TimelineStore] segment(for:\(time), dir=\(direction)) -> inside \(seg.id), videoOffset=\(offset)")
+                }
                 return (seg, offset)
             }
         }
@@ -302,12 +320,16 @@ final class TimelineStore: ObservableObject {
                     if dirSign < 0 {
                         // Indo para o PASSADO: usamos o FIM do segmento anterior.
                         let offset = a.videoOffset(forAbsoluteTime: a.endTS)
-                        print("[TimelineStore] segment(for:\(time), dir=\(direction)) -> buraco, PASSADO: usando fim de \(a.id), videoOffset=\(offset)")
+                        if Paths.isDevelopment {
+                            print("[TimelineStore] segment(for:\(time), dir=\(direction)) -> gap, BACKWARD: using end of \(a.id), videoOffset=\(offset)")
+                        }
                         return (a, offset)
                     } else if dirSign > 0 {
                         // Indo para o FUTURO: usamos o INÍCIO do próximo segmento.
                         let offset = b.videoOffset(forAbsoluteTime: b.startTS)
-                        print("[TimelineStore] segment(for:\(time), dir=\(direction)) -> buraco, FUTURO: usando início de \(b.id), videoOffset=\(offset)")
+                        if Paths.isDevelopment {
+                            print("[TimelineStore] segment(for:\(time), dir=\(direction)) -> gap, FORWARD: using start of \(b.id), videoOffset=\(offset)")
+                        }
                         return (b, offset)
                     } else {
                         // Sem direção clara (ex: chamada isolada): mantém a regra antiga
@@ -317,7 +339,9 @@ final class TimelineStore: ObservableObject {
                         let chosen = distA <= distB ? a : b
                         let clamped = min(max(time, chosen.startTS), chosen.endTS)
                         let offset = chosen.videoOffset(forAbsoluteTime: clamped)
-                        print("[TimelineStore] segment(for:\(time), dir=\(direction)) -> buraco, SEM DIREÇÃO: usando \(chosen.id), videoOffset=\(offset)")
+                        if Paths.isDevelopment {
+                            print("[TimelineStore] segment(for:\(time), dir=\(direction)) -> gap, NO DIRECTION: using \(chosen.id), videoOffset=\(offset)")
+                        }
                         return (chosen, offset)
                     }
                 }
@@ -340,10 +364,14 @@ final class TimelineStore: ObservableObject {
         }
 
         if let seg = bestSeg {
-            print("[TimelineStore] segment(for:\(time), dir=\(direction)) -> fallback, usando \(seg.id), videoOffset=\(bestOffset)")
+            if Paths.isDevelopment {
+                print("[TimelineStore] segment(for:\(time), dir=\(direction)) -> fallback, using \(seg.id), videoOffset=\(bestOffset)")
+            }
             return (seg, bestOffset)
         }
-        print("[TimelineStore] segment(for:\(time), dir=\(direction)) -> nenhum segmento encontrado (CASO INESPERADO)")
+        if Paths.isDevelopment {
+            print("[TimelineStore] segment(for:\(time), dir=\(direction)) -> no segment found (UNEXPECTED CASE)")
+        }
         return nil
     }
 }

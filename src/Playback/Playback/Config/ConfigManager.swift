@@ -48,8 +48,10 @@ final class ConfigManager: ObservableObject {
             self.config = loadedConfig
             self.lastModificationDate = try? FileManager.default.attributesOfItem(atPath: configPath.path)[.modificationDate] as? Date
         } catch {
-            print("Failed to load config from \(configPath.path): \(error)")
-            print("Using default configuration")
+            if Paths.isDevelopment {
+                print("Failed to load config from \(configPath.path): \(error)")
+                print("Using default configuration")
+            }
 
             if !FileManager.default.fileExists(atPath: configPath.path) {
                 saveConfiguration()
@@ -82,7 +84,9 @@ final class ConfigManager: ObservableObject {
 
             self.lastModificationDate = try? FileManager.default.attributesOfItem(atPath: configPath.path)[.modificationDate] as? Date
         } catch {
-            print("Failed to save config to \(configPath.path): \(error)")
+            if Paths.isDevelopment {
+                print("Failed to save config to \(configPath.path): \(error)")
+            }
         }
     }
 
@@ -132,7 +136,9 @@ final class ConfigManager: ObservableObject {
         case "1.0.0":
             migrated.version = "1.0.0"
         default:
-            print("Unknown config version: \(oldConfig.version), using as-is")
+            if Paths.isDevelopment {
+                print("Unknown config version: \(oldConfig.version), using as-is")
+            }
         }
 
         return migrated
@@ -168,7 +174,9 @@ private class ConfigWatcher {
     func startWatching() {
         fileDescriptor = open(configPath, O_EVTONLY)
         guard fileDescriptor >= 0 else {
-            print("Failed to open config file for watching: \(configPath)")
+            if Paths.isDevelopment {
+                print("Failed to open config file for watching: \(configPath)")
+            }
             return
         }
 

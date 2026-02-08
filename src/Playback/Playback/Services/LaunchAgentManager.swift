@@ -75,7 +75,9 @@ final class LaunchAgentManager {
 
         try validatePlist(at: plistPath)
 
-        print("[LaunchAgent] Installed \(type.label) at \(plistPath.path)")
+        if Paths.isDevelopment {
+            print("[LaunchAgent] Installed \(type.label) at \(plistPath.path)")
+        }
     }
 
     func loadAgent(_ type: AgentType) throws {
@@ -91,7 +93,9 @@ final class LaunchAgentManager {
             throw LaunchAgentError.launchctlFailed("load", exitCode)
         }
 
-        print("[LaunchAgent] Loaded \(type.label)")
+        if Paths.isDevelopment {
+            print("[LaunchAgent] Loaded \(type.label)")
+        }
     }
 
     func unloadAgent(_ type: AgentType) throws {
@@ -103,7 +107,9 @@ final class LaunchAgentManager {
             throw LaunchAgentError.launchctlFailed("unload", exitCode)
         }
 
-        print("[LaunchAgent] Unloaded \(type.label)")
+        if Paths.isDevelopment {
+            print("[LaunchAgent] Unloaded \(type.label)")
+        }
     }
 
     func startAgent(_ type: AgentType) throws {
@@ -115,7 +121,9 @@ final class LaunchAgentManager {
             throw LaunchAgentError.launchctlFailed("start", exitCode)
         }
 
-        print("[LaunchAgent] Started \(type.label)")
+        if Paths.isDevelopment {
+            print("[LaunchAgent] Started \(type.label)")
+        }
     }
 
     func stopAgent(_ type: AgentType) throws {
@@ -125,7 +133,9 @@ final class LaunchAgentManager {
             throw LaunchAgentError.launchctlFailed("stop", exitCode)
         }
 
-        print("[LaunchAgent] Stopped \(type.label)")
+        if Paths.isDevelopment {
+            print("[LaunchAgent] Stopped \(type.label)")
+        }
     }
 
     func restartAgent(_ type: AgentType) throws {
@@ -168,7 +178,9 @@ final class LaunchAgentManager {
         let plistPath = launchAgentsDir.appendingPathComponent(type.plistName)
         if fileManager.fileExists(atPath: plistPath.path) {
             try fileManager.removeItem(at: plistPath)
-            print("[LaunchAgent] Removed \(type.label)")
+            if Paths.isDevelopment {
+                print("[LaunchAgent] Removed \(type.label)")
+            }
         }
     }
 
