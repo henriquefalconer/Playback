@@ -89,8 +89,8 @@ These items prevent basic usability. They should be fixed first.
 These features are specified but not implemented. They significantly impact UX.
 
 **Implementation Status:**
-- ✅ **Can implement immediately:** 2.2, 2.8 (no design assets required)
-- ✅ **Complete:** 2.4, 2.6 (implemented 2026-02-08)
+- ✅ **Can implement immediately:** 2.8 (no design assets required)
+- ✅ **Complete:** 2.2, 2.4, 2.6 (implemented 2026-02-08)
 - 🎨 **Requires design assets:** 2.5 (app icons for results)
 - 🔧 **Requires additional research:** 2.1 (SMAppService API), 2.3 (timeline rendering), 2.7 (NSOpenPanel integration)
 
@@ -107,20 +107,23 @@ These features are specified but not implemented. They significantly impact UX.
   - Hotkey recorder requires Carbon API integration with event monitoring
   - Permission status requires native Swift checks (partially addressed in 3.12)
 
-### 2.2 Settings: Processing Tab Missing Features — ✅ CAN IMPLEMENT IMMEDIATELY
+### 2.2 Settings: Processing Tab Missing Features — ✅ COMPLETE (2026-02-08)
 - **Spec:** `specs/menu-bar.md` lines 199-217
-- **Source:** `SettingsView.swift:182-229`
-- **Missing:**
-  - "Last Processing Run" section (timestamp, duration, success/failed status) — spec lines 200-207
-  - "Process Now" manual trigger button with spinner feedback — spec lines 209-217
-- **Currently:** Only shows interval picker and encoding info
-- **Implementation plan:**
-  - Add `@State` vars for lastRunTimestamp, lastRunDuration, lastRunStatus
-  - Query diagnostics logs to extract last run info from `build_chunks_from_temp.py` logs
-  - Add "Process Now" button that launches `build_chunks_from_temp.py --auto` via Process
-  - Add `@State var isProcessing = false` for spinner feedback
-  - Monitor process completion and update lastRun vars
-- **No blockers:** Pure SwiftUI + Process API + log parsing
+- **Source:** `SettingsView.swift:182-436`
+- **Implementation:**
+  - ✅ Added "Last Processing Run" section showing timestamp, duration, and status
+  - ✅ Implemented ProcessingStatus enum (neverRun, success, failed) with color indicators (gray/green/red)
+  - ✅ Added formatLastRun() helper for relative timestamps ("2 minutes ago", "Just now", etc.)
+  - ✅ Added formatDuration() helper for duration display (milliseconds, seconds, or minutes)
+  - ✅ Implemented parseProcessingLog() to extract last run info from JSON logs
+  - ✅ Added parseISO8601() with fractional seconds support for timestamp parsing
+  - ✅ Added "Process Now" button with isProcessing state for inline spinner
+  - ✅ Button triggers python3 build_chunks_from_temp.py --auto in dev mode
+  - ✅ Button uses launchctl kickstart in production mode
+  - ✅ Auto-refresh every 10 seconds via Timer.publish
+  - ✅ Initial load on view appearance via .task modifier
+  - ✅ Monospaced font for values as specified
+- **Result:** Processing tab now shows last run status with manual trigger capability
 
 ### 2.3 Timeline: Search Result Markers on Timeline — 🔧 REQUIRES RESEARCH
 - **Spec:** `specs/search-ocr.md` lines 146-161

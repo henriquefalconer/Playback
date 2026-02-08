@@ -182,8 +182,88 @@ struct RecordingSettingsTab: View {
 struct ProcessingSettingsTab: View {
     @EnvironmentObject var configManager: ConfigManager
 
+    @State private var lastRunTimestamp: Date?
+    @State private var lastRunDuration: TimeInterval?
+    @State private var lastRunStatus: ProcessingStatus = .neverRun
+    @State private var isProcessing = false
+
+    enum ProcessingStatus {
+        case neverRun
+        case success
+        case failed
+
+        var color: Color {
+            switch self {
+            case .neverRun: return .gray
+            case .success: return .green
+            case .failed: return .red
+            }
+        }
+
+        var text: String {
+            switch self {
+            case .neverRun: return "Never run"
+            case .success: return "Success"
+            case .failed: return "Failed"
+            }
+        }
+    }
+
     var body: some View {
         Form {
+            Section("Last Processing Run") {
+                HStack {
+                    Text("Last run:")
+                    Spacer()
+                    Text(formatLastRun(lastRunTimestamp))
+                        .font(.system(.body, design: .monospaced))
+                        .foregroundColor(.secondary)
+                }
+
+                HStack {
+                    Text("Duration:")
+                    Spacer()
+                    Text(formatDuration(lastRunDuration))
+                        .font(.system(.body, design: .monospaced))
+                        .foregroundColor(.secondary)
+                }
+
+                HStack {
+                    Text("Status:")
+                    Spacer()
+                    HStack(spacing: 6) {
+                        Circle()
+                            .fill(lastRunStatus.color)
+                            .frame(width: 8, height: 8)
+                        Text(lastRunStatus.text)
+                            .font(.system(.body, design: .monospaced))
+                            .foregroundColor(lastRunStatus.color)
+                    }
+                }
+
+                Button(action: {
+                    Task {
+                        await processNow()
+                    }
+                }) {
+                    HStack {
+                        if isProcessing {
+                            ProgressView()
+                                .controlSize(.small)
+                                .scaleEffect(0.8)
+                            Text("Processing...")
+                        } else {
+                            Text("Process Now")
+                        }
+                    }
+                    .frame(width: 120)
+                }
+                .disabled(isProcessing)
+                .buttonStyle(.borderedProminent)
+                .help(isProcessing ? "Processing is already running" : "Manually trigger processing")
+                .accessibilityIdentifier("settings.processing.processNowButton")
+            }
+
             Section("Processing Interval") {
                 Picker("Process every:", selection: binding(\.processingIntervalMinutes)) {
                     Text("1 minute").tag(1)
@@ -214,6 +294,14 @@ struct ProcessingSettingsTab: View {
         }
         .formStyle(.grouped)
         .padding()
+        .task {
+            await loadLastProcessingRun()
+        }
+        .onReceive(Timer.publish(every: 10, on: .main, in: .common).autoconnect()) { _ in
+            Task {
+                await loadLastProcessingRun()
+            }
+        }
     }
 
     private func binding<T>(_ keyPath: WritableKeyPath<Config, T>) -> Binding<T> {
@@ -225,6 +313,207 @@ struct ProcessingSettingsTab: View {
                 configManager.updateConfig(updatedConfig)
             }
         )
+    }
+
+    private func loadLastProcessingRun() async {
+        let logPath: String
+        if Paths.isDevelopment {
+            let projectRoot = Bundle.main.bundleURL
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+            logPath = projectRoot.appendingPathComponent("dev_logs/processing.log").path
+        } else {
+            logPath = NSString(string: "~/Library/Logs/Playback/processing.log").expandingTildeInPath
+        }
+
+        guard FileManager.default.fileExists(atPath: logPath) else {
+            await MainActor.run {
+                lastRunStatus = .neverRun
+                lastRunTimestamp = nil
+                lastRunDuration = nil
+            }
+            return
+        }
+
+        let command = "tail -100 '\(logPath)' 2>/dev/null"
+        let output = await runShellCommand(command)
+
+        let (timestamp, duration, status) = parseProcessingLog(output)
+
+        await MainActor.run {
+            lastRunTimestamp = timestamp
+            lastRunDuration = duration
+            lastRunStatus = status
+        }
+    }
+
+    private func parseProcessingLog(_ logOutput: String) -> (Date?, TimeInterval?, ProcessingStatus) {
+        let lines = logOutput.split(separator: "\n").map(String.init)
+
+        var processingStartTime: Date?
+        var processingEndTime: Date?
+        var processingFailed = false
+
+        for line in lines.reversed() {
+            guard let data = line.data(using: .utf8),
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let timestampStr = json["timestamp"] as? String,
+                  let message = json["message"] as? String,
+                  let component = json["component"] as? String,
+                  component == "processing" else {
+                continue
+            }
+
+            let timestamp = parseISO8601(timestampStr)
+
+            if message.contains("Processing complete") || message.contains("successfully") {
+                if processingEndTime == nil {
+                    processingEndTime = timestamp
+                }
+            }
+
+            if message.contains("Starting processing") || message.contains("Processing day") {
+                if processingStartTime == nil {
+                    processingStartTime = timestamp
+                }
+            }
+
+            if let level = json["level"] as? String, level == "ERROR" {
+                if message.contains("Processing") || message.contains("Failed") {
+                    processingFailed = true
+                }
+            }
+
+            if processingEndTime != nil && processingStartTime != nil {
+                break
+            }
+        }
+
+        let duration: TimeInterval?
+        if let start = processingStartTime, let end = processingEndTime {
+            duration = end.timeIntervalSince(start)
+        } else {
+            duration = nil
+        }
+
+        let status: ProcessingStatus
+        if processingEndTime == nil && processingStartTime == nil {
+            status = .neverRun
+        } else if processingFailed {
+            status = .failed
+        } else if processingEndTime != nil {
+            status = .success
+        } else {
+            status = .neverRun
+        }
+
+        return (processingEndTime ?? processingStartTime, duration, status)
+    }
+
+    private func parseISO8601(_ isoString: String) -> Date? {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = formatter.date(from: isoString) {
+            return date
+        }
+
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter.date(from: isoString)
+    }
+
+    private func processNow() async {
+        await MainActor.run {
+            isProcessing = true
+        }
+
+        let scriptPath: String
+        if Paths.isDevelopment {
+            let projectRoot = Bundle.main.bundleURL
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+            scriptPath = projectRoot.appendingPathComponent("src/scripts/build_chunks_from_temp.py").path
+
+            let command = "PLAYBACK_DEV_MODE=1 python3 '\(scriptPath)' --auto 2>&1"
+            let _ = await runShellCommand(command)
+        } else {
+            let command = "launchctl kickstart -k gui/\(getuid())/com.playback.processing 2>&1"
+            let _ = await runShellCommand(command)
+        }
+
+        try? await Task.sleep(nanoseconds: 2_000_000_000)
+
+        await loadLastProcessingRun()
+
+        await MainActor.run {
+            isProcessing = false
+        }
+    }
+
+    private func formatLastRun(_ date: Date?) -> String {
+        guard let date = date else {
+            return "Never"
+        }
+
+        let now = Date()
+        let interval = now.timeIntervalSince(date)
+
+        if interval < 60 {
+            return "Just now"
+        } else if interval < 3600 {
+            let minutes = Int(interval / 60)
+            return "\(minutes) minute\(minutes == 1 ? "" : "s") ago"
+        } else if interval < 86400 {
+            let hours = Int(interval / 3600)
+            return "\(hours) hour\(hours == 1 ? "" : "s") ago"
+        } else {
+            let formatter = DateFormatter()
+            formatter.dateStyle = .medium
+            formatter.timeStyle = .short
+            return formatter.string(from: date)
+        }
+    }
+
+    private func formatDuration(_ duration: TimeInterval?) -> String {
+        guard let duration = duration else {
+            return "N/A"
+        }
+
+        if duration < 1 {
+            return String(format: "%.0f ms", duration * 1000)
+        } else if duration < 60 {
+            return String(format: "%.1f seconds", duration)
+        } else {
+            let minutes = Int(duration / 60)
+            let seconds = Int(duration.truncatingRemainder(dividingBy: 60))
+            return "\(minutes)m \(seconds)s"
+        }
+    }
+
+    private func runShellCommand(_ command: String) async -> String {
+        await withCheckedContinuation { continuation in
+            let process = Process()
+            let pipe = Pipe()
+
+            process.executableURL = URL(fileURLWithPath: "/bin/bash")
+            process.arguments = ["-c", command]
+            process.standardOutput = pipe
+            process.standardError = pipe
+
+            do {
+                try process.run()
+                process.waitUntilExit()
+
+                let data = pipe.fileHandleForReading.readDataToEndOfFile()
+                let output = String(data: data, encoding: .utf8)?
+                    .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+
+                continuation.resume(returning: output)
+            } catch {
+                continuation.resume(returning: "")
+            }
+        }
     }
 }
 
