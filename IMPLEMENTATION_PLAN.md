@@ -63,7 +63,7 @@ Based on comprehensive technical specifications in `specs/` and verified against
 
 ---
 
-## Priority 1 -- Critical Bugs (Crashes and Deadlocks) ⏳ IN PROGRESS
+## Priority 1 -- Critical Bugs (Crashes and Deadlocks) ✅ COMPLETE
 
 **Status as of 2026-02-08:**
 - ✅ Fixed pipe deadlock SIGABRT crashes in 8 locations by creating shared `ShellCommand` utility
