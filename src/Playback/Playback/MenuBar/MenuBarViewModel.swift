@@ -82,31 +82,6 @@ final class MenuBarViewModel: ObservableObject {
         }
     }
 
-    func openTimeline() {
-        NSApp.activate(ignoringOtherApps: true)
-        if let timelineWindow = NSApp.windows.first(where: { $0.identifier?.rawValue == "timeline" }) {
-            timelineWindow.makeKeyAndOrderFront(nil)
-        }
-    }
-
-    func openSettings() {
-        NSApp.activate(ignoringOtherApps: true)
-        if let window = NSApp.windows.first(where: { $0.identifier?.rawValue == "settings" }) {
-            window.makeKeyAndOrderFront(nil)
-        }
-    }
-
-    func openDiagnostics() {
-        NSApp.activate(ignoringOtherApps: true)
-        if let window = NSApp.windows.first(where: { $0.identifier?.rawValue == "diagnostics" }) {
-            window.makeKeyAndOrderFront(nil)
-        } else {
-            if let url = URL(string: "playback://diagnostics") {
-                NSWorkspace.shared.open(url)
-            }
-        }
-    }
-
     func quitPlayback() {
         let alert = NSAlert()
         alert.messageText = "Stop recording and quit Playback?"

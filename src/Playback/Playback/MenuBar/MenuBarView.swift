@@ -5,6 +5,7 @@ import SwiftUI
 
 struct MenuBarView: View {
     @ObservedObject var viewModel: MenuBarViewModel
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         VStack(spacing: 0) {
@@ -19,7 +20,10 @@ struct MenuBarView: View {
 
             Divider()
 
-            Button(action: viewModel.openTimeline) {
+            Button(action: {
+                NSApp.activate(ignoringOtherApps: true)
+                openWindow(id: "timeline")
+            }) {
                 HStack {
                     Image(systemName: "clock.arrow.circlepath")
                     Text("Open Timeline")
@@ -36,7 +40,10 @@ struct MenuBarView: View {
 
             Divider()
 
-            Button(action: viewModel.openSettings) {
+            Button(action: {
+                NSApp.activate(ignoringOtherApps: true)
+                openWindow(id: "settings")
+            }) {
                 HStack {
                     Image(systemName: "gearshape")
                     Text("Settings...")
@@ -51,7 +58,10 @@ struct MenuBarView: View {
             .padding(.vertical, 8)
             .accessibilityIdentifier("menubar.settingsButton")
 
-            Button(action: viewModel.openDiagnostics) {
+            Button(action: {
+                NSApp.activate(ignoringOtherApps: true)
+                openWindow(id: "diagnostics")
+            }) {
                 HStack {
                     Image(systemName: "stethoscope")
                     Text("Diagnostics")
