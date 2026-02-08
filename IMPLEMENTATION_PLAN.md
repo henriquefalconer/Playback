@@ -17,6 +17,96 @@ Playback consists of separate components:
 - **Recording Service**: Python LaunchAgent, continues running even when timeline viewer quit
 - **Processing Service**: Python LaunchAgent, scheduled execution
 
+---
+
+## Current Blocker - Environment Limitation
+
+### Environment Limitation
+**Current Environment:** Linux sandbox (Docker)
+- No Xcode available
+- No macOS build tools available
+- No access to macOS-specific frameworks (SwiftUI, AVFoundation, Vision)
+
+### Work Complete in Current Environment
+- ✅ **All Python services implemented and tested** (272 passing tests)
+  - Core libraries: paths, timestamps, config, database, video, macos, logging_config
+  - Background services: record_screen, build_chunks_from_temp, cleanup_old_chunks, ocr_processor
+  - Security & networking tests: test_security (24 tests), test_network (14 tests)
+- ✅ **All Swift source code implemented**
+  - Menu bar agent, timeline viewer, settings UI, diagnostics UI
+  - Search system, LaunchAgent management, configuration system
+  - ~20+ Swift files, ~3000+ lines of code
+- ✅ **All specifications documented**
+  - 15+ spec files covering all features
+  - Complete architecture documentation
+  - Implementation guidelines
+
+### Work Blocked - Requires macOS Environment
+
+**Phase 5.1: Swift Unit Testing**
+- Add test targets to Xcode project (PlaybackTests, PlaybackUITests)
+- Implement Swift unit tests (~8 test classes needed)
+- Verify code coverage (target: 80%+ for core logic)
+- **Blocker:** Requires Xcode to create test targets and run tests
+
+**Phase 5.3: Integration Testing**
+- Test end-to-end recording → processing → playback pipeline
+- Test settings changes → LaunchAgent reload → config propagation
+- Test search indexing → query → result navigation
+- **Blocker:** Requires macOS runtime environment for integration tests
+
+**Phase 5.4: UI Testing**
+- XCUITest for menu bar, timeline, date picker, search, settings
+- Test permission prompts and first-run wizard
+- **Blocker:** Requires macOS and Xcode for UI testing framework
+
+**Phase 5.5: Performance Testing**
+- Benchmark screenshot capture, video encoding, timeline rendering
+- Test with 30+ and 90+ days of data
+- **Blocker:** Requires macOS runtime for performance profiling
+
+**Phase 5.6: Manual Testing**
+- Test on clean macOS Tahoe 26.0 installation
+- Test permission prompts, display configurations, edge cases
+- **Blocker:** Requires physical macOS environment
+
+**Phase 6: Build & Distribution**
+- Code signing with Developer ID certificate
+- Notarization via xcrun notarytool
+- Arc-style .zip packaging
+- **Blocker:** Requires Xcode and macOS build tools
+
+### Next Steps
+
+**To continue development, switch to macOS environment with Xcode installed:**
+
+1. **Set up macOS development environment**
+   - Install Xcode 15.0+ on macOS 26.0+ system
+   - Install required dependencies (FFmpeg, Python 3.12+)
+   - Clone repository and verify Python tests pass
+
+2. **Configure Xcode project (Phase 5.1)**
+   - Add PlaybackTests target to Xcode project
+   - Add PlaybackUITests target to Xcode project
+   - Configure test schemes and build settings
+
+3. **Implement Swift unit tests (Phase 5.1)**
+   - TimelineStoreTests, ConfigManagerTests, PathsTests
+   - LaunchAgentManagerTests, PlaybackControllerTests
+   - SearchControllerTests, MenuBarViewModelTests
+   - GlobalHotkeyManagerTests
+
+4. **Run integration and UI tests (Phase 5.3-5.4)**
+   - Verify end-to-end pipelines work correctly
+   - Test all user flows with XCUITest
+
+5. **Set up build and distribution pipeline (Phase 6)**
+   - Configure code signing with Developer ID
+   - Implement notarization workflow
+   - Create Arc-style .zip distribution
+
+---
+
 ## Phase 1: Core Recording & Processing
 
 ### Progress Summary
