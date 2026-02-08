@@ -80,41 +80,40 @@ if [ "$MODE" = "plan" ] && [ -z "$GOAL_TEXT" ]; then
     cursor_pos=${#GOAL_TEXT} # where cursor is (end by default)
 
     # Save terminal state
-    old_stty=$(stty -g)
+    old_stty=$(stty -g 2>/dev/null)
 
     # Enter raw mode (char-by-char, no echo)
-    stty -icanon -echo min 1 time 0
+    stty -icanon -echo min 1 time 0 2>/dev/null
 
-    trap 'stty "$old_stty"; printf "\nInterrupted\n"; exit 1' INT TERM
+    # Hide real cursor
+    printf '\033[?25l'
+
+    trap '
+        stty "$old_stty" 2>/dev/null
+        printf "\033[?25h"          # show cursor again
+        printf "\nInterrupted\n"
+        exit 1
+    ' INT TERM EXIT
 
     while true; do
         # Clear + redraw whole editor view
         clear 2>/dev/null || printf '\033[H\033[2J'
 
-        printf "${GREEN_BOLD}Type your goal - Enter to select project-specific goal for the agent to cycle planning${RESET}\n"
-        printf "────────────────────────────────────────────────────────────────────\n"
-        printf "As our next objective, we want to achieve ${YELLOW_BOLD}%s${RESET}" "$GOAL_TEXT"
-        # Fake cursor (just a space or underscore depending on position)
-        if [ $cursor_pos -eq ${#GOAL_TEXT} ]; then
-            printf "_"
-        fi
-        printf "\n────────────────────────────────────────────────────────────────────\n"
-        printf "${YELLOW_BOLD}Examples:${RESET}\n"
-        printf "  • a beautiful dark mode to this application\n"
-        printf "  • a detailed analytics system based on specs/analytics.md\n"
-        printf "  • a great working ui and ux\n"
-        printf "  • an AI-powered data import system based on specs/data-import.md\n\n"
+        printf "${GREEN_BOLD}Type your goal - Enter to select project-specific goal for the agent to cycle planning${RESET}\n\n"
 
-        # Show current string again so user sees what they have
-        printf "${GREEN_BOLD}→ %s${RESET}" "$GOAL_TEXT"
         # Move cursor back visually (crude)
-        printf "\r${GREEN_BOLD}→ %s${RESET}" "${GOAL_TEXT:0:$cursor_pos}"
+        printf "\rAs our next objective, we want to achieve ${GREEN_BOLD}%s${RESET}" "${GOAL_TEXT:0:$cursor_pos}"
         if [ $cursor_pos -lt ${#GOAL_TEXT} ]; then
             printf "${YELLOW_BOLD}%s${RESET}" "${GOAL_TEXT:cursor_pos:1}"
         fi
 
+        printf "\n\n${YELLOW_BOLD}Examples:${RESET}\n"
+        printf "  • a beautiful dark mode to this application\n"
+        printf "  • a detailed analytics system based on specs/analytics.md\n"
+        printf "  • a great working ui and ux\n"
+        printf "  • an AI-powered data import system based on specs/data-import.md\n\n"
         # Read one character
-        IFS= read -r -n 1 -d '' c
+        IFS= read -r -n 1 -d '' c 2>/dev/null
 
         case "$c" in
             # Enter → finish
@@ -130,29 +129,29 @@ if [ "$MODE" = "plan" ] && [ -z "$GOAL_TEXT" ]; then
                 fi
                 ;;
 
-            # Ctrl+C → abort (already trapped)
+            # Ctrl+C → abort (handled by trap)
             $'\003')
-                stty "$old_stty"
-                echo -e "\nAborted"
-                exit 1
+                # trap will run
+                break
                 ;;
 
             # Printable chars
             [[:print:]])
-                # Insert at cursor position (very basic)
+                # Insert at cursor position (very basic — only append + end cursor supported)
                 GOAL_TEXT="${GOAL_TEXT:0:$cursor_pos}${c}${GOAL_TEXT:$cursor_pos}"
                 cursor_pos=$((cursor_pos+1))
                 ;;
 
-            # Ignore everything else (arrows, etc.)
+            # Ignore control chars, arrows, etc.
             *)
                 ;;
         esac
     done
 
-    # Restore terminal
-    stty "$old_stty"
-    trap - INT TERM
+    # Restore terminal + show cursor
+    stty "$old_stty" 2>/dev/null
+    printf '\033[?25h'
+    trap - INT TERM EXIT
 
     # Final trim
     GOAL_TEXT=$(echo "$GOAL_TEXT" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
@@ -162,14 +161,14 @@ if [ "$MODE" = "plan" ] && [ -z "$GOAL_TEXT" ]; then
         exit 1
     fi
 
-    # Confirmation
+    # Confirmation screen
     clear 2>/dev/null || printf '\033[H\033[2J'
     echo -e "${GREEN_BOLD}Confirm goal${RESET}"
     echo -e "────────────────────────────────────────────────────────────────────"
     echo -e "ULTIMATE GOAL: We want to achieve ${YELLOW_BOLD}${GOAL_TEXT}${RESET}."
     echo -e "────────────────────────────────────────────────────────────────────\n"
     echo -en "${GREEN_BOLD}Good? [Y/n] ${RESET}"
-    read -n 1 -r confirm
+    read -n 1 -r confirm 2>/dev/null
     echo
 
     if [[ -n "$confirm" && ! "$confirm" =~ ^[Yy]$ ]]; then
