@@ -8,12 +8,16 @@
 - Production-ready codebase with comprehensive test coverage
 - Recent tags: v0.11.1 (bugs), v0.11.2 (logging), v0.11.3 (docs), v0.11.4 (readme)
 
-**Environment: Linux/Docker (No Xcode)**
-- All Python work complete in current environment
-- All remaining work (Phases 5.1-6) requires macOS with Xcode
-- Swift source code exists but cannot be tested/built without Xcode
+**Environment Requirements:**
+- **Check current environment first** using `uname -s` to determine if on Darwin (macOS) or Linux
+- **If on macOS with Xcode:** All Swift work can proceed (building, testing, distribution)
+- **If on Linux/Docker:** Xcode unavailable, Swift testing/building blocked - Python work only
+- All Python work is complete and production-ready (280 tests passing)
+- Remaining work (Phases 5.1-6) requires macOS with Xcode for Swift compilation
 
-**Next Steps: Transition to macOS environment to continue with Swift testing and building.**
+**Next Steps:**
+- If on macOS: Verify Xcode installation with `xcodebuild -version`, then proceed with Swift testing
+- If on Linux: Transition to macOS environment to continue with Swift testing and building
 
 ## Recent Implementation Notes
 
@@ -26,7 +30,7 @@ Key operational learnings from Phase 2 development (2026-02-07):
 - **Database queries:** Run on background queue with `DispatchQueue.global(qos: .userInitiated)` to avoid blocking UI
 - **Keyboard shortcuts:** Use `NSEvent.addLocalMonitorForEvents` with keyCode comparison for timeline-local shortcuts
 - **DatePicker binding:** Requires separate `@State var selectedTime` binding to avoid mutating published state directly
-- **Git authentication in containers:** When running in Linux/Docker environments, git push may fail due to authentication issues - commits/tags are created locally but require manual push from macOS host
+- **Git authentication in containers:** Check if running in containerized environment (Linux). In such environments, git push may fail due to authentication issues - commits/tags are created locally but require manual push from host system
 - **Settings UI organization:** All settings tabs are defined in single file `src/Playback/Playback/Settings/SettingsView.swift` - each tab is separate struct (PrivacySettingsTab, StorageSettingsTab, etc.)
 - **Permission checking:** Screen Recording via Python/Quartz `CGWindowListCopyWindowInfo`, Accessibility via `AXIsProcessTrustedWithOptions`
 - **Byte formatting:** Use Foundation's `ByteCountFormatter` for proper GB/MB/KB formatting with automatic unit selection
@@ -51,7 +55,7 @@ Key operational learnings from Phase 2 development (2026-02-07):
 - **SimpleBarChart pattern:** Fixed-height (70px) with dynamic bar heights calculated as (value / max) * 60, showing min/avg/max stats below
 - **ServiceStats calculation:** Dictionary keyed by component name, accumulating per-service error/warning counts and CPU/memory averages
 - **Phase 4 complete:** All 4 subphases (OCR search, privacy & security, diagnostics UI, performance monitoring) now 100% implemented
-- **Environment constraints:** Linux sandbox (Docker) cannot run Xcode or macOS build tools. Swift testing, integration testing, and distribution phases require macOS environment. When blocked by environment, document blocker clearly in IMPLEMENTATION_PLAN.md with next steps for continuing on proper environment
+- **Environment constraints:** Before attempting Swift/Xcode operations, check current OS with `uname -s`. Darwin (macOS) can run Xcode and build tools. Linux environments cannot run Xcode or macOS-specific build tools. Swift testing, integration testing, and distribution phases require macOS environment. When blocked by environment limitations, document blocker clearly in IMPLEMENTATION_PLAN.md with next steps
 
 ## Specifications
 
