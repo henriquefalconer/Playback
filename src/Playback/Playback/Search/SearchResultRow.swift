@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SearchResultRow: View {
     let result: SearchController.SearchResult
+    let query: String
     let isSelected: Bool
     let onSelect: () -> Void
 
@@ -20,10 +21,9 @@ struct SearchResultRow: View {
                 }
                 .frame(width: 120, alignment: .leading)
 
-                // Text snippet
-                Text(result.snippet)
+                // Text snippet with highlighted search terms
+                Text(highlightedSnippet())
                     .font(.system(size: 12))
-                    .foregroundColor(.primary)
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -40,5 +40,39 @@ struct SearchResultRow: View {
             )
         }
         .buttonStyle(.plain)
+    }
+
+    private func highlightedSnippet() -> AttributedString {
+        var attributedString = AttributedString(result.snippet)
+
+        // If query is empty, return unmodified text
+        guard !query.trimmingCharacters(in: .whitespaces).isEmpty else {
+            return attributedString
+        }
+
+        // Find all occurrences of the search term (case-insensitive)
+        let snippet = result.snippet
+        let lowercaseSnippet = snippet.lowercased()
+        let lowercaseQuery = query.lowercased()
+
+        var searchStartIndex = lowercaseSnippet.startIndex
+
+        while searchStartIndex < lowercaseSnippet.endIndex,
+              let range = lowercaseSnippet.range(of: lowercaseQuery, range: searchStartIndex..<lowercaseSnippet.endIndex) {
+
+            // Convert String.Index to AttributedString.Index
+            let startOffset = snippet.distance(from: snippet.startIndex, to: range.lowerBound)
+            let endOffset = snippet.distance(from: snippet.startIndex, to: range.upperBound)
+
+            let attrStartIndex = attributedString.index(attributedString.startIndex, offsetByCharacters: startOffset)
+            let attrEndIndex = attributedString.index(attributedString.startIndex, offsetByCharacters: endOffset)
+
+            attributedString[attrStartIndex..<attrEndIndex].backgroundColor = Color.yellow.opacity(0.3)
+
+            // Move to next potential match
+            searchStartIndex = range.upperBound
+        }
+
+        return attributedString
     }
 }

@@ -89,7 +89,8 @@ These items prevent basic usability. They should be fixed first.
 These features are specified but not implemented. They significantly impact UX.
 
 **Implementation Status:**
-- ✅ **Can implement immediately:** 2.2, 2.4, 2.6, 2.8 (no design assets required)
+- ✅ **Can implement immediately:** 2.2, 2.8 (no design assets required)
+- ✅ **Complete:** 2.4, 2.6 (implemented 2026-02-08)
 - 🎨 **Requires design assets:** 2.5 (app icons for results)
 - 🔧 **Requires additional research:** 2.1 (SMAppService API), 2.3 (timeline rendering), 2.7 (NSOpenPanel integration)
 
@@ -135,17 +136,18 @@ These features are specified but not implemented. They significantly impact UX.
   - Overlay rendering in SwiftUI with proper z-indexing
   - Performance considerations for many markers (100+ matches)
 
-### 2.4 Search: Text Highlighting in Snippets — ✅ CAN IMPLEMENT IMMEDIATELY
+### 2.4 Search: Text Highlighting in Snippets — ✅ COMPLETE (2026-02-08)
 - **Spec:** `specs/search-ocr.md` lines 100-104
-- **Source:** `SearchResultRow.swift:1-44`
-- **Missing:** Matched search terms not highlighted in result snippets; spec shows `attributedSnippet` with emphasis
-- **Currently:** Plain text only
-- **Implementation plan:**
-  - Create helper function to generate AttributedString with highlighted matches
-  - Use `.background(Color.yellow.opacity(0.3))` for matched text ranges
-  - Replace plain Text(snippet) with Text(attributedSnippet)
-  - Case-insensitive matching for highlight detection
-- **No blockers:** Pure SwiftUI AttributedString API
+- **Source:** `SearchResultRow.swift:1-79`, `SearchResultsList.swift:31-39`
+- **Implementation:**
+  - ✅ Added `query: String` parameter to SearchResultRow
+  - ✅ Created `highlightedSnippet()` helper function that generates AttributedString with highlighted matches
+  - ✅ Uses case-insensitive matching to find all occurrences of search term in snippet
+  - ✅ Applies yellow background (Color.yellow.opacity(0.3)) to matched text ranges
+  - ✅ Handles multiple occurrences of search term within snippet
+  - ✅ Gracefully handles empty queries (returns unmodified text)
+  - ✅ Updated SearchResultsList to pass query from SearchController to SearchResultRow
+- **Result:** Search terms are now visually highlighted with yellow background in all result snippets
 
 ### 2.5 Search: App Icon in Result Rows — 🎨 REQUIRES DESIGN ASSETS
 - **Spec:** `specs/search-ocr.md` lines 101-103 — "App icon (20x20), app name, timestamp, snippet"

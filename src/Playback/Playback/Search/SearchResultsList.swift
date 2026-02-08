@@ -30,6 +30,7 @@ struct SearchResultsList: View {
                             ForEach(Array(searchController.results.enumerated()), id: \.element.id) { index, result in
                                 SearchResultRow(
                                     result: result,
+                                    query: searchController.query,
                                     isSelected: index == searchController.currentResultIndex,
                                     onSelect: {
                                         searchController.currentResultIndex = index
