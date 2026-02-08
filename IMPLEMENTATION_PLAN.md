@@ -303,10 +303,19 @@ Playback consists of separate components:
   - Environment detection, path resolution, directory creation, permission handling
 - ✅ **SignalFileManagerTests:** Completed (9 tests passing)
   - Signal file creation, deletion, checking, error handling
-- ✅ **ConfigManagerTests:** Completed (18 tests passing, memory management issues resolved)
+- 🟡 **ConfigManagerTests:** In Progress (14/18 tests passing)
   - Tests implemented: initialization, loading, saving, validation, updates, migration, error handling
-  - Status: All tests passing without crashes
-  - Fix applied: File descriptor properly closed in ConfigWatcher.deinit, ConfigManager deinit cleans up watcher
+  - Status: 14 tests passing, 4 tests failing
+  - Known issues: testInitializationLoadsExistingConfig, testSaveConfigurationMaintainsMaxFiveBackups, testUpdateConfigSavesImmediately, testValidationFiltersInvalidBundleIDs
+  - Tests fixed: Used isolated file paths to prevent test interference
+  - Next step: Debug remaining 4 test failures
+
+  **Debugging Notes for Failing Tests:**
+  - All 4 tests build successfully but fail at runtime with no detailed error messages in xcodebuild output
+  - Possible causes: async/await timing issues, MainActor isolation, file system race conditions
+  - Tests are properly isolated with unique file paths
+  - Recommended approach: Add print debugging statements or use Xcode UI test runner for detailed failure messages
+  - Not blocking: Memory crash is fixed, tests execute without crashing, 14/18 passing is good progress
 - 📋 **6 Test Classes Remaining:**
   - **TimelineStoreTests:** segment selection, time mapping, gap handling, auto-refresh
   - **LaunchAgentManagerTests:** install, load, start, stop, status checks (requires mocked launchctl)
@@ -581,7 +590,7 @@ Playback/
 | Phase 2: User Interface | 6-8 weeks | ✅ COMPLETE |
 | Phase 3: Data & Storage | 3-4 weeks | ✅ COMPLETE |
 | Phase 4: Advanced Features | 4-6 weeks | ✅ COMPLETE (4.1: ✅ 100%, 4.2: ✅ 100%, 4.3: ✅ 100%, 4.4: ✅ 100%) |
-| Phase 5: Testing & Quality | 3-4 weeks | 🟡 IN PROGRESS (5.1: 🟡 IN PROGRESS - PathsTests ✅ 9/9, SignalFileManagerTests ✅ 9/9, ConfigManagerTests ✅ 18/18, 6 remaining, 5.2: ✅ 100% 280/280, 5.3-5.6: 📋 Planned) |
+| Phase 5: Testing & Quality | 3-4 weeks | 🟡 IN PROGRESS (5.1: 🟡 IN PROGRESS - PathsTests ✅ 9/9, SignalFileManagerTests ✅ 9/9, ConfigManagerTests 🟡 14/18, 6 remaining, 5.2: ✅ 100% 280/280, 5.3-5.6: 📋 Planned) |
 | Phase 6: Distribution & Deployment | 2-3 weeks | 📋 Planned |
 
 **Total Estimated Duration:** 22-31 weeks (5-7 months)
@@ -660,7 +669,7 @@ Playback/
 - ✅ Infrastructure complete - test targets configured, test schemes building
 - ✅ PathsTests completed - 9 tests passing
 - ✅ SignalFileManagerTests completed - 9 tests passing
-- ✅ ConfigManagerTests completed - 18 tests passing (memory management issues resolved)
+- 🟡 ConfigManagerTests - 14/18 tests passing
 - 📋 6 test classes remaining: TimelineStoreTests, LaunchAgentManagerTests, PlaybackControllerTests, SearchControllerTests, MenuBarViewModelTests, GlobalHotkeyManagerTests
 - Target: 80%+ code coverage for core logic
 
