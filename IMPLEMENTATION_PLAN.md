@@ -695,12 +695,29 @@ Playback/
 | Phase 4: Advanced Features | 4-6 weeks | ✅ COMPLETE (4.1: ✅ 100%, 4.2: ✅ 100%, 4.3: ✅ 100%, 4.4: ✅ 100%) |
 | Phase 5: Testing & Quality | 3-4 weeks | 🟡 IN PROGRESS (5.1: ✅ COMPLETE - 203 Swift tests, 5.2: ✅ COMPLETE - 280 Python tests, 5.3: ✅ COMPLETE - 72 integration tests, 5.4: ✅ COMPLETE - 115 UI tests, 5.5: ✅ COMPLETE - 21 performance tests, 5.6: 📋 Planned) |
 | Phase 6: Distribution & Deployment | 2-3 weeks | 📋 Planned |
+| **Phase 7: UI/UX Improvements & Polish** | **4-5 weeks** | **📋 PLANNED (HIGH PRIORITY)** |
 
-**Total Estimated Duration:** 22-31 weeks (5-7 months)
+**Total Estimated Duration:** 26-36 weeks (6-8 months)
+
+**Note:** Phase 7 identified from comprehensive codebase analysis (2026-02-08). Contains critical user-reported issues and missing UI components that should be addressed before Phase 6 distribution.
 
 ---
 
 ## Current Status (Updated 2026-02-08)
+
+### Executive Summary
+
+**Completed:** Phases 1-4 (100%), Phase 5 (5.1-5.5 complete, 5.6 pending)
+**In Progress:** Phase 7 identified - Critical UI/UX improvements needed
+**Pending:** Phase 5.6 (Manual Testing), Phase 6 (Distribution)
+
+**Key Findings from Comprehensive Analysis:**
+- ✅ **Python Backend:** 100% complete, production-ready (280 tests passing, zero bugs)
+- ✅ **Core Swift UI:** Majority implemented (~3000+ lines)
+- 🔴 **Critical Gaps Identified:** Menu bar bugs, 80% of first-run wizard missing, search UI layer missing
+- 📋 **Phase 7 Required:** 4-5 weeks to address user-reported issues and complete missing UI components
+
+---
 
 ### Phase 1: COMPLETE ✅ (100%)
 - **Recording Service:** Screenshot capture, frontmost app detection, timeline pause detection, app exclusion logic (skip mode), config hot-reloading
@@ -714,24 +731,29 @@ Playback/
 
 ---
 
----
-
-### Phase 2: User Interface - ✅ COMPLETE (100%)
+### Phase 2: User Interface - ⚠️ MOSTLY COMPLETE (85%)
 
 **Key Components Implemented:**
 - Menu bar with status monitoring and LaunchAgent control
 - Timeline viewer with global hotkey (Option+Shift+Space)
 - Date/time picker with calendar and database queries
-- Settings window with 6 fully functional tabs
-- First-run setup wizard with permission checks
+- Settings window with 6 fully functional tabs (95% complete)
 - Arc-style frosted glass design throughout
 - Carbon API for global hotkeys
 - System Settings deep linking
+
+**Critical Gaps Identified (See Phase 7):**
+- 🔴 Menu bar has 7 user-reported bugs (permission checks, window opening, quit dialog)
+- 🔴 First-run wizard only 20% complete (1 of 5 screens implemented)
+- 🟡 Search UI layer 0% complete (backend 70% done, no user-facing UI)
+- 🟡 NotificationManager service missing
 
 **Code Statistics:**
 - 20+ new Swift files
 - ~2500+ lines of code
 - Complete keyboard navigation
+
+**Status:** Requires Phase 7 completion before considering Phase 2 fully complete
 
 ---
 
@@ -751,7 +773,7 @@ Playback/
 ### Phase 4: Advanced Features - ✅ COMPLETE (100%)
 
 **All Subphases Complete:**
-- **4.1 OCR Search:** Vision framework, FTS5 index, Command+F UI
+- **4.1 OCR Search:** Vision framework, FTS5 index, backend complete (UI missing - see Phase 7.3)
 - **4.2 Privacy & Security:** File permissions, security tests, data export
 - **4.3 Logging & Diagnostics:** Structured JSON logs, diagnostics UI
 - **4.4 Performance Monitoring:** Metrics visualization, resource charts
@@ -764,7 +786,7 @@ Playback/
 
 ---
 
-### Phase 5: Testing & Quality - 🟡 IN PROGRESS
+### Phase 5: Testing & Quality - 🟡 IN PROGRESS (95%)
 
 **Python Testing:** ✅ 100% COMPLETE (280/280 tests passing, zero bugs)
 
@@ -808,7 +830,326 @@ Playback/
 - Swift Performance Tests: 21 tests created (build verified)
 - Python Tests: 280/280 passing (100%)
 
-**Remaining Phases (5.6 and Phase 6)** all require macOS with Xcode installed.
+**Remaining Subphases:**
+- 5.6: Manual Testing (requires macOS, blocked by Phase 7 completion)
+
+---
+
+### Phase 7: UI/UX Improvements & Polish - 📋 PLANNED (HIGH PRIORITY)
+
+**Status:** Identified from comprehensive codebase analysis (2026-02-08)
+
+**Critical Issues (User-Reported):**
+1. 🔴 **Menu Bar Fixes (7 issues):** Permission checks, window opening, quit dialog, icons
+2. 🔴 **First-Run Wizard (80% missing):** 4 of 5 views not implemented
+3. 🟡 **Search UI Layer (100% missing):** Backend complete, no user-facing components
+4. 🟡 **NotificationManager (missing service):** Referenced in config but not implemented
+
+**Estimated Duration:** 4-5 weeks (critical + medium priority items)
+
+**See Phase 7 section below for detailed breakdown and implementation plan.**
+
+**Note:** Phase 7 should be completed before Phase 6 distribution to ensure quality user experience.
+
+---
+
+## Phase 7: UI/UX Improvements & Polish - 📋 PLANNED (Priority)
+
+**Status:** Identified gaps from comprehensive codebase analysis (2026-02-08)
+
+### Overview
+Based on comprehensive exploration of Swift UI implementation vs specifications, several critical UI/UX issues and missing components have been identified. This phase addresses user-reported problems and completes missing UI layers.
+
+---
+
+### 7.1 Menu Bar Fixes - 🔴 CRITICAL (User-Reported Issues)
+
+**Current Problems:**
+1. **Record Screen Toggle:** Shows as greyed out text, should be normal text with proper On/Off toggle
+2. **Open Timeline Button:** Does nothing (window finding logic incomplete)
+3. **Open Settings Button:** Does nothing (window finding logic incomplete)
+4. **Diagnostics Button:** Raises Finder error for unregistered URL scheme `playback://diagnostics`
+5. **App Icons Missing:** About Playback works but has no icon
+6. **Unwanted Quit Confirmation:** Shows popup dialog (specs say follow architecture.md and menu-bar.md)
+7. **Recording State Persistence:** Needs to persist across app quits
+8. **Menu Bar Icon:** Should be silhouette with circle indicator (low-opacity off, full-opacity on)
+
+**Files Requiring Changes:**
+- `src/Playback/Playback/MenuBar/MenuBarView.swift` (lines 11-107)
+- `src/Playback/Playback/MenuBar/MenuBarViewModel.swift` (lines 85-122)
+- `src/Playback/Playback/PlaybackApp.swift` (lines 16-22 for icon)
+
+**Implementation Tasks:**
+1. Add permission checking utility (PermissionChecker.swift)
+   - Check Screen Recording permission via CGPreflightScreenCaptureAccess()
+   - Return permission state (granted, denied, not determined)
+2. Update Record Screen toggle logic
+   - Grey out toggle only if permissions missing (with explanatory message)
+   - Show normal text with working toggle when permissions granted
+   - Persist recording state in UserDefaults across app quits
+3. Fix window opening logic (Timeline/Settings)
+   - Proper window activation and focus management
+   - Use NSWorkspace.shared.open() for app activation
+   - Implement proper window scene management per PlaybackApp.swift
+4. Remove Diagnostics URL scheme
+   - Replace `playback://diagnostics` with direct window opening
+   - Use same window management approach as Timeline/Settings
+5. Add app icons
+   - Add icons to Assets.xcassets
+   - Configure Info.plist with icon references
+   - Verify icon appears in About panel
+6. Remove quit confirmation dialog
+   - Follow specs (architecture.md, menu-bar.md)
+   - Direct quit without popup
+7. Update menu bar icon
+   - Implement silhouette design with recording indicator
+   - Use opacity-based state (low=off, full=on)
+
+**Priority:** 🔴 CRITICAL - User-facing bugs blocking basic functionality
+
+---
+
+### 7.2 First-Run Wizard Completion - 🔴 CRITICAL (80% Missing)
+
+**Current Status:**
+- Only 1 of 5 screens implemented (WelcomeView exists)
+- 4 missing views: PermissionsView, StorageSetupView, DependencyCheckView, InitialConfigView
+
+**User Requirements:**
+- Arc browser-style onboarding (single-focus, minimal text, action-oriented CTAs)
+- Show current state of system (already configured elements vs not configured)
+- No Skip button (except maybe last screen for optional config)
+- Pleasant UI with reduced friction
+- Direct permission prompts (not just text descriptions)
+
+**Specification Reference:**
+- `specs/installation-deployment.md` - First-run setup wizard with 5 steps
+
+**Missing Components:**
+
+1. **PermissionsView.swift** (Currently exists but may need Arc-style redesign)
+   - Screen Recording permission check and prompt
+   - Accessibility permission check and prompt
+   - Visual status indicators (checkmarks for granted, warnings for denied)
+   - Direct "Request Permission" buttons that trigger system prompts
+   - Arc-style design: large icon, clear heading, single action button
+
+2. **StorageSetupView.swift** (Missing entirely)
+   - Display default storage location
+   - Allow custom location selection (optional)
+   - Show available disk space
+   - Explain storage requirements (~10-14 GB/month)
+   - Arc-style design: minimal configuration, smart defaults
+
+3. **DependencyCheckView.swift** (Missing entirely)
+   - Check for FFmpeg installation
+   - Check for Python 3.12+ installation
+   - Provide installation instructions or links
+   - Auto-detect when dependencies installed
+   - Arc-style design: simple checklist, clear status
+
+4. **InitialConfigView.swift** (Missing entirely)
+   - Basic settings: recording FPS, compression quality
+   - App exclusion recommendations (1Password, Keychain)
+   - Timeline shortcut customization
+   - Arc-style design: minimal options, smart defaults, single screen
+
+**Implementation Tasks:**
+1. Study existing WelcomeView implementation pattern
+2. Create PermissionsView (or redesign existing)
+   - Implement direct permission request buttons
+   - Add visual status indicators
+   - Apply Arc-style design language
+3. Create StorageSetupView
+   - Implement location picker
+   - Add disk space calculation
+   - Smart defaults with optional customization
+4. Create DependencyCheckView
+   - Implement FFmpeg detection (`which ffmpeg`)
+   - Implement Python version check
+   - Add installation guidance with links
+5. Create InitialConfigView
+   - Implement basic settings form
+   - Add app exclusion recommendations
+   - Preset smart defaults
+6. Update FirstRunCoordinator logic
+   - Ensure proper navigation between all 5 screens
+   - Validate completion criteria for each step
+   - Handle skip logic (only on last screen)
+7. Simplify overall flow (consider reducing from 5 to 3 screens)
+   - Combine related steps where possible
+   - Evaluate if all 5 screens are necessary
+   - Follow Arc's "less is more" philosophy
+
+**Files to Create:**
+- `src/Playback/Playback/FirstRun/PermissionsView.swift` (redesign if exists)
+- `src/Playback/Playback/FirstRun/StorageSetupView.swift`
+- `src/Playback/Playback/FirstRun/DependencyCheckView.swift`
+- `src/Playback/Playback/FirstRun/InitialConfigView.swift`
+
+**Files to Modify:**
+- `src/Playback/Playback/FirstRun/FirstRunCoordinator.swift`
+- `src/Playback/Playback/FirstRun/FirstRunWindowView.swift`
+
+**Priority:** 🔴 CRITICAL - 80% of onboarding wizard missing
+
+---
+
+### 7.3 Search UI Layer - 🟡 MEDIUM (Backend Complete, UI Missing)
+
+**Current Status:**
+- Backend 70% complete (SearchController.swift exists)
+- Entire UI layer missing (0% implemented)
+
+**Missing Components:**
+
+1. **SearchBar.swift** (Missing entirely)
+   - Command+F activation
+   - Search input field with debouncing (300ms)
+   - Result count display
+   - Clear button
+   - Loading indicator during search
+
+2. **SearchResultsList.swift** (Missing entirely)
+   - Scrollable list of search results
+   - Result highlighting
+   - Navigation controls (previous/next)
+   - Timestamp display for each result
+   - Click to navigate to result in timeline
+
+3. **SearchResultRow.swift** (Missing entirely)
+   - Individual result display
+   - Text preview with highlighted match
+   - Timestamp and app context
+   - Thumbnail preview (optional)
+
+**Specification Reference:**
+- `specs/timeline-graphical-interface.md` - Search UI with Command+F
+
+**Implementation Tasks:**
+1. Create SearchBar component
+   - Implement Command+F keyboard shortcut activation
+   - Add text field with proper styling
+   - Implement 300ms debounce on input
+   - Add result count and clear button
+2. Create SearchResultsList component
+   - Build scrollable list view
+   - Add navigation controls
+   - Implement click-to-navigate
+3. Create SearchResultRow component
+   - Display result preview
+   - Highlight matching text
+   - Show timestamp and context
+4. Integrate with existing SearchController
+   - Wire up UI to backend queries
+   - Handle result caching
+   - Implement navigation to timeline position
+5. Add timeline integration
+   - Yellow match markers on timeline
+   - Jump to search result functionality
+   - Highlight active result
+
+**Files to Create:**
+- `src/Playback/Playback/Search/SearchBar.swift`
+- `src/Playback/Playback/Search/SearchResultsList.swift`
+- `src/Playback/Playback/Search/SearchResultRow.swift`
+
+**Files to Modify:**
+- `src/Playback/Playback/Timeline/TimelineView.swift` (integrate search UI)
+- `src/Playback/Playback/Search/SearchController.swift` (wire up UI)
+
+**Priority:** 🟡 MEDIUM - Backend complete, need UI to expose functionality
+
+---
+
+### 7.4 Missing Services - 🟡 MEDIUM
+
+**NotificationManager Missing:**
+- Identified in config but service not implemented
+- User notifications for errors, warnings, cleanup results
+- System notification integration via UserNotifications framework
+
+**Implementation Tasks:**
+1. Create NotificationManager service
+   - Implement notification request permission
+   - Add notification display methods
+   - Handle notification actions
+2. Integrate with error handling
+   - Recording errors
+   - Processing failures
+   - Storage warnings
+3. Add notification preferences to settings
+   - Enable/disable notifications
+   - Notification types (errors only, all events)
+
+**Files to Create:**
+- `src/Playback/Playback/Services/NotificationManager.swift`
+
+**Files to Modify:**
+- `src/Playback/Playback/Settings/SettingsView.swift` (add notification preferences)
+
+**Priority:** 🟡 MEDIUM - Nice to have, not blocking core functionality
+
+---
+
+### 7.5 Design System Polish - 🟢 LOW (Optional Enhancements)
+
+**Settings UI:** Already 95% complete (excellent state)
+- Minor gaps: Some validation messages could be improved
+- Loading states during setting changes
+- Better error messages for invalid inputs
+
+**Arc-Style Design Consistency:**
+- Review all views for Arc-style consistency
+- Frosted glass backgrounds
+- Proper spacing and typography
+- Smooth animations and transitions
+- Single-focus screens where applicable
+
+**Icons and Visual Assets:**
+- Complete app icon set (all sizes)
+- Menu bar icon variations (recording/not recording)
+- First-run wizard illustrations
+- Settings tab icons
+- Loading state animations
+
+**Priority:** 🟢 LOW - Polish items after core functionality complete
+
+---
+
+### 7.6 Implementation Priority Order
+
+**Phase 7 Task Prioritization:**
+
+1. **🔴 CRITICAL - Week 1-2:**
+   - 7.1: Menu Bar Fixes (7 specific issues)
+   - 7.2: First-Run Wizard Completion (4 missing views)
+
+2. **🟡 MEDIUM - Week 3-4:**
+   - 7.3: Search UI Layer (3 missing components)
+   - 7.4: NotificationManager Service
+
+3. **🟢 LOW - Week 5+ (Optional):**
+   - 7.5: Design System Polish
+
+**Estimated Duration:** 4-5 weeks for critical + medium priority items
+
+---
+
+### 7.7 Testing Requirements
+
+**After Each Implementation:**
+- Unit tests for new components
+- Integration tests for new workflows
+- UI tests for new user interactions
+- Manual testing on clean macOS installation
+
+**Specific Test Coverage Needed:**
+- Menu bar permission checking logic
+- First-run wizard navigation (all 5 steps)
+- Search UI interaction (Command+F, navigation)
+- NotificationManager permission and display
+- Window opening and focus management
 
 ---
 
