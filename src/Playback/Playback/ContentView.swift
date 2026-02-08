@@ -19,6 +19,8 @@ struct ContentView: View {
     private let maxVisibleWindowSeconds: TimeInterval = 60 * 60     // 60 minutes
     // Base used for pinch gesture (zoom) applied to entire window.
     @State private var pinchBaseVisibleWindowSeconds: TimeInterval?
+    // Anchor timestamp for cursor-anchored zoom (timestamp under cursor when pinch starts)
+    @State private var pinchAnchorTimestamp: TimeInterval?
     // Exponent that controls pinch zoom sensitivity.
     // Higher values => more aggressive zoom for same pinch distance.
     private let pinchZoomExponent: Double = 3.0
@@ -76,16 +78,18 @@ struct ContentView: View {
 
                     if pinchBaseVisibleWindowSeconds == nil {
                         pinchBaseVisibleWindowSeconds = visibleWindowSeconds
+                        pinchAnchorTimestamp = centerTime
                     }
                     guard let base = pinchBaseVisibleWindowSeconds else { return }
+                    guard let anchorTimestamp = pinchAnchorTimestamp else { return }
 
                     // Increase zoom sensitivity by applying an exponent
                     // to the pinch value. This way, small gestures generate
                     // more perceptible changes in time scale.
-                    let factor = pow(Double(value), pinchZoomExponent)
+                    let zoomFactor = pow(Double(value), pinchZoomExponent)
 
                     // Zoom in => smaller window (fewer visible seconds).
-                    var newWindow = base / factor
+                    var newWindow = base / zoomFactor
                     if newWindow < minVisibleWindowSeconds {
                         newWindow = minVisibleWindowSeconds
                     } else if newWindow > maxVisibleWindowSeconds {
@@ -93,14 +97,21 @@ struct ContentView: View {
                     }
 
                     if abs(newWindow - visibleWindowSeconds) > 0.001 {
+                        // Cursor-anchored zoom: adjust centerTime to keep anchor timestamp at same screen position
+                        let oldWindow = visibleWindowSeconds
                         visibleWindowSeconds = newWindow
+
+                        // Adjust center to maintain anchor point (timestamp under cursor stays stationary)
+                        centerTime = anchorTimestamp + (centerTime - anchorTimestamp) * (newWindow / oldWindow)
+
                         if Paths.isDevelopment {
-                            print("[ContentView] Pinch zoom -> visibleWindowSeconds=\(visibleWindowSeconds)")
+                            print("[ContentView] Pinch zoom -> visibleWindowSeconds=\(visibleWindowSeconds), centerTime=\(centerTime)")
                         }
                     }
                 }
                 .onEnded { _ in
                     pinchBaseVisibleWindowSeconds = nil
+                    pinchAnchorTimestamp = nil
                 }
         )
     }

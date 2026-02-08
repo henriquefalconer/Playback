@@ -294,12 +294,13 @@ These features are specified but not implemented. They impact UX but are not blo
 
 These items improve the overall experience but are not blocking core functionality.
 
-### 3.1 Timeline: Zoom Anchor Point Missing
+### 3.1 Timeline: Zoom Anchor Point ✅ FIXED
 
-- [ ] **Implement cursor-anchored zoom**
+- [x] **Implement cursor-anchored zoom**
 - **Spec:** `specs/timeline-graphical-interface.md` lines 179, 388
 - **Source:** `ContentView.swift:288-319`
 - **Problem:** Pinch zoom changes scale but doesn't maintain the timestamp under the cursor
+- **Fix applied:** Implemented cursor-anchored zoom that maintains the timestamp under the cursor during pinch gestures. Added `pinchAnchorTimestamp` state variable to track anchor point, and adjusted `centerTime` proportionally during zoom to keep anchor timestamp at same screen position using formula: `centerTime = anchorTimestamp + (centerTime - anchorTimestamp) * (newWindow / oldWindow)`
 
 ### 3.2 Timeline: No Segment Preloading
 
