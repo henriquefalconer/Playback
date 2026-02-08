@@ -2,7 +2,7 @@ import SwiftUI
 import AppKit
 import CoreImage
 
-// Extensão para obter uma cor média de um ícone usando apenas APIs nativas (CoreImage).
+// Extension to obtain an average color from an icon using only native APIs (CoreImage).
 extension NSImage {
     var averageColor: NSColor? {
         guard
@@ -51,14 +51,14 @@ extension NSImage {
     }
 }
 
-/// Shape auxiliar para deslocar a área de clique verticalmente em relação à barra,
-/// sem alterar a posição visual dos segmentos.
+/// Helper shape to shift the click area vertically relative to the bar,
+/// without changing the visual position of the segments.
 struct ExpandedVerticalHitShape: Shape {
     let extra: CGFloat
 
     func path(in rect: CGRect) -> Path {
         var path = Path()
-        // Move a área de hit para baixo em `extra` pontos, mantendo o mesmo tamanho.
+        // Move the hit area down by `extra` points, keeping the same size.
         let shifted = rect.offsetBy(dx: 0, dy: extra)
         path.addRect(shifted)
         return path
@@ -93,8 +93,8 @@ struct TimelineView: View {
     }
 
     private func formattedTimestamp(_ time: TimeInterval) -> String {
-        // Usa o horário atual da máquina como referência para o "tempo atrás",
-        // em vez do último timestamp da timeline.
+        // Use the current machine time as reference for "time ago",
+        // instead of the last timeline timestamp.
         let now = Date().timeIntervalSince1970
         let delta = max(0, now - time)
 
@@ -124,7 +124,7 @@ struct TimelineView: View {
         if let cached = Self.appNameCache[appId] {
             return cached
         }
-        // Tenta resolver o nome real do app via NSWorkspace
+        // Try to resolve the actual app name via NSWorkspace
         var name: String
         if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: appId) {
             name = url.deletingPathExtension().lastPathComponent
@@ -152,7 +152,7 @@ struct TimelineView: View {
 
     private static var appColorCache: [String: Color] = [:]
 
-    /// Cor "representativa" do app, derivada nativamente do ícone do app.
+    /// "Representative" color of the app, natively derived from the app icon.
     private func appColor(for appId: String) -> Color {
         if let cached = Self.appColorCache[appId] {
             return cached
@@ -165,9 +165,9 @@ struct TimelineView: View {
 
         let color: Color
         if let avg = icon.averageColor {
-            // Queremos algo tão vibrante quanto Color.blue, mas com o "tom" do app.
-            //  - mantemos o hue do ícone;
-            //  - forçamos uma saturação alta e brilho alto.
+            // We want something as vibrant as Color.blue, but with the app's "tone".
+            //  - keep the icon's hue;
+            //  - force high saturation and high brightness.
             let targetBrightness: CGFloat = 0.70
             let minSaturation: CGFloat = 0.80
 
@@ -177,7 +177,7 @@ struct TimelineView: View {
             let b = rgbColor.brightnessComponent
             let a = rgbColor.alphaComponent
 
-            // Se o ícone for muito dessaturado (quase cinza), usamos saturação máxima.
+            // If the icon is too desaturated (almost gray), use maximum saturation.
             let boostedSaturation: CGFloat = s < 0.25 ? 1.0 : max(s, minSaturation)
             let boostedBrightness: CGFloat = max(b, targetBrightness)
 
@@ -189,7 +189,7 @@ struct TimelineView: View {
             )
             color = Color(nsColor: vibrant)
         } else {
-            // Se não conseguirmos extrair cor do ícone, caímos para o azul padrão.
+            // If we can't extract color from the icon, fall back to default blue.
             color = .blue
         }
 
@@ -201,13 +201,13 @@ struct TimelineView: View {
         GeometryReader { geo in
             let width = geo.size.width * 0.8
             let height: CGFloat = 8
-            // A posição base usada para o playhead e para o bubble.
-            // Mantemos uma margem de 8pt para evitar clipping visual.
+            // The base position used for the playhead and the bubble.
+            // We keep an 8pt margin to avoid visual clipping.
             let barY = geo.size.height - height / 2 - 8
-            // Posicionamos os segmentos ainda mais para baixo em relação ao
-            // playhead, sem mexer na posição do próprio playhead/bubble.
-            // Usamos um deslocamento máximo de 8pt para manter a base da barra
-            // alinhada com o limite inferior da view, sem clipping.
+            // Position the segments even lower relative to the
+            // playhead, without moving the playhead/bubble position itself.
+            // We use a maximum displacement of 8pt to keep the bar base
+            // aligned with the bottom edge of the view, without clipping.
             let segmentsY = barY + 22
             let span = windowSpan
             let windowStart = span.start
@@ -224,13 +224,13 @@ struct TimelineView: View {
                     barY: barY
                 )
 
-                // Appsegments, com tamanho proporcional à duração absoluta e
-                // "janela" de tempo (clipping) aplicada pela barra.
+                // Appsegments, with size proportional to absolute duration and
+                // time "window" (clipping) applied by the bar.
                 ZStack {
-                    // Appsegments visíveis ao longo da barra.
-                    // Cada appsegment tem largura proporcional à sua duração absoluta
-                    // (definida por pixelsPerSecond). Quando só parte cai na janela,
-                    // o container recorta (efeito de overflow).
+                    // Visible appsegments along the bar.
+                    // Each appsegment has width proportional to its absolute duration
+                    // (defined by pixelsPerSecond). When only part falls in the window,
+                    // the container clips (overflow effect).
                     ForEach(visibleAppSegments, id: \.id) { (segment: AppSegment) in
                         let segStartX = CGFloat(segment.startTS - windowStart) * pixelsPerSecond
                         let segWidth = max(6, CGFloat(segment.endTS - segment.startTS) * pixelsPerSecond)
@@ -284,7 +284,7 @@ struct TimelineView: View {
                     .frame(width: 4, height: 110)
                     .position(x: geo.size.width / 2, y: barY + 48)
 
-                // Bubble de timestamp
+                // Timestamp bubble
                 Button(action: {
                     showDatePicker = true
                 }) {
@@ -304,8 +304,8 @@ struct TimelineView: View {
                 .position(x: geo.size.width / 2, y: barY - 32)
                 .accessibilityIdentifier("timeline.timeBubbleButton")
             }
-            // Desloca apenas a área de hit-test alguns pontos para baixo, mantendo os
-            // segmentos na mesma posição visual.
+            // Shift only the hit-test area a few points down, keeping the
+            // segments in the same visual position.
             .contentShape(ExpandedVerticalHitShape(extra: 20))
             .gesture(
                 DragGesture(minimumDistance: 0)
@@ -317,19 +317,19 @@ struct TimelineView: View {
                             print("[TimelineView] Click/drag ended. rawLocation=\(rawLocation), geoWidth=\(geoWidth), width=\(width), leftEdgeX=\(leftEdgeX)")
                         }
 
-                        // Coordenada X do clique **relativa à barra** (0 ... width)
+                        // Click X coordinate **relative to the bar** (0 ... width)
                         let localX = max(0, min(rawLocation.x - leftEdgeX, width))
                         if Paths.isDevelopment {
                             print("[TimelineView]   localX (adjusted)=\(localX)")
                         }
 
-                        // Converte posição em tempo absoluto dentro da janela visível
+                        // Convert position to absolute time within the visible window
                         var newTime = windowStart + TimeInterval(localX / width) * visibleWindowSeconds
                         if Paths.isDevelopment {
                             print("[TimelineView]   newTime (before clamp)=\(newTime), windowStart=\(windowStart), visibleWindowSeconds=\(visibleWindowSeconds)")
                         }
 
-                        // Garante que não passamos dos limites globais da timeline
+                        // Ensure we don't exceed the global timeline limits
                         if let start = timelineStore.timelineStart {
                             newTime = max(start, newTime)
                         }
@@ -341,7 +341,7 @@ struct TimelineView: View {
                             print("[TimelineView]   newTime (after clamp)=\(newTime)")
                         }
 
-                        // Atualiza o vídeo e o centro da janela para o novo tempo
+                        // Update the video and window center to the new time
                         playbackController.scrub(to: newTime, store: timelineStore)
                         if Paths.isDevelopment {
                             print("[TimelineView]   playbackController.currentTime after scrub=\(playbackController.currentTime)")

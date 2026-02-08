@@ -66,11 +66,11 @@ class FrameInfo:
     Representa informações sobre um frame de screenshot individual.
 
     Attributes:
-        path: Caminho completo para o arquivo de imagem do frame
-        ts: Timestamp em segundos epoch de quando o frame foi capturado
-        app_id: Bundle ID do aplicativo ativo quando o frame foi capturado (None se desconhecido)
-        width: Largura da imagem em pixels (None se não determinada)
-        height: Altura da imagem em pixels (None se não determinada)
+        path: Full path to the frame image file
+        ts: Timestamp in epoch seconds when the frame was captured
+        app_id: Bundle ID of the active application when the frame was captured (None if unknown)
+        width: Image width in pixels (None if not determined)
+        height: Image height in pixels (None if not determined)
     """
     path: Path
     ts: float  # epoch seconds
@@ -81,15 +81,15 @@ class FrameInfo:
 
 def load_frames_for_day(day: str, logger) -> List[FrameInfo]:
     """
-    Carrega todos os frames de temp/YYYYMM/DD relativos ao dia informado
-    como string YYYYMMDD.
+    Loads all frames from temp/YYYYMM/DD for the day provided
+    as a YYYYMMDD string.
     """
     year_month = day[:6]
     day_only = day[6:]
     day_dir = get_temp_directory() / year_month / day_only
 
     if not day_dir.is_dir():
-        raise FileNotFoundError(f"Pasta de frames não encontrada: {day_dir}")
+        raise FileNotFoundError(f"Frames directory not found: {day_dir}")
 
     frames: List[FrameInfo] = []
     invalid_files = 0
@@ -97,19 +97,19 @@ def load_frames_for_day(day: str, logger) -> List[FrameInfo]:
     for entry in sorted(day_dir.iterdir()):
         if not entry.is_file():
             continue
-        # Ignora arquivos ocultos/metadados (ex.: .DS_Store)
+        # Ignore hidden/metadata files (e.g., .DS_Store)
         if entry.name.startswith("."):
             continue
 
-        # Para a linha do tempo, confiamos sempre no "Date Created" do arquivo
-        # (st_birthtime no macOS). Se não existir, usamos mtime como fallback.
+        # For the timeline, we always trust the file's "Date Created"
+        # (st_birthtime on macOS). If it doesn't exist, we use mtime as fallback.
         st = entry.stat()
         ts = getattr(st, "st_birthtime", None) or st.st_mtime
         app_id = parse_app_from_name(entry.name)
         width, height = get_image_size(entry)
 
-        # Se não conseguimos determinar largura/altura via ffprobe, este arquivo
-        # provavelmente não é um PNG válido; melhor ignorar do que quebrar o ffmpeg.
+        # If we can't determine width/height via ffprobe, this file
+        # is probably not a valid PNG; better to ignore than break ffmpeg.
         if width is None or height is None:
             log_warning(
                 logger,
@@ -149,12 +149,12 @@ def group_frames_by_count(
     max_frames_per_segment: int,
 ) -> List[List[FrameInfo]]:
     """
-    Agrupa frames em segmentos contendo, no máximo, `max_frames_per_segment`
-    frames consecutivos **e** garantindo que cada segmento tenha apenas um
-    formato de quadro (mesma largura/altura).
+    Groups frames into segments containing at most `max_frames_per_segment`
+    consecutive frames **and** ensuring each segment has only one
+    frame format (same width/height).
 
-    Isso "comprime" uma sequência arbitrariamente longa de screenshots em
-    vídeos curtos de N frames (ex.: 150 frames = 5s a 30fps), sem repetir
+    This "compresses" an arbitrarily long sequence of screenshots into
+    short N-frame videos (e.g., 150 frames = 5s at 30fps), without repeating
     frames.
     """
     if max_frames_per_segment <= 0:
@@ -173,9 +173,9 @@ def group_frames_by_count(
             continue
 
         reached_max = len(current_segment) >= max_frames_per_segment
-        # Se a resolução (largura/altura) mudar, sempre iniciamos um novo segmento,
-        # mesmo que uma das medidas seja None. Isso garante que não misturamos
-        # monitores diferentes no mesmo vídeo.
+        # If resolution (width/height) changes, always start a new segment,
+        # even if one of the dimensions is None. This ensures we don't mix
+        # different monitors in the same video.
         size_changed = current_size is not None and frame_size != current_size
 
         if reached_max or size_changed:
@@ -193,13 +193,13 @@ def group_frames_by_count(
 
 def build_appsegments_for_day(frames: List[FrameInfo]) -> List[Tuple[Optional[str], float, float]]:
     """
-    A partir de todos os frames de um dia (já ordenados por timestamp),
-    agrupa intervals contínuos por app_id.
+    From all frames of a day (already sorted by timestamp),
+    groups continuous intervals by app_id.
 
-    - Cada mudança de app_id inicia um novo appsegment.
-    - app_id pode ser None; nesses casos ainda criamos um appsegment para
-      representar períodos "sem app conhecido", que podem ser exibidos
-      com uma cor genérica na timeline.
+    - Each app_id change starts a new appsegment.
+    - app_id can be None; in these cases we still create an appsegment to
+      represent periods "without known app", which can be displayed
+      with a generic color on the timeline.
     """
     if not frames:
         return []
@@ -212,19 +212,19 @@ def build_appsegments_for_day(frames: List[FrameInfo]) -> List[Tuple[Optional[st
 
     for frame in frames[1:]:
         if frame.app_id == current_app:
-            # Continua o mesmo app; apenas avança o fim do intervalo.
+            # Continue same app; just advance the end of the interval.
             last_ts = frame.ts
             continue
 
-        # Houve troca de app: fecha o intervalo atual em last_ts
+        # App switched: close current interval at last_ts
         segments.append((current_app, current_start, last_ts))
 
-        # Inicia um novo intervalo para o novo app.
+        # Start a new interval for the new app.
         current_app = frame.app_id
         current_start = frame.ts
         last_ts = frame.ts
 
-    # Fecha o último intervalo usando o timestamp do último frame.
+    # Close the last interval using the last frame's timestamp.
     segments.append((current_app, current_start, last_ts))
 
     return segments
@@ -457,16 +457,16 @@ def process_day(
     cleanup: bool = True,
 ) -> None:
     """
-    Gera vídeos a partir dos frames de um dia (YYYYMMDD).
+    Generates videos from frames of a day (YYYYMMDD).
 
     Args:
-        day: Dia no formato YYYYMMDD
-        fps: Frames por segundo do vídeo de saída
-        segment_duration: Duração de cada segmento em segundos
-        crf: Constant Rate Factor para compressão
-        preset: Preset do FFmpeg (veryfast, medium, slow, etc.)
+        day: Day in YYYYMMDD format
+        fps: Frames per second of output video
+        segment_duration: Duration of each segment in seconds
+        crf: Constant Rate Factor for compression
+        preset: FFmpeg preset (veryfast, medium, slow, etc.)
         logger: Logger instance
-        cleanup: Se True, remove os arquivos temporários após processamento
+        cleanup: If True, removes temporary files after processing
     """
     day_start_time = time.time()
     start_metrics = collect_metrics()
@@ -488,11 +488,11 @@ def process_day(
         log_info(logger, "No frames found for day", day=day)
         return
 
-    # Faixas de app (appsegments) para o dia inteiro, independentes de como
-    # os frames serão agrupados em vídeos (segments).
+    # App ranges (appsegments) for the entire day, independent of how
+    # frames will be grouped into videos (segments).
     appsegments = build_appsegments_for_day(frames)
 
-    # Número alvo de frames por segmento: fps * duração desejada em segundos.
+    # Target number of frames per segment: fps * desired duration in seconds.
     max_frames_per_segment = int(fps * segment_duration)
     segments = group_frames_by_count(frames, max_frames_per_segment)
 
@@ -551,7 +551,7 @@ def process_day(
         video_file = dest_without_ext.with_suffix(".mp4")
         os.chmod(video_file, 0o600)
 
-        # Caminho relativo ao diretório base de dados
+        # Path relative to base data directory
         base_data_dir = get_database_path().parent
         rel_path = str(video_file.relative_to(base_data_dir))
 
@@ -603,7 +603,7 @@ def process_day(
                     total_segments=len(segments)
                 )
 
-    # Persiste todos os appsegments calculados para o dia.
+    # Persist all calculated appsegments for the day.
     log_info(
         logger,
         "Inserting app segments",
@@ -621,7 +621,7 @@ def process_day(
             app_id=app_id,
         )
 
-    # Remove arquivos temporários após processamento bem-sucedido
+    # Remove temporary files after successful processing
     if cleanup:
         cleanup_temp_files(frames, day, logger)
 
@@ -646,17 +646,17 @@ def process_day(
 
 def parse_args() -> argparse.Namespace:
     """
-    Analisa argumentos de linha de comando para o script de processamento.
+    Parses command line arguments for the processing script.
 
     Returns:
-        argparse.Namespace contendo argumentos parseados:
-            - day: Dia específico para processar (YYYYMMDD)
-            - auto: Flag para modo automático (últimos 7 dias pendentes)
-            - no_cleanup: Flag para manter arquivos temporários
-            - fps: Taxa de frames por segundo para vídeo de saída
-            - segment_duration: Duração alvo de cada segmento em segundos
-            - crf: Constant Rate Factor para compressão
-            - preset: Preset do FFmpeg para velocidade/qualidade
+        argparse.Namespace containing parsed arguments:
+            - day: Specific day to process (YYYYMMDD)
+            - auto: Flag for automatic mode (last 7 pending days)
+            - no_cleanup: Flag to keep temporary files
+            - fps: Frame rate per second for output video
+            - segment_duration: Target duration of each segment in seconds
+            - crf: Constant Rate Factor for compression
+            - preset: FFmpeg preset for speed/quality
     """
     parser = argparse.ArgumentParser(
         description="Converte screenshots em temp/YYYYMM/DD em vídeos em chunks/YYYYMM/DD"
@@ -669,30 +669,30 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--auto",
         action="store_true",
-        help="Processa automaticamente todos os dias pendentes (últimos 7 dias)",
+        help="Automatically processes all pending days (last 7 days)",
     )
     parser.add_argument(
         "--no-cleanup",
         action="store_true",
-        help="Não remove os arquivos temporários após processamento",
+        help="Does not remove temporary files after processing",
     )
     parser.add_argument(
         "--fps",
         type=float,
         default=None,
-        help="FPS do vídeo de saída (default: carrega do config)",
+        help="Output video FPS (default: loads from config)",
     )
     parser.add_argument(
         "--segment-duration",
         type=float,
         default=5.0,
-        help="Duração alvo de cada segmento em segundos (default: 5.0)",
+        help="Target duration of each segment in seconds (default: 5.0)",
     )
     parser.add_argument(
         "--crf",
         type=int,
         default=None,
-        help="CRF do libx265 (default: carrega do config)",
+        help="libx265 CRF (default: loads from config)",
     )
     parser.add_argument(
         "--preset",
@@ -705,8 +705,8 @@ def parse_args() -> argparse.Namespace:
 
 def find_pending_days(logger) -> List[str]:
     """
-    Encontra dias com screenshots na pasta temp que ainda não foram processados.
-    Retorna lista de strings no formato YYYYMMDD para os últimos 7 dias.
+    Finds days with screenshots in the temp folder that have not been processed yet.
+    Returns list of strings in YYYYMMDD format for the last 7 days.
     """
     temp_dir = get_temp_directory()
     pending_days = []
@@ -746,12 +746,12 @@ def find_pending_days(logger) -> List[str]:
 
 def main() -> None:
     """
-    Ponto de entrada principal do script de processamento de chunks.
+    Main entry point of the chunk processing script.
 
-    Carrega configurações, inicializa logging estruturado, e processa dias em modo
-    automático (últimos 7 dias pendentes) ou manual (dia específico). Converte
-    screenshots em temp/ para segmentos de vídeo em chunks/, executa OCR quando
-    disponível, e registra metadados no banco de dados.
+    Loads configurations, initializes structured logging, and processes days in
+    automatic mode (last 7 pending days) or manual mode (specific day). Converts
+    screenshots in temp/ to video segments in chunks/, runs OCR when
+    available, and records metadata in the database.
     """
     args = parse_args()
 

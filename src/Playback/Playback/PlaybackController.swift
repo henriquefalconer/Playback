@@ -17,19 +17,19 @@ final class PlaybackController: ObservableObject {
     @Published var currentTime: TimeInterval = 0
     @Published var isPlaying: Bool = false
     @Published var playbackError: PlaybackError?
-    /// Último frame "congelado" usado como fallback visual enquanto um novo
-    /// segmento é carregado ou quando navegamos para fora da faixa gravada.
+    /// Last "frozen" frame used as visual fallback while a new
+    /// segment is loading or when we navigate outside the recorded range.
     @Published var frozenFrame: NSImage?
-    /// Quando `true`, a UI deve exibir `frozenFrame` por cima do vídeo.
+    /// When `true`, the UI should display `frozenFrame` over the video.
     @Published var showFrozenFrame: Bool = false
 
-    /// Indica se estamos no meio de um scrubbing ativo (via scroll/drag).
-    /// Enquanto for `true`, ignoramos as atualizações periódicas do `timeObserver`
-    /// para não sobrescrever o `currentTime` calculado a partir do gesto.
+    /// Indicates whether we're in the middle of an active scrubbing (via scroll/drag).
+    /// While `true`, we ignore periodic updates from `timeObserver`
+    /// to avoid overwriting the `currentTime` calculated from the gesture.
     private var isScrubbing: Bool = false
-    /// Indica se o tempo atual está "grudado" no início absoluto da timeline.
-    /// Quando verdadeiro, mantemos o último frame exibido como fallback
-    /// visual, mesmo após o fim do scrubbing.
+    /// Indicates whether the current time is "stuck" at the absolute start of the timeline.
+    /// When true, we keep the last displayed frame as a visual
+    /// fallback, even after scrubbing ends.
     private var atStartBoundary: Bool = false
 
     private var timeObserverToken: Any?
@@ -40,35 +40,35 @@ final class PlaybackController: ObservableObject {
     private var consecutiveFailures: Int = 0
 
     init() {
-        // Observa periodicamente o tempo do player para manter `currentTime`
-        // sempre em sincronia com o que está sendo exibido na tela,
-        // inclusive quando o usuário faz scroll/gestos diretamente no vídeo.
+        // Periodically observe the player's time to keep `currentTime`
+        // always in sync with what's being displayed on screen,
+        // including when the user scrolls/gestures directly on the video.
         let interval = CMTime(seconds: 0.2, preferredTimescale: 600)
         timeObserverToken = player.addPeriodicTimeObserver(
             forInterval: interval,
             queue: .main
         ) { [weak self] cmTime in
             guard let self = self else { return }
-            // Durante scrubbing, NÃO deixamos o player "puxar" o currentTime
-            // de volta para o tempo de vídeo real, pois isso causa saltos
-            // perceptíveis na timeline entre eventos de scroll.
+            // During scrubbing, DO NOT let the player "pull" currentTime
+            // back to the real video time, as this causes noticeable
+            // jumps in the timeline between scroll events.
             if self.isScrubbing { return }
             guard let segment = self.currentSegment else { return }
 
             let seconds = CMTimeGetSeconds(cmTime)
             guard seconds.isFinite, seconds >= 0 else { return }
 
-            // Em vez de assumir mapeamento 1:1 (startTS + seconds), usamos o
-            // inverso da função `videoOffset(forAbsoluteTime:)` para voltar do
-            // tempo do vídeo para o tempo absoluto da timeline. Isso evita
-            // "teletransportes" para o início do segmento quando estamos no
-            // meio dele.
+            // Instead of assuming 1:1 mapping (startTS + seconds), we use the
+            // inverse of the `videoOffset(forAbsoluteTime:)` function to go back from
+            // video time to absolute timeline time. This prevents
+            // "teleportation" to the segment start when we're in
+            // the middle of it.
             self.currentTime = segment.absoluteTime(forVideoOffset: seconds)
         }
     }
 
-    /// Gera, em background, um snapshot do vídeo para o `segment` na posição
-    /// correspondente ao tempo absoluto dado, e publica em `frozenFrame`.
+    /// Generates, in background, a video snapshot for `segment` at the position
+    /// corresponding to the given absolute time, and publishes it to `frozenFrame`.
     private func captureFrozenFrame(from segment: Segment, atAbsoluteTime time: TimeInterval) {
         let offset = max(0, segment.videoOffset(forAbsoluteTime: time))
         let url = segment.videoURL
@@ -109,11 +109,11 @@ final class PlaybackController: ObservableObject {
         }
     }
 
-    /// Atualiza o player para um determinado tempo **sem iniciar a reprodução**.
-    /// Usado para scrubbing em tempo real (ex.: gesto de scroll/drag na timeline),
-    /// deixando o frame sempre sincronizado com a posição atual, mas em pausa.
+    /// Updates the player to a given time **without starting playback**.
+    /// Used for real-time scrubbing (e.g., scroll/drag gesture on the timeline),
+    /// keeping the frame always synchronized with the current position, but paused.
     func scrub(to time: TimeInterval, store: TimelineStore) {
-        // Marca que estamos em scrubbing ativo.
+        // Mark that we're in active scrubbing.
         isScrubbing = true
         scrubEndWorkItem?.cancel()
 
@@ -126,16 +126,16 @@ final class PlaybackController: ObservableObject {
             return
         }
 
-        // Clampeia o tempo pedido para dentro do range global da timeline.
+        // Clamp the requested time to within the global timeline range.
         var clampedTime = min(max(time, first.startTS), last.endTS)
 
-        // Detecta se estamos exatamente encostados no início absoluto da timeline.
-        // Nessa condição, queremos manter o último frame exibido como fallback
-        // visual, já que não existe vídeo "antes" do primeiro segmento.
+        // Detect if we're exactly at the absolute start of the timeline.
+        // In this condition, we want to keep the last displayed frame as a visual
+        // fallback, since there's no video "before" the first segment.
         let nowAtStartBoundary = abs(clampedTime - first.startTS) < 0.001
         if nowAtStartBoundary {
-            // Garante que temos um frame congelado para mostrar. Se ainda não
-            // houver um, usamos o frame do segmento atual (se existir).
+            // Ensure we have a frozen frame to show. If there isn't one yet,
+            // we use the frame from the current segment (if it exists).
             if frozenFrame == nil || !atStartBoundary, let seg = currentSegment {
                 captureFrozenFrame(from: seg, atAbsoluteTime: currentTime)
             }
@@ -143,17 +143,17 @@ final class PlaybackController: ObservableObject {
         }
         atStartBoundary = nowAtStartBoundary
 
-        // --- Correção 1: "grudar" levemente nas bordas do segmento atual ---
-        // Quando o usuário está exatamente no começo/fim de um segmento e faz um
-        // scroll MUITO pequeno para o passado/futuro, não queremos pular
-        // imediatamente para o segmento anterior/seguinte (especialmente se
-        // existir um "buraco" grande entre eles).
+        // --- Fix 1: slightly "stick" to the edges of the current segment ---
+        // When the user is exactly at the start/end of a segment and makes a
+        // VERY small scroll to the past/future, we don't want to jump
+        // immediately to the previous/next segment (especially if
+        // there's a large "gap" between them).
         //
-        // Em vez disso, mantemos o tempo "preso" na borda atual enquanto o
-        // deslocamento for pequeno, e só permitimos atravessar a borda quando o
-        // usuário insistir um pouco mais.
+        // Instead, we keep the time "stuck" at the current edge while the
+        // displacement is small, and only allow crossing the edge when the
+        // user persists a bit more.
         if let seg = currentSegment {
-            let boundaryStick: TimeInterval = 0.5   // até 0.5s além da borda continua preso
+            let boundaryStick: TimeInterval = 0.5   // up to 0.5s beyond the edge stays stuck
 
             if clampedTime < seg.startTS {
                 let delta = seg.startTS - clampedTime
@@ -170,10 +170,10 @@ final class PlaybackController: ObservableObject {
 
         let direction = clampedTime - currentTime
 
-        // Caso padrão: usa o mapeamento canônico do TimelineStore, que já trata:
-        //  - tempo dentro de segmento
-        //  - buracos entre segmentos (considerando direção)
-        //  - antes do primeiro / depois do último segmento
+        // Default case: use the canonical mapping from TimelineStore, which already handles:
+        //  - time within segment
+        //  - gaps between segments (considering direction)
+        //  - before the first / after the last segment
         guard let (seg, offset) = store.segment(for: clampedTime, direction: direction) else {
             if Paths.isDevelopment {
                 print("[Playback] (scrub) segment(for: \(clampedTime), dir=\(direction)) returned nil")
@@ -181,7 +181,7 @@ final class PlaybackController: ObservableObject {
             return
         }
 
-        // Atualiza o tempo absoluto atual na timeline (coordenada contínua).
+        // Update the current absolute time on the timeline (continuous coordinate).
         currentTime = clampedTime
 
         if Paths.isDevelopment {
@@ -200,13 +200,13 @@ final class PlaybackController: ObservableObject {
         }
         seek(to: seg, offset: offset, isScrub: true)
 
-        // Agenda o fim do scrubbing um pouco após o último evento de scroll.
+        // Schedule the end of scrubbing shortly after the last scroll event.
         let work = DispatchWorkItem { [weak self] in
             guard let self else { return }
             self.isScrubbing = false
-            // Ao terminar o scrubbing, se o player já tiver um novo frame
-            // válido pronto (status READY) e **não** estivermos encostados
-            // no início absoluto da timeline, podemos esconder o congelado.
+            // When scrubbing finishes, if the player already has a new valid
+            // frame ready (status READY) and we are **not** at
+            // the absolute start of the timeline, we can hide the frozen frame.
             if !self.atStartBoundary {
                 self.showFrozenFrame = false
             }
@@ -236,11 +236,11 @@ final class PlaybackController: ObservableObject {
     }
 
     private func seek(to segment: Segment, offset: TimeInterval, isScrub: Bool) {
-        // Se mudou de segmento, trocamos o item do player.
+        // If the segment changed, we swap the player item.
         if currentSegment?.id != segment.id {
             if let oldSeg = currentSegment {
-                // Antes de trocar de segmento, congelamos o último frame para
-                // evitar o "flash" preto enquanto o novo vídeo carrega.
+                // Before switching segments, freeze the last frame to
+                // avoid the black "flash" while the new video loads.
                 captureFrozenFrame(from: oldSeg, atAbsoluteTime: currentTime)
             }
 
@@ -248,7 +248,7 @@ final class PlaybackController: ObservableObject {
             let url = segment.videoURL
             let item = AVPlayerItem(url: url)
 
-            // Mantemos o observer de status para debug se algo der errado no carregamento.
+            // Keep the status observer for debugging if something goes wrong during loading.
             statusObserver = item.observe(\.status, options: [.initial, .new]) { [weak self] item, _ in
                 guard let self else { return }
                 switch item.status {
@@ -259,10 +259,10 @@ final class PlaybackController: ObservableObject {
                     DispatchQueue.main.async {
                         self.consecutiveFailures = 0
                         self.playbackError = nil
-                        // Só escondemos o frame congelado se não estivermos
-                        // mais em scrubbing. Durante scrubbing, mantemos o
-                        // último frame exibido para evitar flashes pretos
-                        // mesmo que o novo segmento já esteja pronto.
+                        // Only hide the frozen frame if we're no longer
+                        // in scrubbing. During scrubbing, we keep the
+                        // last displayed frame to avoid black flashes
+                        // even if the new segment is already ready.
                         if !self.isScrubbing {
                             self.showFrozenFrame = false
                         }
@@ -301,7 +301,7 @@ final class PlaybackController: ObservableObject {
 
         let cm = CMTime(seconds: offset, preferredTimescale: 600)
         if isScrub {
-            // Pausa sempre durante o scrubbing para evitar sensação "elástica".
+            // Always pause during scrubbing to avoid "elastic" feeling.
             player.pause()
             player.seek(to: cm, toleranceBefore: .zero, toleranceAfter: .zero)
         } else {
@@ -325,7 +325,7 @@ final class PlaybackController: ObservableObject {
 
         if currentSegment?.id != segment.id {
             if let oldSeg = currentSegment {
-                // Congela o último frame do segmento anterior antes de trocar.
+                // Freeze the last frame of the previous segment before switching.
                 captureFrozenFrame(from: oldSeg, atAbsoluteTime: currentTime)
             }
 
@@ -334,7 +334,7 @@ final class PlaybackController: ObservableObject {
 
             currentSegment = segment
 
-            // Observar status para entender falhas de decodificação/carregamento
+            // Observe status to understand decoding/loading failures
             statusObserver = item.observe(\.status, options: [.initial, .new]) { [weak self] item, _ in
                 guard let self else { return }
                 switch item.status {

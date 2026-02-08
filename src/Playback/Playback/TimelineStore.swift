@@ -21,14 +21,14 @@ struct Segment: Identifiable {
         max(0, endTS - startTS)
     }
 
-    /// Duração real do vídeo (em segundos), estimada a partir de frameCount e fps.
+    /// Actual video duration (in seconds), estimated from frameCount and fps.
     var videoDuration: TimeInterval? {
         guard let fps, fps > 0, frameCount > 0 else { return nil }
         return TimeInterval(Double(frameCount) / fps)
     }
 
-    /// Converte um timestamp absoluto (linha do tempo global) em offset dentro do
-    /// arquivo de vídeo correspondente a este segmento.
+    /// Converts an absolute timestamp (global timeline) to an offset within the
+    /// video file corresponding to this segment.
     func videoOffset(forAbsoluteTime time: TimeInterval) -> TimeInterval {
         let clampedTime = min(max(time, startTS), endTS)
         let timelineOffset = max(0, min(clampedTime - startTS, duration))
@@ -37,10 +37,10 @@ struct Segment: Identifiable {
             return timelineOffset
         }
 
-        // Mapeamento linear simples: todo o intervalo da timeline deste segmento
-        // [startTS, endTS] percorre 100% da duração do vídeo [0, videoDuration].
-        // Isso evita "travamento" do vídeo no início ou fim do segmento e garante
-        // scrubbing contínuo ao longo de todo o segmento.
+        // Simple linear mapping: the entire timeline interval of this segment
+        // [startTS, endTS] spans 100% of the video duration [0, videoDuration].
+        // This prevents video "freezing" at the start or end of the segment and ensures
+        // continuous scrubbing throughout the entire segment.
         let ratio = timelineOffset / duration
         if !ratio.isFinite || ratio < 0 {
             return 0
@@ -49,18 +49,18 @@ struct Segment: Identifiable {
         return max(0, min(videoDuration, mapped))
     }
 
-    /// Inverso aproximado de `videoOffset(forAbsoluteTime:)`.
-    /// Dado um offset dentro do vídeo (em segundos), devolve o timestamp absoluto
-    /// correspondente na linha do tempo global.
+    /// Approximate inverse of `videoOffset(forAbsoluteTime:)`.
+    /// Given an offset within the video (in seconds), returns the corresponding
+    /// absolute timestamp on the global timeline.
     ///
-    /// Isso garante que, quando o AVPlayer reporta o tempo corrente do vídeo,
-    /// consigamos mapeá‑lo de volta para o tempo "real" da timeline sem causar
-    /// saltos inesperados para o início do segmento.
+    /// This ensures that when AVPlayer reports the current video time,
+    /// we can map it back to the "real" timeline time without causing
+    /// unexpected jumps to the segment start.
     func absoluteTime(forVideoOffset offset: TimeInterval) -> TimeInterval {
         let clampedOffset = max(0, offset)
 
         guard let videoDuration, videoDuration > 0, duration > 0 else {
-            // Sem metadados confiáveis: assumimos mapeamento 1:1 local ao segmento.
+            // Without reliable metadata: assume 1:1 local mapping to the segment.
             let local = min(clampedOffset, duration)
             return startTS + local
         }
@@ -220,7 +220,7 @@ final class TimelineStore: ObservableObject {
             )
         }
 
-        // Carrega também os appsegments, se a tabela existir.
+        // Also load appsegments, if the table exists.
         let appQuery = """
         SELECT id, app_id, start_ts, end_ts
         FROM appsegments
@@ -278,20 +278,20 @@ final class TimelineStore: ObservableObject {
         }
     }
 
-    /// Versão simples (sem direção explícita) usada em pontos onde não estamos
-    /// fazendo scrubbing contínuo. Nesses casos, a regra de "segmento mais
-    /// próximo" é suficiente.
+    /// Simple version (without explicit direction) used in places where we're not
+    /// doing continuous scrubbing. In these cases, the "nearest
+    /// segment" rule is sufficient.
     func segment(for time: TimeInterval) -> (Segment, TimeInterval)? {
         segment(for: time, direction: 0)
     }
 
-    /// Versão estendida que recebe também a direção do movimento:
-    ///  - direction > 0  -> indo para o FUTURO
-    ///  - direction < 0  -> indo para o PASSADO
-    ///  - direction == 0 -> sem direção clara (ex: chamada isolada)
+    /// Extended version that also receives the direction of movement:
+    ///  - direction > 0  -> going to the FUTURE
+    ///  - direction < 0  -> going to the PAST
+    ///  - direction == 0 -> no clear direction (e.g., isolated call)
     ///
-    /// Isso permite tratar corretamente os "buracos" entre segmentos sem
-    /// causar saltos inesperados.
+    /// This allows correctly handling "gaps" between segments without
+    /// causing unexpected jumps.
     func segment(for time: TimeInterval, direction: TimeInterval) -> (Segment, TimeInterval)? {
         guard !segments.isEmpty else { return nil }
 
@@ -304,7 +304,7 @@ final class TimelineStore: ObservableObject {
             dirSign = 0
         }
 
-        // 1) Fora da faixa global (antes do primeiro ou depois do último)?
+        // 1) Outside the global range (before first or after last)?
         if let first = segments.first, time < first.startTS {
             let offset = first.videoOffset(forAbsoluteTime: first.startTS)
             if Paths.isDevelopment {
@@ -320,7 +320,7 @@ final class TimelineStore: ObservableObject {
             return (last, offset)
         }
 
-        // 2) Dentro de algum segmento?
+        // 2) Inside any segment?
         for seg in segments {
             if time >= seg.startTS && time <= seg.endTS {
                 let offset = seg.videoOffset(forAbsoluteTime: time)
@@ -331,8 +331,8 @@ final class TimelineStore: ObservableObject {
             }
         }
 
-        // 3) Entre segmentos (em "buracos").
-        // Detecta explicitamente o par (anterior, próximo) cujo gap contém `time`.
+        // 3) Between segments (in "gaps").
+        // Explicitly detects the (previous, next) pair whose gap contains `time`.
         if segments.count >= 2 {
             for i in 0..<(segments.count - 1) {
                 let a = segments[i]
@@ -340,22 +340,22 @@ final class TimelineStore: ObservableObject {
 
                 if time > a.endTS && time < b.startTS {
                     if dirSign < 0 {
-                        // Indo para o PASSADO: usamos o FIM do segmento anterior.
+                        // Going to the PAST: use the END of the previous segment.
                         let offset = a.videoOffset(forAbsoluteTime: a.endTS)
                         if Paths.isDevelopment {
                             print("[TimelineStore] segment(for:\(time), dir=\(direction)) -> gap, BACKWARD: using end of \(a.id), videoOffset=\(offset)")
                         }
                         return (a, offset)
                     } else if dirSign > 0 {
-                        // Indo para o FUTURO: usamos o INÍCIO do próximo segmento.
+                        // Going to the FUTURE: use the START of the next segment.
                         let offset = b.videoOffset(forAbsoluteTime: b.startTS)
                         if Paths.isDevelopment {
                             print("[TimelineStore] segment(for:\(time), dir=\(direction)) -> gap, FORWARD: using start of \(b.id), videoOffset=\(offset)")
                         }
                         return (b, offset)
                     } else {
-                        // Sem direção clara (ex: chamada isolada): mantém a regra antiga
-                        // de "segmento mais próximo".
+                        // No clear direction (e.g., isolated call): keep the old rule
+                        // of "nearest segment".
                         let distA = min(abs(time - a.startTS), abs(time - a.endTS))
                         let distB = min(abs(time - b.startTS), abs(time - b.endTS))
                         let chosen = distA <= distB ? a : b
@@ -370,7 +370,7 @@ final class TimelineStore: ObservableObject {
             }
         }
 
-        // 4) Fallback de segurança: escolhe o segmento mais próximo.
+        // 4) Safety fallback: choose the nearest segment.
         var bestSeg: Segment?
         var bestOffset: TimeInterval = 0
         var bestDistance = TimeInterval.greatestFiniteMagnitude

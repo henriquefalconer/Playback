@@ -369,15 +369,16 @@ These items improve the overall experience but are not blocking core functionali
 - **Spec:** `specs/logging-diagnostics.md` -- Overview, Recording Logs, Processing Logs, Resource Usage
 - **Source:** `Diagnostics/DiagnosticsView.swift` -- Logs (generic), Health, Performance, Reports
 
-### 3.13 Portuguese Comments in Source Files
+### 3.13 Portuguese Comments in Source Files ✅ FIXED
 
-- [ ] **Translate Portuguese comments to English**
-- **Source:** 5 files with ~105 Portuguese comments total:
+- [x] **Translate Portuguese comments to English**
+- **Source:** 5 files with ~135 Portuguese comments total:
   - `src/Playback/Playback/PlaybackController.swift` -- ~55 Portuguese comments
   - `src/Playback/Playback/TimelineStore.swift` -- ~30 Portuguese comments
   - `src/Playback/Playback/TimelineView.swift` -- ~20 Portuguese comments
-  - `src/scripts/build_chunks_from_temp.py` -- ~4 Portuguese comments
-  - `src/scripts/stop_record_screen.sh` -- 1 Portuguese comment
+  - `src/scripts/build_chunks_from_temp.py` -- ~25 Portuguese comments
+  - `src/scripts/stop_record_screen.sh` -- 5 Portuguese comments
+- **Fix applied:** Translated all ~135 Portuguese comments to English across 5 files. Maintained technical accuracy, code formatting, and consistent terminology. All translations reviewed for clarity and professional tone.
 
 ### 3.14 Incorrect Bundle ID in MenuBarViewModel.swift ✅ FIXED
 
