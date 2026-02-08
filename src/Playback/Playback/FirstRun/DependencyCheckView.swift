@@ -188,16 +188,17 @@ struct DependencyCheckView: View {
     }
 
     private func extractVersion(from versionString: String) -> (Int, Int, Int)? {
-        let pattern = #"(\d+)\.(\d+)\.(\d+)"#
+        let pattern = #"(\d+)\.(\d+)(?:\.(\d+))?"#
         guard let regex = try? NSRegularExpression(pattern: pattern),
               let match = regex.firstMatch(in: versionString, range: NSRange(versionString.startIndex..., in: versionString)),
-              match.numberOfRanges >= 4 else {
+              match.numberOfRanges >= 3 else {
             return nil
         }
 
         let major = Int((versionString as NSString).substring(with: match.range(at: 1))) ?? 0
         let minor = Int((versionString as NSString).substring(with: match.range(at: 2))) ?? 0
-        let patch = Int((versionString as NSString).substring(with: match.range(at: 3))) ?? 0
+        let patchRange = match.range(at: 3)
+        let patch = patchRange.location != NSNotFound ? Int((versionString as NSString).substring(with: patchRange)) ?? 0 : 0
 
         return (major, minor, patch)
     }

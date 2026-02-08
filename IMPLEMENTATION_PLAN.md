@@ -112,29 +112,18 @@ These features are specified but not implemented. They significantly impact UX.
 - **Source:** `SearchResultRow.swift`
 - **Missing:** No app icon or app name shown; only timestamp + confidence + snippet
 
-### 2.6 SearchController: SQLite Text Binding Safety
-- **Source:** `SearchController.swift:149`
-- **Problem:** `sqlite3_bind_text(statement, 1, query, -1, nil)` — passes `nil` instead of `SQLITE_TRANSIENT`
-- **Fix:** Use `unsafeBitCast(-1, to: sqlite3_destructor_type.self)` per CLAUDE.md guidance
-- **Impact:** Potential memory corruption with long queries
-
-### 2.7 LaunchAgentManager: updateProcessingInterval Is a Stub
+### 2.6 LaunchAgentManager: updateProcessingInterval Is a Stub
 - **Spec:** `specs/menu-bar.md` lines 547-557
 - **Source:** `LaunchAgentManager.swift:175-177`
 - **Problem:** `func updateProcessingInterval(minutes: Int) throws { try reloadAgent(.processing) }` — just reloads, never actually changes the `StartInterval` value in the plist
 - **Impact:** Changing processing interval in Settings has no effect
 
-### 2.8 FirstRun: Version Regex Too Strict for FFmpeg
-- **Source:** `DependencyCheckView.swift:191`
-- **Problem:** Regex `#"(\d+)\.(\d+)\.(\d+)"#` requires 3-part version (X.Y.Z) but FFmpeg may report `7.0`
-- **Fix:** Make patch version optional: `#"(\d+)\.(\d+)(?:\.(\d+))?"#`
-
-### 2.9 FirstRun: No Custom Storage Location Picker
+### 2.7 FirstRun: No Custom Storage Location Picker
 - **Spec:** `specs/installation-deployment.md` — "Allow custom location selection (NSOpenPanel)"
 - **Source:** `StorageSetupView.swift`
 - **Missing:** Only shows default path; no way for user to choose custom data directory
 
-### 2.10 NotificationManager Service Missing
+### 2.8 NotificationManager Service Missing
 - **Spec:** `specs/menu-bar.md` lines 600-627 — notification system for errors, warnings, cleanup results
 - **Source:** No `NotificationManager.swift` exists; config has `notifications` field but nothing consumes it
 - **Impact:** Users never notified of recording errors, processing failures, or disk space warnings

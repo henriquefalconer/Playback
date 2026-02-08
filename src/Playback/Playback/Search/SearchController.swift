@@ -150,7 +150,7 @@ final class SearchController: ObservableObject {
             }
 
             // Bind parameters
-            sqlite3_bind_text(statement, 1, query, -1, nil)
+            sqlite3_bind_text(statement, 1, query, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
             sqlite3_bind_double(statement, 2, minConfidence)
 
             // Execute query and collect results
