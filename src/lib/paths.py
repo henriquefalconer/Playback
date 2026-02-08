@@ -20,7 +20,7 @@ All paths are Path objects from pathlib for consistent cross-platform handling.
 
 import os
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Union
 
 
 def _detect_project_root() -> Path:
@@ -210,7 +210,7 @@ def ensure_data_directories() -> None:
     ensure_directory_exists(get_logs_directory(), mode=0o755)
 
 
-def create_secure_file(path: Path | str, content: bytes) -> None:
+def create_secure_file(path: Union[Path, str], content: bytes) -> None:
     """
     Create a file with secure permissions (0o600 = rw-------).
 

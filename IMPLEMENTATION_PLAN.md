@@ -96,6 +96,8 @@ Playback consists of separate components:
 - Fixed `log_resource_metrics()` argument type bug (corrected 9 call sites)
 - Added missing docstrings (FrameInfo, parse_args, main in `build_chunks_from_temp.py`)
 - Created shared utils module (`src/lib/utils.py` for duplicate code consolidation)
+- Fixed Python 3.9 compatibility bug (`Union[Path, str]` syntax instead of `Path | str` in `src/lib/paths.py` line 213)
+- Fixed SQLite secure_delete verification bug (now accepts both `1` and `2` for standard and fast secure delete modes in `src/lib/database.py`)
 
 **Python work is complete. All remaining tasks require macOS/Xcode environment.**
 

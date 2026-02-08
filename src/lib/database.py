@@ -342,9 +342,11 @@ class DatabaseManager:
                 cursor = conn.cursor()
                 cursor.execute("PRAGMA secure_delete")
                 result = cursor.fetchone()
-                is_enabled = result[0] == 1
+                # secure_delete can be 0 (off), 1 (full), or 2 (fast)
+                # Both 1 and 2 indicate secure_delete is enabled
+                is_enabled = result[0] in (1, 2)
                 if is_enabled:
-                    logger.debug("secure_delete is enabled")
+                    logger.debug(f"secure_delete is enabled (mode {result[0]})")
                 else:
                     logger.warning("secure_delete is not enabled")
                 return is_enabled
