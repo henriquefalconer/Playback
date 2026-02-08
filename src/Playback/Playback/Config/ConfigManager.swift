@@ -68,9 +68,17 @@ final class ConfigManager: ObservableObject {
             let tempPath = configPath.appendingPathExtension("tmp")
             try data.write(to: tempPath, options: .atomic)
 
+            if FileManager.default.fileExists(atPath: configPath.path) {
+                try FileManager.default.removeItem(at: configPath)
+            }
             try FileManager.default.moveItem(at: tempPath, to: configPath)
 
             try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: configPath.path)
+
+            if let fileHandle = try? FileHandle(forUpdating: configPath) {
+                try? fileHandle.synchronize()
+                try? fileHandle.close()
+            }
 
             self.lastModificationDate = try? FileManager.default.attributesOfItem(atPath: configPath.path)[.modificationDate] as? Date
         } catch {
@@ -90,7 +98,7 @@ final class ConfigManager: ObservableObject {
         try? FileManager.default.createDirectory(at: backupDir, withIntermediateDirectories: true)
 
         let dateFormatter = DateFormatter()
-        dateFormatter.dateFormat = "yyyyMMdd_HHmmss"
+        dateFormatter.dateFormat = "yyyyMMdd_HHmmss_SSS"
         let timestamp = dateFormatter.string(from: Date())
         let backupPath = backupDir.appendingPathComponent("config_\(timestamp).json")
 

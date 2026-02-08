@@ -21,6 +21,13 @@ struct Config: Codable {
         var processingErrors: Bool
         var diskSpaceWarnings: Bool
         var recordingStatus: Bool
+
+        private enum CodingKeys: String, CodingKey {
+            case processingComplete = "processing_complete"
+            case processingErrors = "processing_errors"
+            case diskSpaceWarnings = "disk_space_warnings"
+            case recordingStatus = "recording_status"
+        }
     }
 
     static var defaultConfig: Config {
@@ -66,7 +73,7 @@ struct Config: Codable {
 
         validated.excludedApps = validated.excludedApps
             .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { $0.range(of: "^[a-z0-9.-]+$", options: .regularExpression) != nil }
+            .filter { $0.range(of: "^[a-zA-Z0-9.-]+$", options: .regularExpression) != nil }
 
         if validated.ffmpegCrf < 0 || validated.ffmpegCrf > 51 {
             validated.ffmpegCrf = 28

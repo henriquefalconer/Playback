@@ -303,19 +303,15 @@ Playback consists of separate components:
   - Environment detection, path resolution, directory creation, permission handling
 - ✅ **SignalFileManagerTests:** Completed (9 tests passing)
   - Signal file creation, deletion, checking, error handling
-- 🟡 **ConfigManagerTests:** In Progress (14/18 tests passing)
+- ✅ **ConfigManagerTests:** Completed (18/18 tests passing)
   - Tests implemented: initialization, loading, saving, validation, updates, migration, error handling
-  - Status: 14 tests passing, 4 tests failing
-  - Known issues: testInitializationLoadsExistingConfig, testSaveConfigurationMaintainsMaxFiveBackups, testUpdateConfigSavesImmediately, testValidationFiltersInvalidBundleIDs
-  - Tests fixed: Used isolated file paths to prevent test interference
-  - Next step: Debug remaining 4 test failures
-
-  **Debugging Notes for Failing Tests:**
-  - All 4 tests build successfully but fail at runtime with no detailed error messages in xcodebuild output
-  - Possible causes: async/await timing issues, MainActor isolation, file system race conditions
-  - Tests are properly isolated with unique file paths
-  - Recommended approach: Add print debugging statements or use Xcode UI test runner for detailed failure messages
-  - Not blocking: Memory crash is fixed, tests execute without crashing, 14/18 passing is good progress
+  - All tests passing, bugs fixed
+  - **Fixes applied:**
+    - Fixed memory management bug causing test runner crash (missing weak `self` in file watcher closures)
+    - Fixed file path isolation to prevent test interference
+    - Fixed backup rotation logic to properly maintain max 5 backups
+    - Fixed async initialization timing issues with proper Task handling
+    - Fixed config validation to properly filter invalid bundle IDs
 - 📋 **6 Test Classes Remaining:**
   - **TimelineStoreTests:** segment selection, time mapping, gap handling, auto-refresh
   - **LaunchAgentManagerTests:** install, load, start, stop, status checks (requires mocked launchctl)
@@ -328,14 +324,7 @@ Playback consists of separate components:
 - Framework: XCTest (native Xcode testing)
 - Python tests complete: 280/280 passing, zero bugs
 - Swift unit tests underway - core infrastructure in place for rapid test implementation
-- **BLOCKED:** Critical memory bug must be fixed before proceeding
-
-**Known Issues:**
-- ConfigManagerTests runtime failures require investigation:
-  - Tests build successfully but fail during execution
-  - Error messages not visible in xcodebuild test output
-  - Possible causes: MainActor isolation issues, file system watching conflicts, async initialization timing
-  - Next steps: Add detailed logging, test without file watching, verify MainActor context
+- ConfigManager memory bug fixed, all tests now passing
 
 **Target:** 80%+ code coverage for core logic across all 9 test classes
 
@@ -669,7 +658,7 @@ Playback/
 - ✅ Infrastructure complete - test targets configured, test schemes building
 - ✅ PathsTests completed - 9 tests passing
 - ✅ SignalFileManagerTests completed - 9 tests passing
-- 🟡 ConfigManagerTests - 14/18 tests passing
+- ✅ ConfigManagerTests - 18/18 tests passing
 - 📋 6 test classes remaining: TimelineStoreTests, LaunchAgentManagerTests, PlaybackControllerTests, SearchControllerTests, MenuBarViewModelTests, GlobalHotkeyManagerTests
 - Target: 80%+ code coverage for core logic
 
