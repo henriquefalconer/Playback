@@ -127,18 +127,23 @@ Based on comprehensive technical specifications in `specs/` and verified against
 
 These features are specified but not implemented. They impact UX but are not blocking core functionality.
 
-### 2.1 Settings: General Tab Missing Key Controls
+### 2.1 Settings: General Tab Missing Key Controls ✅ COMPLETE
 
-- [ ] **Add Launch at Login toggle**
-- [ ] **Add Hotkey Recorder**
-- [ ] **Add Permission status section**
+- [x] **Add Launch at Login toggle**
+- [x] **Add Hotkey Recorder**
+- [x] **Add Permission status section**
 - **Spec:** `specs/menu-bar.md` lines 114-152
 - **Source:** `src/Playback/Playback/Settings/SettingsView.swift:63-106`
-- **Missing features:**
-  - Launch at Login toggle using `SMAppService` API (macOS 13+)
-  - Hotkey Recorder for customizing the timeline shortcut (currently read-only text display at line 85)
-  - Permission status section showing Screen Recording and Accessibility status with visual indicators
-- **Currently:** Only shows notification toggles and a read-only shortcut display
+- **Implementation complete:**
+  - Launch at Login toggle using `SMAppService` API (created `LaunchAtLoginManager.swift`)
+  - Hotkey Recorder for customizing the timeline shortcut (created `HotkeyRecorderView.swift`)
+  - Permission status section showing Screen Recording and Accessibility status (moved from Privacy tab to General tab)
+- **Components:**
+  - Added `launchAtLogin` field to Config struct (optional Bool with default true)
+  - Created `LaunchAtLoginManager.swift` using SMAppService for macOS 13+
+  - Created `HotkeyRecorderView.swift` SwiftUI component for keyboard shortcut recording
+  - Updated `GeneralSettingsTab` with all three features integrated
+  - Permission status moved from `PrivacySettingsTab` to `GeneralSettingsTab` with yellow background warning when permissions missing
 
 ### 2.2 Search: App Icon in Result Rows
 

@@ -63,9 +63,99 @@ struct SettingsView: View {
 
 struct GeneralSettingsTab: View {
     @EnvironmentObject var configManager: ConfigManager
+    @State private var launchAtLoginEnabled = false
+    @State private var launchAtLoginError: String?
+    @State private var screenRecordingGranted = false
+    @State private var accessibilityGranted = false
 
     var body: some View {
         Form {
+            Section("Launch Behavior") {
+                Toggle("Launch Playback at login", isOn: $launchAtLoginEnabled)
+                    .accessibilityIdentifier("settings.general.launchAtLoginToggle")
+                    .onChange(of: launchAtLoginEnabled) { oldValue, newValue in
+                        updateLaunchAtLogin(newValue)
+                    }
+
+                if let error = launchAtLoginError {
+                    HStack(spacing: 4) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundColor(.red)
+                            .font(.caption)
+                        Text(error)
+                            .font(.caption)
+                            .foregroundColor(.red)
+                    }
+                    .padding(.top, 4)
+                }
+            }
+
+            Section("Required Permissions") {
+                VStack(spacing: 12) {
+                    HStack {
+                        Circle()
+                            .fill(screenRecordingGranted ? Color.green : Color.red)
+                            .frame(width: 8, height: 8)
+                        Text("Screen Recording:")
+                        Spacer()
+                        Text(screenRecordingGranted ? "Granted" : "Denied")
+                            .foregroundColor(.secondary)
+                        if !screenRecordingGranted {
+                            Button("Open Settings") {
+                                openScreenRecordingSettings()
+                            }
+                            .buttonStyle(.borderless)
+                            .controlSize(.small)
+                            .accessibilityIdentifier("settings.general.screenRecordingButton")
+                        }
+                    }
+
+                    HStack {
+                        Circle()
+                            .fill(accessibilityGranted ? Color.green : Color.yellow)
+                            .frame(width: 8, height: 8)
+                        Text("Accessibility:")
+                        Spacer()
+                        Text(accessibilityGranted ? "Granted" : "Optional")
+                            .foregroundColor(.secondary)
+                        if !accessibilityGranted {
+                            Button("Open Settings") {
+                                openAccessibilitySettings()
+                            }
+                            .buttonStyle(.borderless)
+                            .controlSize(.small)
+                            .accessibilityIdentifier("settings.general.accessibilityButton")
+                        }
+                    }
+
+                    HStack(spacing: 4) {
+                        Image(systemName: "info.circle")
+                            .foregroundColor(.secondary)
+                            .font(.caption)
+                        Text("Accessibility permission enables global hotkey for timeline viewer.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+                .padding(8)
+                .background((!screenRecordingGranted || !accessibilityGranted) ? Color.yellow.opacity(0.1) : Color.clear)
+                .cornerRadius(6)
+            }
+
+            Section("Global Shortcut") {
+                HStack {
+                    Text("Open Timeline:")
+                    Spacer()
+                    HotkeyRecorderView(
+                        shortcut: binding(\.timelineShortcut),
+                        onShortcutChanged: { newShortcut in
+                            updateGlobalHotkey(newShortcut)
+                        }
+                    )
+                    .accessibilityIdentifier("settings.general.hotkeyRecorder")
+                }
+            }
+
             Section("Notifications") {
                 Toggle("Processing complete", isOn: binding(\.notifications.processingComplete))
                     .accessibilityIdentifier("settings.general.processingCompleteToggle")
@@ -78,20 +168,13 @@ struct GeneralSettingsTab: View {
                 Toggle("Recording status", isOn: binding(\.notifications.recordingStatus))
                     .accessibilityIdentifier("settings.general.recordingStatusToggle")
             }
-
-            Section("Global Shortcut") {
-                HStack {
-                    Text("Open Timeline:")
-                    Spacer()
-                    Text(configManager.config.timelineShortcut)
-                        .padding(6)
-                        .background(Color.secondary.opacity(0.1))
-                        .cornerRadius(4)
-                }
-            }
         }
         .formStyle(.grouped)
         .padding()
+        .task {
+            await checkPermissions()
+            loadLaunchAtLoginStatus()
+        }
     }
 
     private func binding<T>(_ keyPath: WritableKeyPath<Config, T>) -> Binding<T> {
@@ -103,6 +186,103 @@ struct GeneralSettingsTab: View {
                 configManager.updateConfig(updatedConfig)
             }
         )
+    }
+
+    private func loadLaunchAtLoginStatus() {
+        if let configValue = configManager.config.launchAtLogin {
+            launchAtLoginEnabled = configValue
+
+            if LaunchAtLoginManager.shared.isEnabled != configValue {
+                try? LaunchAtLoginManager.shared.setEnabled(configValue)
+            }
+        } else {
+            launchAtLoginEnabled = LaunchAtLoginManager.shared.isEnabled
+        }
+    }
+
+    private func updateLaunchAtLogin(_ enabled: Bool) {
+        do {
+            try LaunchAtLoginManager.shared.setEnabled(enabled)
+            launchAtLoginError = nil
+
+            var updatedConfig = configManager.config
+            updatedConfig.launchAtLogin = enabled
+            configManager.updateConfig(updatedConfig)
+        } catch {
+            launchAtLoginError = error.localizedDescription
+            launchAtLoginEnabled = LaunchAtLoginManager.shared.isEnabled
+        }
+    }
+
+    private func updateGlobalHotkey(_ newShortcut: String) {
+        Task {
+            await GlobalHotkeyManager.shared.unregister()
+        }
+    }
+
+    private func parseShortcut(_ shortcut: String) -> (keyCode: Int, modifiers: UInt32)? {
+        let components = shortcut.split(separator: "+").map { String($0) }
+        guard !components.isEmpty else { return nil }
+
+        let keyString = components.last ?? ""
+        let modifierStrings = components.dropLast()
+
+        var modifiers: UInt32 = 0
+        for modifier in modifierStrings {
+            switch modifier {
+            case "Control": modifiers |= UInt32(1 << 12)
+            case "Option": modifiers |= UInt32(1 << 11)
+            case "Shift": modifiers |= UInt32(1 << 9)
+            case "Command": modifiers |= UInt32(1 << 8)
+            default: break
+            }
+        }
+
+        let keyCode: Int
+        switch keyString {
+        case "Space": keyCode = 49
+        case "Return": keyCode = 36
+        case "Tab": keyCode = 48
+        case "Delete": keyCode = 51
+        case "Escape": keyCode = 53
+        default:
+            if let char = keyString.lowercased().first, char.isLetter {
+                let asciiValue = Int(char.asciiValue ?? 0)
+                keyCode = asciiValue - 97
+            } else {
+                return nil
+            }
+        }
+
+        return (keyCode, modifiers)
+    }
+
+    private func checkPermissions() async {
+        screenRecordingGranted = checkScreenRecordingPermission()
+        accessibilityGranted = checkAccessibilityPermission()
+    }
+
+    private func checkScreenRecordingPermission() -> Bool {
+        CGPreflightScreenCaptureAccess()
+    }
+
+    private func checkAccessibilityPermission() -> Bool {
+        let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: false] as CFDictionary
+        return AXIsProcessTrustedWithOptions(options)
+    }
+
+    private func openScreenRecordingSettings() {
+        guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") else {
+            return
+        }
+        NSWorkspace.shared.open(url)
+    }
+
+    private func openAccessibilitySettings() {
+        guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") else {
+            return
+        }
+        NSWorkspace.shared.open(url)
     }
 }
 

@@ -68,6 +68,7 @@ class IntegrationTestBase: XCTestCase {
             "ffmpeg_preset": "veryfast",
             "timeline_shortcut": "Option+Shift+Space",
             "pause_when_timeline_open": true,
+            "launch_at_login": true,
             "notifications": [
                 "processing_complete": true,
                 "processing_errors": true,

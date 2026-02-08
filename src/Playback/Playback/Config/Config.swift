@@ -14,6 +14,7 @@ struct Config: Codable {
     var videoFps: Int
     var timelineShortcut: String
     var pauseWhenTimelineOpen: Bool
+    var launchAtLogin: Bool?
     var notifications: Notifications
 
     struct Notifications: Codable {
@@ -42,6 +43,7 @@ struct Config: Codable {
             videoFps: 30,
             timelineShortcut: "Option+Shift+Space",
             pauseWhenTimelineOpen: true,
+            launchAtLogin: true,
             notifications: Notifications(
                 processingComplete: true,
                 processingErrors: true,
@@ -101,6 +103,7 @@ struct Config: Codable {
         case videoFps = "video_fps"
         case timelineShortcut = "timeline_shortcut"
         case pauseWhenTimelineOpen = "pause_when_timeline_open"
+        case launchAtLogin = "launch_at_login"
         case notifications
     }
 }
