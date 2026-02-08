@@ -176,8 +176,6 @@ if [ "$MODE" = "plan" ] && [ -z "$GOAL_TEXT" ]; then
         echo -e "Cancelled."
         exit 1
     fi
-
-    echo -e "${GREEN_BOLD}Goal locked in:${RESET} ${YELLOW_BOLD}${GOAL_TEXT}${RESET}\n"
 fi
 
 # Prepare final prompt
@@ -191,7 +189,6 @@ PROMPT_CONTENT=$(cat "$PROMPT_FILE")
 if [ -n "$GOAL_TEXT" ]; then
     # Simple literal replacement – safe and exact
     FINAL_PROMPT="${PROMPT_CONTENT//\[project-specific goal\]/$GOAL_TEXT}"
-    echo -e "${GREEN_BOLD}Goal injected:${RESET} $GOAL_TEXT"
 else
     FINAL_PROMPT="$PROMPT_CONTENT"
 fi
