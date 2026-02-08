@@ -33,6 +33,7 @@ DerivedData
 
 # Python
 __pycache__/
+.pytest_cache/
 
 # Dev data dirs
 dev_data/

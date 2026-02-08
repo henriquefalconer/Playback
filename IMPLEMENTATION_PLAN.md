@@ -171,12 +171,30 @@ Playback consists of separate components:
 
 ## Phase 5: Testing & Quality
 
-### 5.1 Unit Tests (Swift)
-- Implement TimelineStore tests (segment selection, time mapping, gap handling)
-- Implement ConfigManager tests (loading, saving, validation, migration)
-- Implement DatabaseManager tests (queries, insertions, integrity)
-- Implement Paths tests (environment detection, path resolution)
-- Implement LaunchAgentManager tests (mock launchctl commands)
+### 5.1 Unit Tests (Swift) - 📋 Blocked - Requires Xcode environment
+
+**Current State:**
+- No test targets configured in Xcode project (PlaybackTests, PlaybackUITests)
+- No Swift test files exist yet
+- Python tests complete (272 passing)
+
+**Required Setup:**
+1. Add PlaybackTests target to Xcode project
+2. Add PlaybackUITests target to Xcode project
+3. Configure test schemes and build settings
+
+**Test Classes Needed:**
+- **TimelineStoreTests:** segment selection, time mapping, gap handling, auto-refresh
+- **ConfigManagerTests:** loading, saving, validation, migration, hot-reloading
+- **PathsTests:** environment detection, path resolution, directory creation
+- **LaunchAgentManagerTests:** install, load, start, stop, status checks (requires mocked launchctl)
+- **PlaybackControllerTests:** video playback, scrubbing, frozen frames
+- **SearchControllerTests:** FTS5 queries, caching, result parsing
+- **MenuBarViewModelTests:** state management, recording toggle, status monitoring
+- **GlobalHotkeyManagerTests:** hotkey registration, accessibility checks
+
+**Requirements:**
+- macOS environment with Xcode to run tests
 - Target: 80%+ code coverage for core logic
 
 ### 5.2 Unit Tests (Python) - ✅ COMPLETE
