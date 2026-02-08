@@ -4,6 +4,7 @@
 import Foundation
 import Combine
 import AppKit
+import ApplicationServices
 
 enum RecordingState {
     case recording
@@ -63,6 +64,27 @@ final class MenuBarViewModel: ObservableObject {
     }
 
     func toggleRecording() {
+        if !isRecordingEnabled {
+            let hasPermission = CGPreflightScreenCaptureAccess()
+
+            if !hasPermission {
+                let alert = NSAlert()
+                alert.messageText = "Screen Recording Permission Required"
+                alert.informativeText = "Playback needs Screen Recording permission to capture your screen. Please grant permission in System Settings → Privacy & Security → Screen Recording."
+                alert.alertStyle = .warning
+                alert.addButton(withTitle: "Open Settings")
+                alert.addButton(withTitle: "Cancel")
+
+                let response = alert.runModal()
+                if response == .alertFirstButtonReturn {
+                    if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
+                        NSWorkspace.shared.open(url)
+                    }
+                }
+                return
+            }
+        }
+
         isRecordingEnabled.toggle()
 
         Task {

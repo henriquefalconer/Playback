@@ -48,13 +48,7 @@ Based on comprehensive technical specifications in `specs/` and verified against
 
 These items prevent basic usability. They should be fixed first.
 
-### 1.1 Menu Bar: Record Screen Toggle Broken Without Permissions
-- **Spec:** `specs/menu-bar.md` lines 10-15 — toggle should be greyed out with explanation when permissions missing
-- **Source:** `MenuBarView.swift:11-18`, `MenuBarViewModel.swift:65-83`
-- **Problem:** Toggle calls `toggleRecording()` which starts LaunchAgent regardless of Screen Recording permission; no permission pre-check
-- **Fix:** Add `CGPreflightScreenCaptureAccess()` check before toggling; show message when denied; request permission
-
-### 1.2 Timeline: No Error States or Empty States
+### 1.1 Timeline: No Error States or Empty States
 - **Spec:** `specs/timeline-graphical-interface.md` lines 273-291
 - **Source:** No implementation exists
 - **Missing views:**
@@ -64,18 +58,18 @@ These items prevent basic usability. They should be fixed first.
   - Permission denied error dialog
 - **Impact:** App shows blank screen when no data exists — terrible first-time UX
 
-### 1.3 Timeline: No Loading Screen During Processing
+### 1.2 Timeline: No Loading Screen During Processing
 - **Spec:** `specs/timeline-graphical-interface.md` lines 54-67
 - **Source:** `LoadingScreenView.swift` does not exist
 - **Missing:** Spinner with status text, process detection for `build_chunks_from_temp.py`, estimated time, ESC to dismiss
 - **Impact:** User opens app during processing and sees blank/stale content
 
-### 1.4 App Icon Missing
+### 1.3 App Icon Missing
 - **Spec:** `specs/timeline-graphical-interface.md` lines 32-36
 - **Source:** `Assets.xcassets/AppIcon.appiconset/Contents.json` — all 10 size slots defined but **zero image files present**
 - **Impact:** App has no icon in Dock, About panel, Finder, or menu bar
 
-### 1.5 65 Debug Print Statements in Production Code
+### 1.4 65 Debug Print Statements in Production Code
 - **Source:** All 13 Swift source files contain `print()` calls (15 in TimelineStore, 15 in PlaybackController, 8 in ContentView, etc.)
 - **Problem:** Console spam, potential performance impact during scrolling/scrubbing, some messages in Portuguese
 - **Fix:** Remove all debug prints or gate behind `Paths.isDevelopment` check; use `os.log` for operational messages
