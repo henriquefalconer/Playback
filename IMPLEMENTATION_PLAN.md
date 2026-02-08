@@ -299,10 +299,16 @@ Playback consists of separate components:
 - ✅ Placeholder tests execute successfully
 
 **Test Implementation Progress:**
-- ✅ **PathsTests:** Completed (18 tests passing)
+- ✅ **PathsTests:** Completed (9 tests passing)
   - Environment detection, path resolution, directory creation, permission handling
-- 📋 **7 Test Classes Remaining:**
-  - **ConfigManagerTests:** loading, saving, validation, migration, hot-reloading
+- ✅ **SignalFileManagerTests:** Completed (9 tests passing)
+  - Signal file creation, deletion, checking, error handling
+- 🟡 **ConfigManagerTests:** In Progress (18 tests written, runtime issues under investigation)
+  - Tests implemented: initialization, loading, saving, validation, updates, migration, error handling
+  - Status: Builds successfully with xcodebuild build-for-testing
+  - Issue: Tests fail at runtime without clear error messages (possible MainActor isolation or file watching issues)
+  - Added internal init(configPath:enableWatcher:) to support testing without file watching
+- 📋 **6 Test Classes Remaining:**
   - **TimelineStoreTests:** segment selection, time mapping, gap handling, auto-refresh
   - **LaunchAgentManagerTests:** install, load, start, stop, status checks (requires mocked launchctl)
   - **PlaybackControllerTests:** video playback, scrubbing, frozen frames
@@ -315,7 +321,14 @@ Playback consists of separate components:
 - Python tests complete: 280/280 passing, zero bugs
 - Swift unit tests underway - core infrastructure in place for rapid test implementation
 
-**Target:** 80%+ code coverage for core logic across all 8 test classes
+**Known Issues:**
+- ConfigManagerTests runtime failures require investigation:
+  - Tests build successfully but fail during execution
+  - Error messages not visible in xcodebuild test output
+  - Possible causes: MainActor isolation issues, file system watching conflicts, async initialization timing
+  - Next steps: Add detailed logging, test without file watching, verify MainActor context
+
+**Target:** 80%+ code coverage for core logic across all 9 test classes
 
 ### 5.2 Unit Tests (Python) - ✅ COMPLETE (100%)
 
@@ -568,7 +581,7 @@ Playback/
 | Phase 2: User Interface | 6-8 weeks | ✅ COMPLETE |
 | Phase 3: Data & Storage | 3-4 weeks | ✅ COMPLETE |
 | Phase 4: Advanced Features | 4-6 weeks | ✅ COMPLETE (4.1: ✅ 100%, 4.2: ✅ 100%, 4.3: ✅ 100%, 4.4: ✅ 100%) |
-| Phase 5: Testing & Quality | 3-4 weeks | 🟡 IN PROGRESS (5.1: 🟡 IN PROGRESS - PathsTests ✅ 18/18, 6 remaining, 5.2: ✅ 100% 280/280, 5.3-5.6: 📋 Planned) |
+| Phase 5: Testing & Quality | 3-4 weeks | 🟡 IN PROGRESS (5.1: 🟡 IN PROGRESS - PathsTests ✅ 9/9, SignalFileManagerTests ✅ 9/9, ConfigManagerTests 🟡 18 written/investigating runtime issues, 6 remaining, 5.2: ✅ 100% 280/280, 5.3-5.6: 📋 Planned) |
 | Phase 6: Distribution & Deployment | 2-3 weeks | 📋 Planned |
 
 **Total Estimated Duration:** 22-31 weeks (5-7 months)
@@ -645,8 +658,10 @@ Playback/
 
 **Swift Unit Tests:** 🟡 IN PROGRESS
 - ✅ Infrastructure complete - test targets configured, test schemes building
-- ✅ PathsTests completed - 18 tests passing
-- 📋 7 test classes remaining: ConfigManagerTests, TimelineStoreTests, LaunchAgentManagerTests, PlaybackControllerTests, SearchControllerTests, MenuBarViewModelTests, GlobalHotkeyManagerTests
+- ✅ PathsTests completed - 9 tests passing
+- ✅ SignalFileManagerTests completed - 9 tests passing
+- 🟡 ConfigManagerTests - 18 tests written, builds successfully, runtime issues under investigation
+- 📋 6 test classes remaining: TimelineStoreTests, LaunchAgentManagerTests, PlaybackControllerTests, SearchControllerTests, MenuBarViewModelTests, GlobalHotkeyManagerTests
 - Target: 80%+ code coverage for core logic
 
 **Remaining Phases (5.3-5.6 and Phase 6)** all require macOS with Xcode installed.
