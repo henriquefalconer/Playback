@@ -188,8 +188,10 @@ struct DateTimePickerView: View {
 
     private var daysInMonth: [Date?] {
         let calendar = Calendar.current
-        let range = calendar.range(of: .day, in: .month, for: currentMonth)!
-        let firstDay = calendar.date(from: calendar.dateComponents([.year, .month], from: currentMonth))!
+        guard let range = calendar.range(of: .day, in: .month, for: currentMonth),
+              let firstDay = calendar.date(from: calendar.dateComponents([.year, .month], from: currentMonth)) else {
+            return []
+        }
         let firstWeekday = calendar.component(.weekday, from: firstDay)
 
         var days: [Date?] = Array(repeating: nil, count: firstWeekday - 1)

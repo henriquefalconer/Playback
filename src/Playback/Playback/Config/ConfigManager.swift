@@ -200,10 +200,6 @@ private class ConfigWatcher {
     }
 
     deinit {
-        if fileDescriptor >= 0 {
-            close(fileDescriptor)
-            fileDescriptor = -1
-        }
         source?.cancel()
     }
 }

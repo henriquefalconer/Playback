@@ -492,27 +492,11 @@ struct ProcessingSettingsTab: View {
     }
 
     private func runShellCommand(_ command: String) async -> String {
-        await withCheckedContinuation { continuation in
-            let process = Process()
-            let pipe = Pipe()
-
-            process.executableURL = URL(fileURLWithPath: "/bin/bash")
-            process.arguments = ["-c", command]
-            process.standardOutput = pipe
-            process.standardError = pipe
-
-            do {
-                try process.run()
-                process.waitUntilExit()
-
-                let data = pipe.fileHandleForReading.readDataToEndOfFile()
-                let output = String(data: data, encoding: .utf8)?
-                    .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-
-                continuation.resume(returning: output)
-            } catch {
-                continuation.resume(returning: "")
-            }
+        do {
+            let result = try await ShellCommand.runAsync("/bin/bash", arguments: ["-c", command])
+            return result.output.trimmingCharacters(in: .whitespacesAndNewlines)
+        } catch {
+            return ""
         }
     }
 }
@@ -826,33 +810,19 @@ struct StorageSettingsTab: View {
                 .deletingLastPathComponent()
                 .deletingLastPathComponent()
         } else {
-            return FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-                .appendingPathComponent("Playback")
+            guard let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
+                fatalError("Application Support directory not available")
+            }
+            return appSupport.appendingPathComponent("Playback")
         }
     }
 
     private func runShellCommand(_ command: String) async -> String {
-        await withCheckedContinuation { continuation in
-            let process = Process()
-            let pipe = Pipe()
-
-            process.executableURL = URL(fileURLWithPath: "/bin/bash")
-            process.arguments = ["-c", command]
-            process.standardOutput = pipe
-            process.standardError = pipe
-
-            do {
-                try process.run()
-                process.waitUntilExit()
-
-                let data = pipe.fileHandleForReading.readDataToEndOfFile()
-                let output = String(data: data, encoding: .utf8)?
-                    .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-
-                continuation.resume(returning: output)
-            } catch {
-                continuation.resume(returning: "")
-            }
+        do {
+            let result = try await ShellCommand.runAsync("/bin/bash", arguments: ["-c", command])
+            return result.output.trimmingCharacters(in: .whitespacesAndNewlines)
+        } catch {
+            return ""
         }
     }
 
@@ -1063,31 +1033,19 @@ struct PrivacySettingsTab: View {
     }
 
     private func checkScreenRecordingPermission() async -> Bool {
-        await withCheckedContinuation { continuation in
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
-            process.arguments = ["-c", """
+        do {
+            let result = try await ShellCommand.runAsync("/usr/bin/python3", arguments: ["-c", """
             import Quartz
             try:
                 session = Quartz.CGWindowListCopyWindowInfo(Quartz.kCGWindowListOptionAll, Quartz.kCGNullWindowID)
                 print("granted" if session and len(session) > 0 else "denied")
             except:
                 print("denied")
-            """]
-
-            let pipe = Pipe()
-            process.standardOutput = pipe
-            process.standardError = pipe
-
-            do {
-                try process.run()
-                process.waitUntilExit()
-                let data = pipe.fileHandleForReading.readDataToEndOfFile()
-                let output = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "denied"
-                continuation.resume(returning: output == "granted")
-            } catch {
-                continuation.resume(returning: false)
-            }
+            """])
+            let output = result.output.trimmingCharacters(in: .whitespacesAndNewlines)
+            return output == "granted"
+        } catch {
+            return false
         }
     }
 
@@ -1097,11 +1055,17 @@ struct PrivacySettingsTab: View {
     }
 
     private func openScreenRecordingSettings() {
-        NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")!)
+        guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") else {
+            return
+        }
+        NSWorkspace.shared.open(url)
     }
 
     private func openAccessibilitySettings() {
-        NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!)
+        guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") else {
+            return
+        }
+        NSWorkspace.shared.open(url)
     }
 
     private func revealDataDirectory() {
@@ -1147,8 +1111,10 @@ struct PrivacySettingsTab: View {
                 .deletingLastPathComponent()
                 .deletingLastPathComponent()
         } else {
-            return FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-                .appendingPathComponent("Playback")
+            guard let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
+                fatalError("Application Support directory not available")
+            }
+            return appSupport.appendingPathComponent("Playback")
         }
     }
 

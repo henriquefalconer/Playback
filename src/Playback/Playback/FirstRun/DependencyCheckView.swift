@@ -161,25 +161,12 @@ struct DependencyCheckView: View {
 
     private func runCommand(_ path: String, _ args: [String], completion: @escaping (Result<String, Error>) -> Void) {
         DispatchQueue.global(qos: .userInitiated).async {
-            let process = Process()
-            let outputPipe = Pipe()
-
-            process.executableURL = URL(fileURLWithPath: path)
-            process.arguments = args
-            process.standardOutput = outputPipe
-            process.standardError = outputPipe
-
             do {
-                try process.run()
-                process.waitUntilExit()
-
-                let data = outputPipe.fileHandleForReading.readDataToEndOfFile()
-                let output = String(data: data, encoding: .utf8) ?? ""
-
-                if process.terminationStatus == 0 {
-                    completion(.success(output))
+                let result = try ShellCommand.run(path, arguments: args)
+                if result.isSuccess {
+                    completion(.success(result.output))
                 } else {
-                    completion(.failure(NSError(domain: "Command failed", code: Int(process.terminationStatus))))
+                    completion(.failure(NSError(domain: "Command failed", code: Int(result.exitCode))))
                 }
             } catch {
                 completion(.failure(error))
@@ -276,8 +263,10 @@ struct DependencyCard: View {
                             .controlSize(.small)
                         }
 
-                        Link("Open Homebrew website", destination: URL(string: "https://brew.sh")!)
-                            .font(.caption)
+                        if let homebrewURL = URL(string: "https://brew.sh") {
+                            Link("Open Homebrew website", destination: homebrewURL)
+                                .font(.caption)
+                        }
                     }
                     .padding()
                     .background(Color.orange.opacity(0.1))

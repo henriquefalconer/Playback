@@ -294,26 +294,7 @@ final class LaunchAgentManager {
     }
 
     private func runCommand(_ path: String, _ args: [String]) throws -> (String, Int32) {
-        let process = Process()
-        let outputPipe = Pipe()
-        let errorPipe = Pipe()
-
-        process.executableURL = URL(fileURLWithPath: path)
-        process.arguments = args
-        process.standardOutput = outputPipe
-        process.standardError = errorPipe
-
-        try process.run()
-        process.waitUntilExit()
-
-        let outputData = outputPipe.fileHandleForReading.readDataToEndOfFile()
-        let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
-
-        let output = String(data: outputData, encoding: .utf8) ?? ""
-        let error = String(data: errorData, encoding: .utf8) ?? ""
-
-        let combinedOutput = output.isEmpty ? error : output
-
-        return (combinedOutput, process.terminationStatus)
+        let result = try ShellCommand.run(path, arguments: args)
+        return (result.output, result.exitCode)
     }
 }

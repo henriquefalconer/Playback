@@ -201,19 +201,8 @@ class IntegrationTestBase: XCTestCase {
 
     /// Execute a shell command and return output
     func executeShellCommand(_ command: String, arguments: [String] = []) async throws -> String {
-        let process = Process()
-        let pipe = Pipe()
-
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = [command] + arguments
-        process.standardOutput = pipe
-        process.standardError = pipe
-
-        try process.run()
-        process.waitUntilExit()
-
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        return String(data: data, encoding: .utf8) ?? ""
+        let result = try await ShellCommand.runAsync("/usr/bin/env", arguments: [command] + arguments)
+        return result.output
     }
 
     // MARK: - Verification Helpers

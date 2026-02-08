@@ -18,10 +18,12 @@ enum Paths {
             return projectRoot.appendingPathComponent("dev_data")
         } else {
             // Production: use ~/Library/Application Support/Playback/data/
-            let appSupport = FileManager.default.urls(
+            guard let appSupport = FileManager.default.urls(
                 for: .applicationSupportDirectory,
                 in: .userDomainMask
-            ).first!
+            ).first else {
+                fatalError("Application Support directory not available")
+            }
             return appSupport
                 .appendingPathComponent("Playback")
                 .appendingPathComponent("data")
@@ -52,10 +54,12 @@ enum Paths {
                 .deletingLastPathComponent()
             return projectRoot.appendingPathComponent("dev_config.json")
         } else {
-            let appSupport = FileManager.default.urls(
+            guard let appSupport = FileManager.default.urls(
                 for: .applicationSupportDirectory,
                 in: .userDomainMask
-            ).first!
+            ).first else {
+                fatalError("Application Support directory not available")
+            }
             return appSupport
                 .appendingPathComponent("Playback")
                 .appendingPathComponent("config.json")

@@ -15,11 +15,11 @@ Based on comprehensive technical specifications in `specs/` and verified against
 - **Confirmed** = verified by reading the actual source file and line numbers
 - Items marked with checkboxes: `[ ]` = TODO, `[x]` = COMPLETE
 - Each item references the spec and exact source file + line numbers
-- **Ultimate Goals:**
-  1. Fix SIGABRT crash when `launchctl list` fails (pipe deadlock in LaunchAgentManager.swift:307)
-  2. Fix ConfigWatcher double-close SIGABRT crash
-  3. Ensure no custom storage location picker exists (confirmed: it doesn't)
-  4. Storage paths: `~/Library/Application Support/Playback/` for production, `dev_data/` for development (already correct in code)
+- **Ultimate Goals (ALL COMPLETE ✅):**
+  1. ✅ Fix SIGABRT crash when `launchctl list` fails (pipe deadlock in LaunchAgentManager.swift:307)
+  2. ✅ Fix ConfigWatcher double-close SIGABRT crash
+  3. ✅ Ensure no custom storage location picker exists (confirmed: it doesn't)
+  4. ✅ Storage paths: `~/Library/Application Support/Playback/` for production, `dev_data/` for development (already correct in code)
 
 ---
 
@@ -62,116 +62,64 @@ Based on comprehensive technical specifications in `specs/` and verified against
 
 ---
 
-## Priority 1 -- Critical Bugs (Crashes and Deadlocks)
+## Priority 1 -- Critical Bugs (Crashes and Deadlocks) ✅ COMPLETE
 
-These bugs cause SIGABRT crashes and potential deadlocks. They must be fixed first.
+**All Priority 1 items fixed (2026-02-08):**
+- Fixed pipe deadlock SIGABRT crashes in 8 locations by creating shared `ShellCommand` utility
+- Fixed ConfigWatcher double-close file descriptor crash
+- Fixed force unwrap crashes in Paths.swift, SettingsView.swift, DateTimePickerView.swift, DependencyCheckView.swift
+- Eliminated code duplication across 8 shell command implementations
 
-### 1.1 SIGABRT Crash: Pipe Deadlock in LaunchAgentManager.swift:307
+### 1.1 SIGABRT Crash: Pipe Deadlock in LaunchAgentManager.swift:307 ✅ FIXED
 
-- [ ] **Fix pipe deadlock in `runCommand()` that causes SIGABRT**
+- [x] **Fix pipe deadlock in `runCommand()` that causes SIGABRT**
 - **Source:** `src/Playback/Playback/Services/LaunchAgentManager.swift` lines 296-318
 - **Root Cause:** `runCommand()` calls `process.waitUntilExit()` on line 307 BEFORE reading pipe data on lines 309-310. When `launchctl list com.playback.recording` returns "Could not find service" on stderr, the process may block if the pipe buffer fills, causing `waitUntilExit()` to deadlock. The system eventually sends SIGABRT.
-- **Exact crash sequence:**
-  1. `launchctl list com.playback.recording` is executed
-  2. Service not found -- launchctl writes error to stderr
-  3. `waitUntilExit()` blocks waiting for process to exit
-  4. If pipe buffer fills (>64KB), process blocks waiting for reader
-  5. Classic deadlock → SIGABRT
-- **Fix approach:** Read pipe data BEFORE calling `waitUntilExit()`:
-  ```swift
-  try process.run()
-  let outputData = outputPipe.fileHandleForReading.readDataToEndOfFile()
-  let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
-  process.waitUntilExit()
-  ```
-- **Also fix:** `getAgentStatus()` (line 153) calls `runLaunchctl(["list", type.label])` which hits this same deadlock code path when the service isn't loaded.
+- **Fix applied:** Migrated to shared `ShellCommand.run()` utility that reads pipe data before waiting. LaunchAgentManager now uses `ShellCommand.run()` for all process execution.
 
-### 1.2 SIGABRT Crash: ConfigWatcher Double-Close File Descriptor
+### 1.2 SIGABRT Crash: ConfigWatcher Double-Close File Descriptor ✅ FIXED
 
-- [ ] **Fix ConfigWatcher deinit double-close**
+- [x] **Fix ConfigWatcher deinit double-close**
 - **Source:** `src/Playback/Playback/Config/ConfigManager.swift` lines 163-209
-- **Root Cause:** ConfigWatcher closes the file descriptor in TWO places:
-  - Line 193-196: `setCancelHandler` closure calls `close(fd)` when the dispatch source is cancelled
-  - Lines 202-207: `deinit` calls `close(fileDescriptor)` on line 204 AND THEN calls `source?.cancel()` on line 207
-- **Crash sequence:**
-  1. ConfigWatcher is deallocated, `deinit` runs
-  2. Line 204: `close(fileDescriptor)` closes the fd
-  3. Line 205: `fileDescriptor = -1`
-  4. Line 207: `source?.cancel()` fires the cancel handler
-  5. Cancel handler (line 194) reads `self?.fileDescriptor` -- may see original fd value (not -1) due to timing
-  6. Double-close on a file descriptor → **SIGABRT**
-- **Additional risk:** Between step 2 and the cancel handler executing, the OS may have reused the file descriptor number for another resource.
-- **Fix approach:** Remove `close(fileDescriptor)` from `deinit` entirely. Let the cancel handler be the sole owner:
-  ```swift
-  deinit {
-      source?.cancel()
-      // cancel handler will close the fd
-  }
-  ```
+- **Root Cause:** ConfigWatcher closes the file descriptor in TWO places (cancel handler and deinit).
+- **Fix applied:** Removed `close(fileDescriptor)` from deinit entirely. Cancel handler is now the sole owner of fd closure, eliminating the double-close race condition.
 
-### 1.3 Pipe Deadlock: 7 Additional Locations with Same Pattern
+### 1.3 Pipe Deadlock: 7 Additional Locations with Same Pattern ✅ FIXED
 
-- [ ] **Fix pipe deadlock in ProcessMonitor.swift:81**
-- [ ] **Fix pipe deadlock in DependencyCheckView.swift:174**
-- [ ] **Fix pipe deadlock in SettingsView.swift (5 instances: lines 506, 846, 1084, 1167, 1514)**
+- [x] **Fix pipe deadlock in ProcessMonitor.swift:81**
+- [x] **Fix pipe deadlock in DependencyCheckView.swift:174**
+- [x] **Fix pipe deadlock in SettingsView.swift (5 instances: lines 506, 846, 1084, 1167, 1514)**
 - **Source:** 7 additional locations across 3 files (8 total including 1.1)
 - **Root Cause:** All locations call `process.waitUntilExit()` BEFORE `pipe.fileHandleForReading.readDataToEndOfFile()`. Same deadlock pattern as 1.1.
-- **Affected files and lines:**
-  - `ProcessMonitor.swift:81` -- `process.waitUntilExit()` then line 83 `readDataToEndOfFile()`
-  - `DependencyCheckView.swift:174` -- `process.run(); process.waitUntilExit(); readDataToEndOfFile()`
-  - `SettingsView.swift:506` -- ProcessingSettingsTab.runShellCommand()
-  - `SettingsView.swift:846` -- StorageSettingsTab.runShellCommand()
-  - `SettingsView.swift:1084` -- PrivacySettingsTab.checkScreenRecordingPermission() (Python subprocess)
-  - `SettingsView.swift:1167` -- PrivacySettingsTab.runShellCommand()
-  - `SettingsView.swift:1514` -- AdvancedSettingsTab.runShellCommand()
-- **Fix approach:** Read pipe data BEFORE calling `waitUntilExit()` in each location.
-- **Better fix:** Extract a shared `ShellCommand` utility to eliminate all 8 duplicated implementations (see item 1.5).
+- **Fix applied:** All 7 locations migrated to shared `ShellCommand.run()` utility. Deadlock pattern eliminated across entire codebase.
 
-### 1.4 Force Unwrap Crash: Paths.swift .first!
+### 1.4 Force Unwrap Crash: Paths.swift .first! ✅ FIXED
 
-- [ ] **Fix force unwrap in Paths.swift:24 and Paths.swift:58**
+- [x] **Fix force unwrap in Paths.swift:24 and Paths.swift:58**
 - **Source:** `src/Playback/Playback/Paths.swift` lines 24 and 58
-- **Root Cause:** Both production path branches use `.first!` on `FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)`. If this returns an empty array (theoretically possible on sandboxed or restricted environments), the app crashes instantly.
-- **Fix approach:** Use `guard let` with a fallback:
-  ```swift
-  guard let appSupport = FileManager.default.urls(
-      for: .applicationSupportDirectory,
-      in: .userDomainMask
-  ).first else {
-      fatalError("Application Support directory not available")
-  }
-  ```
-- **Also fix in SettingsView.swift:** Lines 829 and 1150 have the same `.first!` pattern in `findProjectRoot()` methods within `StorageSettingsTab` and `PrivacySettingsTab`.
+- **Root Cause:** Both production path branches use `.first!` on `FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)`.
+- **Fix applied:** Replaced `.first!` with `guard let` statements. Also fixed in SettingsView.swift lines 829 and 1150 (findProjectRoot() methods).
 
-### 1.5 Code Quality: 8 Duplicated Shell Command Implementations
+### 1.5 Code Quality: 8 Duplicated Shell Command Implementations ✅ FIXED
 
-- [ ] **Extract shared ShellCommand utility**
-- **Source:** 7 separate `runShellCommand()`/`runCommand()` implementations (8 call sites):
-  - `LaunchAgentManager.swift:296-318` -- synchronous, returns (String, Int32)
-  - `ProcessMonitor.swift:70-91` -- synchronous nonisolated, returns Bool
-  - `DependencyCheckView.swift:162-188` -- async on global queue, completion handler
-  - `SettingsView.swift:494-517` -- async/await, ProcessingSettingsTab
-  - `SettingsView.swift:834-857` -- async/await, StorageSettingsTab
-  - `SettingsView.swift:1065-1092` -- async/await, PrivacySettingsTab.checkScreenRecordingPermission()
-  - `SettingsView.swift:1155-1178` -- async/await, PrivacySettingsTab.runShellCommand()
-  - `SettingsView.swift:1502-1525` -- async/await, AdvancedSettingsTab
-- **Problem:** Every implementation has the same pipe deadlock bug (1.1/1.3). Fixing in 8 places is error-prone.
-- **Fix approach:** Create `Utilities/ShellCommand.swift` with a single shared function that reads pipe data before waiting. All 8 call sites should migrate to this shared utility.
+- [x] **Extract shared ShellCommand utility**
+- **Source:** 7 separate `runShellCommand()`/`runCommand()` implementations (8 call sites)
+- **Problem:** Every implementation has the same pipe deadlock bug (1.1/1.3).
+- **Fix applied:** Created `Utilities/ShellCommand.swift` with comprehensive implementation supporting synchronous, async/await, and completion handler patterns. All 8 call sites migrated successfully.
 
-### 1.6 Force-Unwrapped URLs in SettingsView.swift
+### 1.6 Force-Unwrapped URLs in SettingsView.swift ✅ FIXED
 
-- [ ] **Fix force-unwrapped URL(string:)! calls**
+- [x] **Fix force-unwrapped URL(string:)! calls**
 - **Source:** `src/Playback/Playback/Settings/SettingsView.swift` lines 1100 and 1104
 - **Root Cause:** `URL(string: "x-apple.systempreferences:...")!` -- if the URL string is somehow invalid, this crashes.
-- **Fix approach:** Use `guard let url = URL(string: ...) else { return }` pattern.
-- **Also:** `DependencyCheckView.swift` line 279 has `URL(string: "https://brew.sh")!` -- same issue.
+- **Fix applied:** Replaced force unwraps with `guard let` statements. Also fixed DependencyCheckView.swift line 279 `URL(string: "https://brew.sh")!`.
 
-### 1.7 Force Unwrap in DateTimePickerView.swift
+### 1.7 Force Unwrap in DateTimePickerView.swift ✅ FIXED
 
-- [ ] **Fix force unwraps in calendar operations**
+- [x] **Fix force unwraps in calendar operations**
 - **Source:** `src/Playback/Playback/Timeline/DateTimePickerView.swift` lines 191-192
 - **Root Cause:** `calendar.range(of: .day, in: .month, for: currentMonth)!` and `calendar.date(from: ...)!` can fail with invalid date/calendar configurations.
-- **Fix approach:** Use `guard let` with safe fallbacks.
+- **Fix applied:** Replaced force unwraps with `guard let` statements and safe fallbacks.
 
 ---
 
