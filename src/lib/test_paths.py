@@ -8,7 +8,7 @@ import os
 import pytest
 import tempfile
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 # Import the module under test
 import lib.paths as paths
@@ -215,8 +215,6 @@ class TestEnsureDataDirectories:
 
         # Check that directories are created with correct permissions
         calls = mock_ensure.call_args_list
-        data_dirs = [call[0][0] for call in calls[:3]]
-        logs_dir = calls[3][0][0]
 
         # Verify data directories have mode 0o700
         for call in calls[:3]:

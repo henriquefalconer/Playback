@@ -9,10 +9,10 @@ and provides basic validation that they work correctly.
 import sys
 from pathlib import Path
 
+from lib import macos
+
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
-
-from lib import macos
 
 
 def test_display_functions():
@@ -128,7 +128,7 @@ def test_idle_detection():
         elif idle is False:
             print(f"  ✓ User is active (idle < {threshold}s)")
         else:
-            print(f"  ✗ Could not detect idle time")
+            print("  ✗ Could not detect idle time")
 
 
 def main():

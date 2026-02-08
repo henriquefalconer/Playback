@@ -6,12 +6,9 @@ maintenance functions, security features, and backup functionality.
 """
 
 import os
-import pytest
 import sqlite3
 import tempfile
-import time
 from pathlib import Path
-from unittest.mock import patch, MagicMock
 
 # Import the module under test
 import lib.database as database
@@ -26,7 +23,7 @@ class TestDatabaseInitialization:
             db_path = Path(tmpdir) / "subdir" / "test.db"
             assert not db_path.parent.exists()
 
-            db = database.DatabaseManager(db_path)
+            _db = database.DatabaseManager(db_path)
             assert db_path.parent.exists()
 
     def test_init_with_existing_directory(self):
@@ -862,7 +859,7 @@ class TestErrorHandling:
         # The DatabaseManager tries to create parent directories for Path(":memory:")
         # which doesn't make sense, but shouldn't crash
         try:
-            db = database.DatabaseManager(Path(":memory:"))
+            _db = database.DatabaseManager(Path(":memory:"))
             # Parent directory creation will fail or do nothing
             # This is expected behavior for an invalid path like ":memory:"
         except (OSError, FileNotFoundError):

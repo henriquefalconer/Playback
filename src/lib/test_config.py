@@ -6,7 +6,6 @@ Tests configuration loading, validation, defaults, and exclusion logic.
 
 import json
 import pytest
-import tempfile
 from pathlib import Path
 from unittest.mock import patch
 from lib.config import (
@@ -498,7 +497,7 @@ class TestLoadConfigWithDefaults:
             mock_get_config_path.return_value = Path("/tmp/test_config.json")
 
             # This will fail to load the file, but we're testing path resolution
-            config = load_config_with_defaults()
+            _config = load_config_with_defaults()
 
             # Should have called get_config_path()
             mock_get_config_path.assert_called_once()

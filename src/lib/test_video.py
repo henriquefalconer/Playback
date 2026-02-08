@@ -4,12 +4,11 @@ Unit tests for the video module.
 Tests FFmpeg wrappers for video processing, image size detection, and error handling.
 """
 
-import os
 import pytest
-import tempfile
 import subprocess
+import tempfile
 from pathlib import Path
-from unittest.mock import patch, MagicMock, call
+from unittest.mock import patch, MagicMock
 
 # Import the module under test
 import lib.video as video

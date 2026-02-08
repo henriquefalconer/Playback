@@ -4,8 +4,6 @@ Unit tests for the utils module.
 Tests shared utility functions used across Playback scripts and services.
 """
 
-import pytest
-
 # Import the module under test
 import lib.utils as utils
 

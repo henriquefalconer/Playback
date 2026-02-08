@@ -4,7 +4,6 @@ Unit tests for the timestamps module.
 Tests filename parsing, generation, and sanitization functions.
 """
 
-import pytest
 from datetime import datetime
 from unittest.mock import patch
 
