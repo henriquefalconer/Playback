@@ -251,12 +251,12 @@ These items improve the overall experience but are not blocking core functionali
   - `src/scripts/build_chunks_from_temp.py` -- ~4 Portuguese comments
   - `src/scripts/stop_record_screen.sh` -- 1 Portuguese comment
 
-### 3.14 Incorrect Bundle ID in MenuBarViewModel.swift
+### 3.14 Incorrect Bundle ID in MenuBarViewModel.swift ✅ FIXED
 
-- [ ] **Fix hardcoded bundle ID**
+- [x] **Fix hardcoded bundle ID**
 - **Source:** `src/Playback/Playback/MenuBar/MenuBarViewModel.swift` line 130
-- **Current:** `"com.playback.timeline"` -- incorrect/stale bundle ID used to find timeline viewer
-- **Fix:** Change to `"com.falconer.Playback"` to match the actual bundle identifier
+- **Previous:** `"com.playback.timeline"` -- incorrect/stale bundle ID used to find timeline viewer
+- **Fix applied:** Changed to `"com.falconer.Playback"` to match the actual bundle identifier
 - **Note:** In single-app architecture, this code likely doesn't work anyway since there's no separate timeline app to terminate.
 
 ---

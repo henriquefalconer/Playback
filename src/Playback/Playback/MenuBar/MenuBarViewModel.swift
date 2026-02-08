@@ -127,7 +127,7 @@ final class MenuBarViewModel: ObservableObject {
                 try? launchAgentManager.stopAgent(.processing)
 
                 NSWorkspace.shared.runningApplications
-                    .filter { $0.bundleIdentifier == "com.playback.timeline" }
+                    .filter { $0.bundleIdentifier == "com.falconer.Playback" }
                     .forEach { $0.terminate() }
 
                 NSApp.terminate(nil)
