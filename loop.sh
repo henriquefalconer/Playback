@@ -164,7 +164,7 @@ if [ "$MODE" = "plan" ] && [ -z "$GOAL_TEXT" ]; then
     clear 2>/dev/null || printf '\033[H\033[2J'
     echo -e "${GREEN_BOLD}Confirm goal${RESET}"
     echo -e "────────────────────────────────────────────────────────────────────"
-    echo -e "As our next objective, we want to achieve ${YELLOW_BOLD}${GOAL_TEXT}${RESET}."
+    echo -e "As our next objective, we want to achieve ${GREEN_BOLD}${GOAL_TEXT}${RESET}."
     echo -e "────────────────────────────────────────────────────────────────────\n"
     echo -en "${GREEN_BOLD}Good? [Y/n] ${RESET}"
     read -n 1 -r confirm 2>/dev/null
