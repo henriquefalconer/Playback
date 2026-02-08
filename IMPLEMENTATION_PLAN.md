@@ -89,8 +89,8 @@ These bugs cause SIGABRT crashes and potential deadlocks. They must be fixed fir
 - [ ] **Fix pipe deadlock in LaunchAgentManager.swift:296-318**
 - [ ] **Fix same pattern in ProcessMonitor.swift:70-91**
 - [ ] **Fix same pattern in DependencyCheckView.swift:162-188**
-- [ ] **Fix same pattern in SettingsView.swift (4 instances: lines 494-517, 834-857, 1155-1178, 1502-1525)**
-- **Source:** 7 locations total across 4 files
+- [ ] **Fix same pattern in SettingsView.swift (5 instances: lines 494-517, 834-857, 1065-1092, 1155-1178, 1502-1525)**
+- **Source:** 8 locations total across 4 files
 - **Root Cause:** All locations call `process.waitUntilExit()` BEFORE `pipe.fileHandleForReading.readDataToEndOfFile()`. If the child process writes more than ~64KB to stdout/stderr, the pipe buffer fills, the process blocks waiting for the reader to consume data, and `waitUntilExit()` blocks waiting for the process to exit. Classic deadlock.
 - **Affected files and lines:**
   - `LaunchAgentManager.swift:307` -- `process.waitUntilExit()` then line 309 `readDataToEndOfFile()`
@@ -98,6 +98,7 @@ These bugs cause SIGABRT crashes and potential deadlocks. They must be fixed fir
   - `DependencyCheckView.swift:173-176` -- `process.run(); process.waitUntilExit(); readDataToEndOfFile()`
   - `SettingsView.swift:505-508` -- ProcessingSettingsTab.runShellCommand()
   - `SettingsView.swift:845-848` -- StorageSettingsTab.runShellCommand()
+  - `SettingsView.swift:1083-1086` -- PrivacySettingsTab.checkScreenRecordingPermission() (Python subprocess)
   - `SettingsView.swift:1166-1169` -- PrivacySettingsTab.runShellCommand()
   - `SettingsView.swift:1513-1516` -- AdvancedSettingsTab.runShellCommand()
 - **Fix approach:** Read pipe data BEFORE calling `waitUntilExit()`:
@@ -107,7 +108,7 @@ These bugs cause SIGABRT crashes and potential deadlocks. They must be fixed fir
   let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
   process.waitUntilExit()
   ```
-- **Better fix:** Extract a shared `ShellCommand` utility to eliminate all 7 duplicated implementations (see item 1.4).
+- **Better fix:** Extract a shared `ShellCommand` utility to eliminate all 8 duplicated implementations (see item 1.4).
 
 ### 1.3 Force Unwrap Crash: Paths.swift .first!
 
@@ -126,19 +127,20 @@ These bugs cause SIGABRT crashes and potential deadlocks. They must be fixed fir
   ```
 - **Also fix in SettingsView.swift:** Lines 829 and 1150 have the same `.first!` pattern in `findProjectRoot()` methods within `StorageSettingsTab` and `PrivacySettingsTab`.
 
-### 1.4 Code Quality: 7 Duplicated Shell Command Implementations
+### 1.4 Code Quality: 8 Duplicated Shell Command Implementations
 
 - [ ] **Extract shared ShellCommand utility**
-- **Source:** 6 separate `runShellCommand()`/`runCommand()` implementations:
+- **Source:** 7 separate `runShellCommand()`/`runCommand()` implementations (8 call sites):
   - `LaunchAgentManager.swift:296-318` -- synchronous, returns (String, Int32)
   - `ProcessMonitor.swift:70-91` -- synchronous nonisolated, returns Bool
   - `DependencyCheckView.swift:162-188` -- async on global queue, completion handler
   - `SettingsView.swift:494-517` -- async/await, ProcessingSettingsTab
   - `SettingsView.swift:834-857` -- async/await, StorageSettingsTab
-  - `SettingsView.swift:1155-1178` -- async/await, PrivacySettingsTab
+  - `SettingsView.swift:1065-1092` -- async/await, PrivacySettingsTab.checkScreenRecordingPermission()
+  - `SettingsView.swift:1155-1178` -- async/await, PrivacySettingsTab.runShellCommand()
   - `SettingsView.swift:1502-1525` -- async/await, AdvancedSettingsTab
-- **Problem:** Every implementation has the same pipe deadlock bug (1.2). Fixing in 7 places is error-prone. A shared utility fixes the bug once and prevents future drift.
-- **Fix approach:** Create `Utilities/ShellCommand.swift` with a single async function that reads pipe data before waiting. All 7 call sites should migrate to this shared utility.
+- **Problem:** Every implementation has the same pipe deadlock bug (1.2). Fixing in 8 places is error-prone. A shared utility fixes the bug once and prevents future drift.
+- **Fix approach:** Create `Utilities/ShellCommand.swift` with a single async function that reads pipe data before waiting. All 8 call sites should migrate to this shared utility.
 
 ### 1.5 Force-Unwrapped URLs in SettingsView.swift
 
@@ -146,41 +148,42 @@ These bugs cause SIGABRT crashes and potential deadlocks. They must be fixed fir
 - **Source:** `src/Playback/Playback/Settings/SettingsView.swift` lines 1100 and 1104
 - **Root Cause:** `URL(string: "x-apple.systempreferences:...")!` -- if the URL string is somehow invalid, this crashes. While unlikely for hardcoded strings, force unwraps are a code smell.
 - **Fix approach:** Use `guard let url = URL(string: ...) else { return }` pattern.
+- **Also:** `DependencyCheckView.swift` line 279 has `URL(string: "https://brew.sh")!` -- same issue.
 
 ---
 
 ## Priority 2 -- Storage Path Consolidation
 
-Consolidate all production paths from `~/Library/Application Support/Playback/` to `/Library/Application Support/com.falconer.Playback/`. Development paths (`dev_data/`, `dev_config.json`, `dev_logs/`) remain unchanged.
+Consolidate all production paths from `~/Library/Application Support/Playback/` to `~/Library/Application Support/com.falconer.Playback/`. Development paths (`dev_data/`, `dev_config.json`, `dev_logs/`) remain unchanged.
 
 ### Target Path Layout
 
 | Resource | Current (WRONG) | Target (CORRECT) |
 |----------|-----------------|-------------------|
-| Data dir | `~/Library/Application Support/Playback/data/` | `/Library/Application Support/com.falconer.Playback/data/` |
-| Config | `~/Library/Application Support/Playback/config.json` | `/Library/Application Support/com.falconer.Playback/config.json` |
-| Logs | `~/Library/Logs/Playback/` | `/Library/Logs/com.falconer.Playback/` |
+| Data dir | `~/Library/Application Support/Playback/data/` | `~/Library/Application Support/com.falconer.Playback/data/` |
+| Config | `~/Library/Application Support/Playback/config.json` | `~/Library/Application Support/com.falconer.Playback/config.json` |
+| Logs | `~/Library/Logs/Playback/` | `~/Library/Logs/com.falconer.Playback/` |
 | LaunchAgents | `~/Library/LaunchAgents/com.playback.*.plist` | `~/Library/LaunchAgents/com.falconer.Playback.*.plist` |
-| Database | `~/Library/Application Support/Playback/data/meta.sqlite3` | `/Library/Application Support/com.falconer.Playback/data/meta.sqlite3` |
+| Database | `~/Library/Application Support/Playback/data/meta.sqlite3` | `~/Library/Application Support/com.falconer.Playback/data/meta.sqlite3` |
 
 ### 2.1 Update Paths.swift (Primary Swift Path Resolution)
 
 - [ ] **Update production paths in Paths.swift**
 - **Source:** `src/Playback/Playback/Paths.swift`
 - **Changes needed:**
-  - Line 20-28: `baseDataDirectory` -- change from `~/Library/Application Support/Playback/data/` to `/Library/Application Support/com.falconer.Playback/data/`
-  - Line 54-62: `configPath()` -- change from `~/Library/Application Support/Playback/config.json` to `/Library/Application Support/com.falconer.Playback/config.json`
+  - Line 20-28: `baseDataDirectory` -- change from `~/Library/Application Support/Playback/data/` to `~/Library/Application Support/com.falconer.Playback/data/`
+  - Line 54-62: `configPath()` -- change from `~/Library/Application Support/Playback/config.json` to `~/Library/Application Support/com.falconer.Playback/config.json`
 - **Note:** Development paths (lines 11-18, 48-53) remain unchanged (`dev_data/`, `dev_config.json`)
-- **Permissions consideration:** `/Library/Application Support/` requires admin privileges to create directories. The app will need to handle this gracefully (create on first run with appropriate permissions, or use `~/Library/Application Support/com.falconer.Playback/` as user-writable alternative).
+- **No permissions issue:** `~/Library/Application Support/` is user-writable by default, no admin privileges needed.
 
 ### 2.2 Update paths.py (Primary Python Path Resolution)
 
 - [ ] **Update production paths in paths.py**
 - **Source:** `src/lib/paths.py`
 - **Changes needed:**
-  - Line 77-78: `get_base_data_directory()` -- change from `home / "Library" / "Application Support" / "Playback" / "data"` to `Path("/Library/Application Support/com.falconer.Playback/data")`
-  - Line 133-134: `get_config_path()` -- change from `home / "Library" / "Application Support" / "Playback" / "config.json"` to `Path("/Library/Application Support/com.falconer.Playback/config.json")`
-  - Line 150-151: `get_logs_directory()` -- change from `home / "Library" / "Logs" / "Playback"` to `Path("/Library/Logs/com.falconer.Playback")`
+  - Line 77-78: `get_base_data_directory()` -- change from `home / "Library" / "Application Support" / "Playback" / "data"` to `home / "Library" / "Application Support" / "com.falconer.Playback" / "data"`
+  - Line 133-134: `get_config_path()` -- change from `home / "Library" / "Application Support" / "Playback" / "config.json"` to `home / "Library" / "Application Support" / "com.falconer.Playback" / "config.json"`
+  - Line 150-151: `get_logs_directory()` -- change from `home / "Library" / "Logs" / "Playback"` to `home / "Library" / "Logs" / "com.falconer.Playback"`
 - **Note:** Development paths remain unchanged. Update all docstrings to reflect new production paths.
 
 ### 2.3 Update LaunchAgentManager.swift (Template Variables)
@@ -188,10 +191,10 @@ Consolidate all production paths from `~/Library/Application Support/Playback/` 
 - [ ] **Update buildVariables() production paths**
 - **Source:** `src/Playback/Playback/Services/LaunchAgentManager.swift` lines 227-275
 - **Changes needed:**
-  - Line 249-250: `workingDir` -- change from `~/Library/Application Support/Playback` to `/Library/Application Support/com.falconer.Playback`
-  - Line 251-252: `logPath` -- change from `~/Library/Logs/Playback` to `/Library/Logs/com.falconer.Playback`
-  - Line 253-254: `configPath` -- change from `~/Library/Application Support/Playback/config.json` to `/Library/Application Support/com.falconer.Playback/config.json`
-  - Line 255-256: `dataDir` -- change from `~/Library/Application Support/Playback/data` to `/Library/Application Support/com.falconer.Playback/data`
+  - Line 249-250: `workingDir` -- change from `~/Library/Application Support/Playback` to `~/Library/Application Support/com.falconer.Playback`
+  - Line 251-252: `logPath` -- change from `~/Library/Logs/Playback` to `~/Library/Logs/com.falconer.Playback`
+  - Line 253-254: `configPath` -- change from `~/Library/Application Support/Playback/config.json` to `~/Library/Application Support/com.falconer.Playback/config.json`
+  - Line 255-256: `dataDir` -- change from `~/Library/Application Support/Playback/data` to `~/Library/Application Support/com.falconer.Playback/data`
 - **Also update AgentType.label:** Lines 18-21 -- change from `com.playback` prefix to `com.falconer.Playback` prefix for production labels.
 
 ### 2.4 Update DiagnosticsController.swift (Hardcoded Log Path)
@@ -199,7 +202,7 @@ Consolidate all production paths from `~/Library/Application Support/Playback/` 
 - [ ] **Update hardcoded log directory path**
 - **Source:** `src/Playback/Playback/Diagnostics/DiagnosticsController.swift`
 - **Changes needed:**
-  - Line 116: Change `"\(NSHomeDirectory())/Library/Logs/Playback"` to `"/Library/Logs/com.falconer.Playback"`
+  - Line 116: Change `"\(NSHomeDirectory())/Library/Logs/Playback"` to `"\(NSHomeDirectory())/Library/Logs/com.falconer.Playback"` (or better: use a `Paths.logsDirectory` helper)
   - Line 212: Same change in `clearLogs()` method
 - **Note:** Both locations duplicate the same hardcoded path. Consider adding a `Paths.logsDirectory` computed property to centralize this.
 
@@ -208,17 +211,17 @@ Consolidate all production paths from `~/Library/Application Support/Playback/` 
 - [ ] **Update hardcoded paths in SettingsView.swift**
 - **Source:** `src/Playback/Playback/Settings/SettingsView.swift`
 - **Changes needed:**
-  - Line 327: ProcessingSettingsTab `logPath` -- change from `~/Library/Logs/Playback/processing.log` to `/Library/Logs/com.falconer.Playback/processing.log`
+  - Line 327: ProcessingSettingsTab `logPath` -- change from `~/Library/Logs/Playback/processing.log` to `~/Library/Logs/com.falconer.Playback/processing.log`
   - Line 829: StorageSettingsTab `findProjectRoot()` -- uses `.first!` and appends `Playback`, should use Paths helper
   - Line 1150: PrivacySettingsTab `findProjectRoot()` -- same issue
-  - Line 1470: AdvancedSettingsTab `exportLogsToFile()` -- change from `~/Library/Logs/Playback` to `/Library/Logs/com.falconer.Playback`
+  - Line 1470: AdvancedSettingsTab `exportLogsToFile()` -- change from `~/Library/Logs/Playback` to `~/Library/Logs/com.falconer.Playback`
 - **Recommendation:** All these should call `Paths` methods instead of duplicating path logic.
 
 ### 2.6 Update logging_config.py (Log Directory Path)
 
 - [ ] **Update production log directory in logging_config.py**
 - **Source:** `src/lib/logging_config.py` line 84
-- **Change:** `Path.home() / "Library" / "Logs" / "Playback"` to `Path("/Library/Logs/com.falconer.Playback")`
+- **Change:** `Path.home() / "Library" / "Logs" / "Playback"` to `Path.home() / "Library" / "Logs" / "com.falconer.Playback"`
 - **Better approach:** Use `paths.get_logs_directory()` instead of duplicating the logic.
 
 ### 2.7 Update StorageSetupView.swift
@@ -400,11 +403,21 @@ These items improve the overall experience but are not blocking core functionali
 - **Source:** `Diagnostics/DiagnosticsView.swift` -- Logs (generic), Health, Performance, Reports
 - **Status:** Functionally similar but different organization. Consider aligning with spec or documenting as an intentional improvement.
 
-### 4.13 Portuguese Comments in TimelineView.swift
+### 4.13 Portuguese Comments in Timeline Files
 
 - [ ] **Translate Portuguese comments to English**
-- **Source:** `src/Playback/Playback/TimelineView.swift` -- 20+ comments in Portuguese
+- **Source:** 3 files with ~70+ Portuguese comments total:
+  - `src/Playback/Playback/TimelineView.swift` -- ~30 Portuguese comments
+  - `src/Playback/Playback/TimelineStore.swift` -- ~15 Portuguese comments
+  - `src/Playback/Playback/PlaybackController.swift` -- ~25 Portuguese comments
 - **Impact:** Code readability for English-speaking contributors
+
+### 4.14 Incorrect Bundle ID in MenuBarViewModel.swift
+
+- [ ] **Fix hardcoded bundle ID**
+- **Source:** `src/Playback/Playback/MenuBar/MenuBarViewModel.swift` line 130
+- **Current:** `"com.playback.timeline"` -- incorrect/stale bundle ID
+- **Fix:** Change to `"com.falconer.Playback"` to match the actual bundle identifier
 
 ---
 
