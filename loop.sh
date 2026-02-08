@@ -40,16 +40,12 @@ fi
 ITERATION=0
 CURRENT_BRANCH=$(git branch --show-current)
 
-# Diagnostics setup
-mkdir -p claude_logs
-
 echo -e "${GREEN_BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
 echo -e "${GREEN_BOLD}Mode:   $MODE${RESET}"
 echo -e "${GREEN_BOLD}Model:  $MODEL${RESET}"
 echo -e "${GREEN_BOLD}Prompt: $PROMPT_FILE${RESET}"
 echo -e "${GREEN_BOLD}Branch: $CURRENT_BRANCH${RESET}"
 [ $MAX_ITERATIONS -gt 0 ] && echo -e "${GREEN_BOLD}Max:    $MAX_ITERATIONS iterations${RESET}"
-echo -e "${GREEN_BOLD}Logs:   claude_logs/ (per-iteration + summary)${RESET}"
 echo -e "${GREEN_BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
 
 if [ ! -f "$PROMPT_FILE" ]; then
@@ -64,16 +60,11 @@ while true; do
     fi
 
     CURRENT_ITER=$((ITERATION + 1))
-    LOG_FILE="claude_logs/iteration_${CURRENT_ITER}.log"
-    SUMMARY_LOG="claude_logs/diagnostics_summary.log"
 
     START_TIME=$(date +%s)
     START_DISPLAY=$(date '+%Y-%m-%d %H:%M:%S')
 
-    echo -e "${GREEN_BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
     echo -e "${GREEN_BOLD}Starting iteration ${CURRENT_ITER} at ${START_DISPLAY}${RESET}"
-    echo -e "${GREEN_BOLD}Log: $LOG_FILE${RESET}"
-    echo -e "${GREEN_BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
 
     # Run Ralph iteration via Docker sandbox (prompt passed directly)
     # -p: headless/non-interactive mode
@@ -86,7 +77,7 @@ while true; do
         --output-format=stream-json \
         --model "$MODEL" \
         --verbose \
-        "$(cat "$PROMPT_FILE")" 2>&1 | tee "$LOG_FILE"
+        "$(cat "$PROMPT_FILE")"
 
     END_TIME=$(date +%s)
     DURATION=$((END_TIME - START_TIME))
@@ -95,56 +86,7 @@ while true; do
 
     echo -e "${GREEN_BOLD}Iteration ${CURRENT_ITER} completed in ${DURATION_MIN}m ${DURATION_SEC}s${RESET}"
 
-    # === Diagnostics extraction ===
-    echo -e "${GREEN_BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
-    echo -e "${GREEN_BOLD}Diagnostics for iteration ${CURRENT_ITER}${RESET}"
-    echo -e "${GREEN_BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
-
-    # Context usage estimate from last usage block
-    LAST_USAGE_JSON=$(grep -o '{.*"usage":.*}' "$LOG_FILE" | tail -1)
-
-    if command -v jq >/dev/null; then
-        INPUT_TOKENS=$(echo "$LAST_USAGE_JSON" | jq -r '.usage.input_tokens // 0')
-        OUTPUT_TOKENS=$(echo "$LAST_USAGE_JSON" | jq -r '.usage.output_tokens // 0')
-        CACHE_READ=$(echo "$LAST_USAGE_JSON" | jq -r '.usage.cache_read_input_tokens // 0')
-        TOTAL_USED=$((INPUT_TOKENS + OUTPUT_TOKENS + CACHE_READ))
-        CONTEXT_LIMIT=200000  # 200k standard; change to 1000000 for 1M-beta models
-        PERCENT_USED=$(( (TOTAL_USED * 100) / CONTEXT_LIMIT ))
-        echo -e "${GREEN_BOLD}Estimated context used: ~${PERCENT_USED}% (tokens: ${TOTAL_USED}/${CONTEXT_LIMIT})${RESET}"
-        if [ $PERCENT_USED -gt 90 ]; then
-            echo -e "${GREEN_BOLD}⚠️  VERY HIGH – nearing compaction risk${RESET}"
-        elif [ $PERCENT_USED -gt 75 ]; then
-            echo -e "${GREEN_BOLD}⚠️  Approaching compaction – watch performance${RESET}"
-        else
-            echo -e "${GREEN_BOLD}Context usage looks healthy${RESET}"
-        fi
-    else
-        # Simple fallback without jq
-        TOTAL_TOKENS=$(grep -o '"input_tokens":[0-9]*\|"output_tokens":[0-9]*\|"cache_read_input_tokens":[0-9]*' "$LOG_FILE" | cut -d: -f2 | awk '{sum += $1} END {print sum}')
-        [ -n "$TOTAL_TOKENS" ] && echo -e "${GREEN_BOLD}Rough total tokens seen: ${TOTAL_TOKENS}${RESET}"
-    fi
-
-    # Compaction detection
-    if grep -q '"subtype":"compact_boundary"' "$LOG_FILE"; then
-        echo -e "${GREEN_BOLD}🗜️  Compaction occurred this iteration${RESET}"
-        echo -e "${GREEN_BOLD}   → Trigger: $(grep -o '"trigger":"[^"]*"' "$LOG_FILE" | tail -1 | cut -d'"' -f4)${RESET}"
-        echo -e "${GREEN_BOLD}   → Pre-tokens: $(grep -o '"pre_tokens":[0-9]*' "$LOG_FILE" | tail -1 | cut -d: -f2)${RESET}"
-    else
-        echo -e "${GREEN_BOLD}No compaction this iteration${RESET}"
-    fi
-
-    # Token/cost tail
-    echo -e "${GREEN_BOLD}Recent token usage lines:${RESET}"
-    grep -E '"input_tokens"|"output_tokens"|"total_cost"' "$LOG_FILE" | tail -8 || echo "  (none found)"
-
-    # Summary append
-    {
-        echo "=== Iteration ${CURRENT_ITER} @ ${START_DISPLAY} (${DURATION}s) ==="
-        echo "Context estimate: ~${PERCENT_USED}% (${TOTAL_USED}/${CONTEXT_LIMIT})"
-        echo "Compaction: $(grep -q '"subtype":"compact_boundary"' "$LOG_FILE" && echo "YES" || echo "no")"
-        echo "Log size: $(wc -c < "$LOG_FILE") bytes"
-        echo "--------------------------------------------------"
-    } >> "$SUMMARY_LOG"
+    # TODO: add back any per-iteration checks / credit detection / custom status here if needed later
 
     # Completion check
     if [ -f .agent_complete ]; then
@@ -165,4 +107,4 @@ while true; do
     echo -e "${GREEN_BOLD}\n\n======================== LOOP $ITERATION ========================${RESET}\n"
 done
 
-echo -e "${GREEN_BOLD}Loop finished. Full diagnostics in claude_logs/ (summary: diagnostics_summary.log)${RESET}"
+echo -e "${GREEN_BOLD}Loop finished${RESET}"
