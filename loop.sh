@@ -71,77 +71,111 @@ if [ -z "$GOAL_TEXT" ] && [ $# -ge 1 ]; then
 fi
 
 # Project-specific goal (only interactive in plan mode if missing)
-# ────────────────────────────────────────────────
-# Project-specific goal – interactive only in plan mode if missing
-# ────────────────────────────────────────────────
-
 if [ "$MODE" = "plan" ] && [ -z "$GOAL_TEXT" ]; then
-    echo -e "${YELLOW_BOLD}PLAN mode – let's define the goal${RESET}"
-    echo -e ""
-    echo -e "The prompt will complete this sentence:"
-    echo -e "   ${GREEN_BOLD}ULTIMATE GOAL: We want to achieve …${RESET}"
-    echo -e ""
+    # ──────────────────────────────
+    # Very basic raw-mode editor hack for bash 3.2
+    # ──────────────────────────────
 
-    # Default starting text (user can edit from here)
-    GOAL_TEXT="a "
+    GOAL_TEXT="a "           # starting suggestion
+    cursor_pos=${#GOAL_TEXT} # where cursor is (end by default)
+
+    # Save terminal state
+    old_stty=$(stty -g)
+
+    # Enter raw mode (char-by-char, no echo)
+    stty -icanon -echo min 1 time 0
+
+    trap 'stty "$old_stty"; printf "\nInterrupted\n"; exit 1' INT TERM
 
     while true; do
-        # Clear screen to simulate "live preview" (works almost everywhere)
-        clear 2>/dev/null || printf "\033c"  # fallback for very old terminals
+        # Clear + redraw whole editor view
+        clear 2>/dev/null || printf '\033[H\033[2J'
 
-        echo -e "${GREEN_BOLD}Define your project goal${RESET}"
-        echo -e "────────────────────────────────────────────────────────────"
-        echo -e "ULTIMATE GOAL: We want to achieve ${YELLOW_BOLD}${GOAL_TEXT}${RESET}."
-        echo -e "Consider missing elements and plan accordingly."
-        echo -e "If an element is missing, search first to confirm it doesn't exist,"
-        echo -e "then if needed author the specification at specs/FILENAME.md ..."
-        echo -e "────────────────────────────────────────────────────────────"
-        echo -e ""
-        echo -e "${YELLOW_BOLD}Examples:${RESET}"
-        echo -e "  • a beautiful dark mode to this application"
-        echo -e "  • a detailed analytics system based on specs/analytics.md"
-        echo -e "  • a great working ui and ux"
-        echo -e "  • an AI-powered data import system based on specs/data-import.md"
-        echo -e ""
-        echo -en "${GREEN_BOLD}Your goal (edit and press Enter when done): ${RESET}"
+        printf "${GREEN_BOLD}Type your goal - Enter to select project-specific goal for the agent to cycle planning${RESET}\n"
+        printf "────────────────────────────────────────────────────────────────────\n"
+        printf "As our next objective, we want to achieve ${YELLOW_BOLD}%s${RESET}" "$GOAL_TEXT"
+        # Fake cursor (just a space or underscore depending on position)
+        if [ $cursor_pos -eq ${#GOAL_TEXT} ]; then
+            printf "_"
+        fi
+        printf "\n────────────────────────────────────────────────────────────────────\n"
+        printf "${YELLOW_BOLD}Examples:${RESET}\n"
+        printf "  • a beautiful dark mode to this application\n"
+        printf "  • a detailed analytics system based on specs/analytics.md\n"
+        printf "  • a great working ui and ux\n"
+        printf "  • an AI-powered data import system based on specs/data-import.md\n\n"
 
-        # Read new value – no -i, no -e → compatible with bash 3.2
-        read -r input
-
-        # User pressed Enter without typing anything new → keep previous
-        if [ -z "$input" ]; then
-            input="$GOAL_TEXT"
+        # Show current string again so user sees what they have
+        printf "${GREEN_BOLD}→ %s${RESET}" "$GOAL_TEXT"
+        # Move cursor back visually (crude)
+        printf "\r${GREEN_BOLD}→ %s${RESET}" "${GOAL_TEXT:0:$cursor_pos}"
+        if [ $cursor_pos -lt ${#GOAL_TEXT} ]; then
+            printf "${YELLOW_BOLD}%s${RESET}" "${GOAL_TEXT:cursor_pos:1}"
         fi
 
-        # Trim leading/trailing whitespace (POSIX compatible)
-        GOAL_TEXT=$(echo "$input" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+        # Read one character
+        IFS= read -r -n 1 -d '' c
 
-        if [ -z "$GOAL_TEXT" ]; then
-            echo -e "\n${RED_BOLD}Goal cannot be empty. Please try again.${RESET}"
-            echo -e "Press Enter to continue..."
-            read -r dummy
-            continue
-        fi
+        case "$c" in
+            # Enter → finish
+            "" | $'\n')
+                break
+                ;;
 
-        # Show confirmation with preview
-        clear 2>/dev/null || printf "\033c"
+            # Backspace / Ctrl+H
+            $'\177' | $'\b')
+                if [ $cursor_pos -gt 0 ]; then
+                    GOAL_TEXT="${GOAL_TEXT:0:$((cursor_pos-1))}${GOAL_TEXT:$cursor_pos}"
+                    cursor_pos=$((cursor_pos-1))
+                fi
+                ;;
 
-        echo -e "${GREEN_BOLD}Confirm this goal?${RESET}"
-        echo -e "────────────────────────────────────────────────────────────"
-        echo -e "ULTIMATE GOAL: We want to achieve ${YELLOW_BOLD}${GOAL_TEXT}${RESET}."
-        echo -e "────────────────────────────────────────────────────────────"
-        echo -e ""
-        echo -en "${GREEN_BOLD}Looks good? [Y/n] ${RESET}"
-        read -n 1 -r confirm
-        echo
+            # Ctrl+C → abort (already trapped)
+            $'\003')
+                stty "$old_stty"
+                echo -e "\nAborted"
+                exit 1
+                ;;
 
-        if [ -z "$confirm" ] || [[ "$confirm" =~ ^[Yy]$ ]]; then
-            break
-        else
-            echo -e "${YELLOW_BOLD}Let's edit it again...${RESET}"
-            echo ""
-        fi
+            # Printable chars
+            [[:print:]])
+                # Insert at cursor position (very basic)
+                GOAL_TEXT="${GOAL_TEXT:0:$cursor_pos}${c}${GOAL_TEXT:$cursor_pos}"
+                cursor_pos=$((cursor_pos+1))
+                ;;
+
+            # Ignore everything else (arrows, etc.)
+            *)
+                ;;
+        esac
     done
+
+    # Restore terminal
+    stty "$old_stty"
+    trap - INT TERM
+
+    # Final trim
+    GOAL_TEXT=$(echo "$GOAL_TEXT" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+
+    if [ -z "$GOAL_TEXT" ]; then
+        echo -e "\nEmpty goal → exiting."
+        exit 1
+    fi
+
+    # Confirmation
+    clear 2>/dev/null || printf '\033[H\033[2J'
+    echo -e "${GREEN_BOLD}Confirm goal${RESET}"
+    echo -e "────────────────────────────────────────────────────────────────────"
+    echo -e "ULTIMATE GOAL: We want to achieve ${YELLOW_BOLD}${GOAL_TEXT}${RESET}."
+    echo -e "────────────────────────────────────────────────────────────────────\n"
+    echo -en "${GREEN_BOLD}Good? [Y/n] ${RESET}"
+    read -n 1 -r confirm
+    echo
+
+    if [[ -n "$confirm" && ! "$confirm" =~ ^[Yy]$ ]]; then
+        echo -e "Cancelled."
+        exit 1
+    fi
 
     echo -e "${GREEN_BOLD}Goal locked in:${RESET} ${YELLOW_BOLD}${GOAL_TEXT}${RESET}\n"
 fi

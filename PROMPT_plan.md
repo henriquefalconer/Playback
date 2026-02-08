@@ -9,4 +9,4 @@ IMPORTANT: Plan only. Do NOT implement anything. Do NOT assume functionality is 
 
 ULTIMATE GOAL: We want to achieve [project-specific goal]. Consider missing elements and plan accordingly. If an element is missing, search first to confirm it doesn't exist, then if needed author the specification at specs/FILENAME.md. If you create a new element then document the plan to implement it in @IMPLEMENTATION_PLAN.md using a subagent.
 
-999999. PLAN DONE: specs studied + src compared + clean prioritized @IMPLEMENTATION_PLAN.md ready + missing elements added in specs/FILENAME.md → run `touch .agent_complete` in project root and stop.
+999999. PLAN DONE: specs studied + src compared + clean prioritized @IMPLEMENTATION_PLAN.md ready + truly missing elements added in specs/FILENAME.md + commit done → run `touch .agent_complete` in project root and stop.
