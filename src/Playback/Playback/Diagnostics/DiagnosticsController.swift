@@ -103,9 +103,16 @@ final class DiagnosticsController: ObservableObject {
     }
 
     private func loadLogEntriesFromDisk() async throws -> [LogEntry] {
-        let logDir = Environment.isDevelopment
-            ? URL(fileURLWithPath: "\(Paths.projectRoot())/dev_logs")
-            : URL(fileURLWithPath: "\(NSHomeDirectory())/Library/Logs/Playback")
+        let logDir: URL
+        if Paths.isDevelopment {
+            let projectRoot = Bundle.main.bundleURL
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+            logDir = projectRoot.appendingPathComponent("dev_logs")
+        } else {
+            logDir = URL(fileURLWithPath: "\(NSHomeDirectory())/Library/Logs/Playback")
+        }
 
         guard FileManager.default.fileExists(atPath: logDir.path) else {
             return []
@@ -192,9 +199,16 @@ final class DiagnosticsController: ObservableObject {
     func clearLogs(for component: String) {
         Task {
             do {
-                let logDir = Environment.isDevelopment
-                    ? URL(fileURLWithPath: "\(Paths.projectRoot())/dev_logs")
-                    : URL(fileURLWithPath: "\(NSHomeDirectory())/Library/Logs/Playback")
+                let logDir: URL
+                if Paths.isDevelopment {
+                    let projectRoot = Bundle.main.bundleURL
+                        .deletingLastPathComponent()
+                        .deletingLastPathComponent()
+                        .deletingLastPathComponent()
+                    logDir = projectRoot.appendingPathComponent("dev_logs")
+                } else {
+                    logDir = URL(fileURLWithPath: "\(NSHomeDirectory())/Library/Logs/Playback")
+                }
 
                 let logFile = logDir.appendingPathComponent("\(component).log")
 
@@ -234,7 +248,7 @@ final class DiagnosticsController: ObservableObject {
         """
 
         let launchAgentManager = LaunchAgentManager.shared
-        for agentType in [LaunchAgentManager.AgentType.recording, .processing, .cleanup] {
+        for agentType in [AgentType.recording, .processing, .cleanup] {
             let status = launchAgentManager.getAgentStatus(agentType)
             report += """
 

@@ -3,6 +3,8 @@
 
 import SwiftUI
 import AppKit
+import Combine
+import UniformTypeIdentifiers
 
 struct SettingsView: View {
     @EnvironmentObject var configManager: ConfigManager

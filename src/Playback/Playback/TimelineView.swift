@@ -278,43 +278,6 @@ struct TimelineView: View {
                     .position(x: geo.size.width / 2, y: segmentsY)
                 }
 
-                // Desloca apenas a área de hit-test alguns pontos para baixo, mantendo os
-                // segmentos na mesma posição visual.
-                .contentShape(ExpandedVerticalHitShape(extra: 20))
-                .gesture(
-                    DragGesture(minimumDistance: 0)
-                        .onEnded { value in
-                            let rawLocation = value.location
-                            let geoWidth = geo.size.width
-                            let leftEdgeX = (geoWidth - width) / 2
-                            print("[TimelineView] Click/drag terminou. rawLocation=\(rawLocation), geoWidth=\(geoWidth), width=\(width), leftEdgeX=\(leftEdgeX)")
-
-                            // Coordenada X do clique **relativa à barra** (0 ... width)
-                            let localX = max(0, min(rawLocation.x - leftEdgeX, width))
-                            print("[TimelineView]   localX (ajustado)=\(localX)")
-
-                            // Converte posição em tempo absoluto dentro da janela visível
-                            var newTime = windowStart + TimeInterval(localX / width) * visibleWindowSeconds
-                            print("[TimelineView]   newTime (antes clamp)=\(newTime), windowStart=\(windowStart), visibleWindowSeconds=\(visibleWindowSeconds)")
-
-                            // Garante que não passamos dos limites globais da timeline
-                            if let start = timelineStore.timelineStart {
-                                newTime = max(start, newTime)
-                            }
-                            if let end = timelineStore.timelineEnd {
-                                newTime = min(end, newTime)
-                            }
-
-                            print("[TimelineView]   newTime (após clamp)=\(newTime)")
-
-                            // Atualiza o vídeo e o centro da janela para o novo tempo
-                            playbackController.scrub(to: newTime, store: timelineStore)
-                            print("[TimelineView]   playbackController.currentTime após scrub=\(playbackController.currentTime)")
-                            centerTime = playbackController.currentTime
-                            print("[TimelineView]   centerTime atualizado=\(centerTime)")
-                        }
-                )
-
                 // Playhead central
                 RoundedRectangle(cornerRadius: 999)
                     .fill(Color.white)
@@ -340,6 +303,42 @@ struct TimelineView: View {
                 .buttonStyle(.plain)
                 .position(x: geo.size.width / 2, y: barY - 32)
             }
+            // Desloca apenas a área de hit-test alguns pontos para baixo, mantendo os
+            // segmentos na mesma posição visual.
+            .contentShape(ExpandedVerticalHitShape(extra: 20))
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onEnded { value in
+                        let rawLocation = value.location
+                        let geoWidth = geo.size.width
+                        let leftEdgeX = (geoWidth - width) / 2
+                        print("[TimelineView] Click/drag terminou. rawLocation=\(rawLocation), geoWidth=\(geoWidth), width=\(width), leftEdgeX=\(leftEdgeX)")
+
+                        // Coordenada X do clique **relativa à barra** (0 ... width)
+                        let localX = max(0, min(rawLocation.x - leftEdgeX, width))
+                        print("[TimelineView]   localX (ajustado)=\(localX)")
+
+                        // Converte posição em tempo absoluto dentro da janela visível
+                        var newTime = windowStart + TimeInterval(localX / width) * visibleWindowSeconds
+                        print("[TimelineView]   newTime (antes clamp)=\(newTime), windowStart=\(windowStart), visibleWindowSeconds=\(visibleWindowSeconds)")
+
+                        // Garante que não passamos dos limites globais da timeline
+                        if let start = timelineStore.timelineStart {
+                            newTime = max(start, newTime)
+                        }
+                        if let end = timelineStore.timelineEnd {
+                            newTime = min(end, newTime)
+                        }
+
+                        print("[TimelineView]   newTime (após clamp)=\(newTime)")
+
+                        // Atualiza o vídeo e o centro da janela para o novo tempo
+                        playbackController.scrub(to: newTime, store: timelineStore)
+                        print("[TimelineView]   playbackController.currentTime após scrub=\(playbackController.currentTime)")
+                        centerTime = playbackController.currentTime
+                        print("[TimelineView]   centerTime atualizado=\(centerTime)")
+                    }
+            )
         }
     }
 }

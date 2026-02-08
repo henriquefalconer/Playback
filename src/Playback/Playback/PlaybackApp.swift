@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import Combine
 
 @main
 struct PlaybackApp: App {
@@ -90,6 +91,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 }
 
 final class GlobalHotkeyManagerWrapper: ObservableObject {
+    let objectWillChange = PassthroughSubject<Void, Never>()
     private let manager = GlobalHotkeyManager.shared
 
     func registerHotkey(callback: @escaping () -> Void) {
@@ -124,6 +126,7 @@ final class GlobalHotkeyManagerWrapper: ObservableObject {
 
 /// Wrapper class to make SignalFileManager compatible with @StateObject
 final class SignalFileManagerWrapper: ObservableObject {
+    let objectWillChange = PassthroughSubject<Void, Never>()
     private let manager = SignalFileManager()
 
     func createSignal() {

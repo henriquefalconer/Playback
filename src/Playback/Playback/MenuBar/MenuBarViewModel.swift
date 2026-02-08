@@ -3,6 +3,7 @@
 
 import Foundation
 import Combine
+import AppKit
 
 enum RecordingState {
     case recording
@@ -83,17 +84,12 @@ final class MenuBarViewModel: ObservableObject {
 
     func openTimeline() {
         NSApp.activate(ignoringOtherApps: true)
-        if NSApp.windows.contains(where: { $0.identifier?.rawValue == "timeline" }) {
-            NSApp.windows.first(where: { $0.identifier?.rawValue == "timeline" })?.makeKeyAndOrderFront(nil)
-        } else {
-            NSApp.sendAction(#selector(NSResponder.newDocument(_:)), to: nil, from: nil)
+        if let timelineWindow = NSApp.windows.first(where: { $0.identifier?.rawValue == "timeline" }) {
+            timelineWindow.makeKeyAndOrderFront(nil)
         }
     }
 
     func openSettings() {
-        if let url = URL(string: "playback://settings") {
-            NSWorkspace.shared.open(url)
-        }
         NSApp.activate(ignoringOtherApps: true)
         if let window = NSApp.windows.first(where: { $0.identifier?.rawValue == "settings" }) {
             window.makeKeyAndOrderFront(nil)

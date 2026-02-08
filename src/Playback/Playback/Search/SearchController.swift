@@ -1,5 +1,6 @@
 import Foundation
 import SQLite3
+import Combine
 
 @MainActor
 final class SearchController: ObservableObject {
@@ -100,14 +101,15 @@ final class SearchController: ObservableObject {
     }
 
     private func performFTS5Search(query: String, minConfidence: Double) async -> [SearchResult] {
+        let dbPath = self.dbPath
         return await Task.detached(priority: .userInitiated) {
             var results: [SearchResult] = []
             var db: OpaquePointer?
 
             // Open database in read-only mode
             let flags = SQLITE_OPEN_READONLY
-            guard sqlite3_open_v2(self.dbPath, &db, flags, nil) == SQLITE_OK else {
-                print("[SearchController] Failed to open database: \(self.dbPath)")
+            guard sqlite3_open_v2(dbPath, &db, flags, nil) == SQLITE_OK else {
+                print("[SearchController] Failed to open database: \(dbPath)")
                 return results
             }
 

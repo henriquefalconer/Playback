@@ -1,9 +1,11 @@
 import SwiftUI
+import Combine
 
 struct SearchBar: View {
     @ObservedObject var searchController: SearchController
     @Binding var isPresented: Bool
     @FocusState private var isTextFieldFocused: Bool
+    @State private var debounceTask: Task<Void, Never>?
 
     var body: some View {
         HStack(spacing: 12) {
@@ -18,16 +20,20 @@ struct SearchBar: View {
                 .font(.system(size: 14))
                 .focused($isTextFieldFocused)
                 .onSubmit {
-                    performSearch()
+                    debounceTask?.cancel()
+                    debounceTask = Task {
+                        await performSearch()
+                    }
                 }
                 .onChange(of: searchController.query) { oldValue, newValue in
                     // Debounced search (300ms delay)
-                    NSObject.cancelPreviousPerformRequests(
-                        withTarget: self,
-                        selector: #selector(performSearchDebounced),
-                        object: nil
-                    )
-                    perform(#selector(performSearchDebounced), with: nil, afterDelay: 0.3)
+                    debounceTask?.cancel()
+                    debounceTask = Task {
+                        try? await Task.sleep(nanoseconds: 300_000_000) // 300ms
+                        if !Task.isCancelled {
+                            await performSearch()
+                        }
+                    }
                 }
 
             // Result counter
@@ -106,7 +112,7 @@ struct SearchBar: View {
             searchController.clearSearch()
             return .handled
         }
-        .onKeyPress(.return) { press in
+        .onKeyPress(.return, phases: .up) { press in
             if press.modifiers.contains(.shift) {
                 searchController.previousResult()
             } else {
@@ -116,21 +122,7 @@ struct SearchBar: View {
         }
     }
 
-    @objc private func performSearchDebounced() {
-        performSearch()
-    }
-
-    private func performSearch() {
-        Task {
-            await searchController.search(query: searchController.query)
-        }
-    }
-}
-
-extension NSObject {
-    func perform(_ aSelector: Selector, with anArgument: Any?, afterDelay delay: TimeInterval) {
-        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
-            _ = self.perform(aSelector, with: anArgument)
-        }
+    private func performSearch() async {
+        await searchController.search(query: searchController.query)
     }
 }

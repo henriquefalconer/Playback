@@ -113,7 +113,9 @@ final class GlobalHotkeyManager {
     }
 
     deinit {
-        unregister()
+        Task { @MainActor in
+            self.unregister()
+        }
     }
 }
 

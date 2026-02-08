@@ -25,7 +25,7 @@ struct ContentView: View {
     @State private var scrollMonitor: Any?
 
     init() {
-        let dbPath = Paths.databasePath()
+        let dbPath = Paths.databasePath.path
         _searchController = StateObject(wrappedValue: SearchController(databasePath: dbPath))
     }
 
@@ -99,7 +99,7 @@ struct ContentView: View {
                         get: { playbackController.currentTime },
                         set: { newTime in
                             centerTime = newTime
-                            playbackController.scrub(to: newTime)
+                            playbackController.scrub(to: newTime, store: timelineStore)
                         }
                     )
                 )
@@ -170,13 +170,13 @@ struct ContentView: View {
 
                 case 123:  // Left Arrow - Seek backward 5 seconds
                     let newTime = max(playbackController.currentTime - 5, timelineStore.timelineStart ?? 0)
-                    playbackController.scrub(to: newTime)
+                    playbackController.scrub(to: newTime, store: timelineStore)
                     centerTime = newTime
                     return nil
 
                 case 124:  // Right Arrow - Seek forward 5 seconds
                     let newTime = min(playbackController.currentTime + 5, timelineStore.timelineEnd ?? playbackController.currentTime)
-                    playbackController.scrub(to: newTime)
+                    playbackController.scrub(to: newTime, store: timelineStore)
                     centerTime = newTime
                     return nil
 

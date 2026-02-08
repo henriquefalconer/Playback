@@ -8,6 +8,8 @@
 
 /* Begin PBXFileReference section */
 		E50AA4092EF9DBF000F73C14 /* Playback.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Playback.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		E50AA4202EF9E50000F73C14 /* PlaybackTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = PlaybackTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		E50AA4302EF9E52000F73C14 /* PlaybackUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = PlaybackUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -16,10 +18,34 @@
 			path = Playback;
 			sourceTree = "<group>";
 		};
+		E50AA4212EF9E50000F73C14 /* PlaybackTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = PlaybackTests;
+			sourceTree = "<group>";
+		};
+		E50AA4312EF9E52000F73C14 /* PlaybackUITests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = PlaybackUITests;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		E50AA4062EF9DBF000F73C14 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E50AA41D2EF9E50000F73C14 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E50AA42D2EF9E52000F73C14 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -41,6 +67,8 @@
 			isa = PBXGroup;
 			children = (
 				E50AA4092EF9DBF000F73C14 /* Playback.app */,
+				E50AA4202EF9E50000F73C14 /* PlaybackTests.xctest */,
+				E50AA4302EF9E52000F73C14 /* PlaybackUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -70,7 +98,83 @@
 			productReference = E50AA4092EF9DBF000F73C14 /* Playback.app */;
 			productType = "com.apple.product-type.application";
 		};
+		E50AA41F2EF9E50000F73C14 /* PlaybackTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = E50AA4262EF9E50000F73C14 /* Build configuration list for PBXNativeTarget "PlaybackTests" */;
+			buildPhases = (
+				E50AA41C2EF9E50000F73C14 /* Sources */,
+				E50AA41D2EF9E50000F73C14 /* Frameworks */,
+				E50AA41E2EF9E50000F73C14 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				E50AA4232EF9E50000F73C14 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				E50AA4212EF9E50000F73C14 /* PlaybackTests */,
+			);
+			name = PlaybackTests;
+			packageProductDependencies = (
+			);
+			productName = PlaybackTests;
+			productReference = E50AA4202EF9E50000F73C14 /* PlaybackTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		E50AA42F2EF9E52000F73C14 /* PlaybackUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = E50AA4362EF9E52000F73C14 /* Build configuration list for PBXNativeTarget "PlaybackUITests" */;
+			buildPhases = (
+				E50AA42C2EF9E52000F73C14 /* Sources */,
+				E50AA42D2EF9E52000F73C14 /* Frameworks */,
+				E50AA42E2EF9E52000F73C14 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				E50AA4332EF9E52000F73C14 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				E50AA4312EF9E52000F73C14 /* PlaybackUITests */,
+			);
+			name = PlaybackUITests;
+			packageProductDependencies = (
+			);
+			productName = PlaybackUITests;
+			productReference = E50AA4302EF9E52000F73C14 /* PlaybackUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
 /* End PBXNativeTarget section */
+
+/* Begin PBXContainerItemProxy section */
+		E50AA4222EF9E50000F73C14 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = E50AA4012EF9DBF000F73C14 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = E50AA4082EF9DBF000F73C14;
+			remoteInfo = Playback;
+		};
+		E50AA4322EF9E52000F73C14 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = E50AA4012EF9DBF000F73C14 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = E50AA4082EF9DBF000F73C14;
+			remoteInfo = Playback;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXTargetDependency section */
+		E50AA4232EF9E50000F73C14 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = E50AA4082EF9DBF000F73C14 /* Playback */;
+			targetProxy = E50AA4222EF9E50000F73C14 /* PBXContainerItemProxy */;
+		};
+		E50AA4332EF9E52000F73C14 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = E50AA4082EF9DBF000F73C14 /* Playback */;
+			targetProxy = E50AA4322EF9E52000F73C14 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin PBXProject section */
 		E50AA4012EF9DBF000F73C14 /* Project object */ = {
@@ -82,6 +186,14 @@
 				TargetAttributes = {
 					E50AA4082EF9DBF000F73C14 = {
 						CreatedOnToolsVersion = 26.2;
+					};
+					E50AA41F2EF9E50000F73C14 = {
+						CreatedOnToolsVersion = 26.2;
+						TestTargetID = E50AA4082EF9DBF000F73C14;
+					};
+					E50AA42F2EF9E52000F73C14 = {
+						CreatedOnToolsVersion = 26.2;
+						TestTargetID = E50AA4082EF9DBF000F73C14;
 					};
 				};
 			};
@@ -100,6 +212,8 @@
 			projectRoot = "";
 			targets = (
 				E50AA4082EF9DBF000F73C14 /* Playback */,
+				E50AA41F2EF9E50000F73C14 /* PlaybackTests */,
+				E50AA42F2EF9E52000F73C14 /* PlaybackUITests */,
 			);
 		};
 /* End PBXProject section */
@@ -112,10 +226,38 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		E50AA41E2EF9E50000F73C14 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E50AA42E2EF9E52000F73C14 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		E50AA4052EF9DBF000F73C14 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E50AA41C2EF9E50000F73C14 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E50AA42C2EF9E52000F73C14 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -301,6 +443,76 @@
 			};
 			name = Release;
 		};
+		E50AA4272EF9E50000F73C14 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.2;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.falconer.PlaybackTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Playback.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Playback";
+			};
+			name = Debug;
+		};
+		E50AA4282EF9E50000F73C14 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.2;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.falconer.PlaybackTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Playback.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Playback";
+			};
+			name = Release;
+		};
+		E50AA4372EF9E52000F73C14 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.2;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.falconer.PlaybackUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TEST_TARGET_NAME = Playback;
+			};
+			name = Debug;
+		};
+		E50AA4382EF9E52000F73C14 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.2;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.falconer.PlaybackUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TEST_TARGET_NAME = Playback;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -318,6 +530,24 @@
 			buildConfigurations = (
 				E50AA4152EF9DBF200F73C14 /* Debug */,
 				E50AA4162EF9DBF200F73C14 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		E50AA4262EF9E50000F73C14 /* Build configuration list for PBXNativeTarget "PlaybackTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				E50AA4272EF9E50000F73C14 /* Debug */,
+				E50AA4282EF9E50000F73C14 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		E50AA4362EF9E52000F73C14 /* Build configuration list for PBXNativeTarget "PlaybackUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				E50AA4372EF9E52000F73C14 /* Debug */,
+				E50AA4382EF9E52000F73C14 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

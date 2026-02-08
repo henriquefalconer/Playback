@@ -3,6 +3,7 @@
 
 import Foundation
 import SwiftUI
+import Combine
 
 enum FirstRunStep: Int, CaseIterable {
     case welcome = 0
@@ -35,8 +36,8 @@ enum FirstRunStep: Int, CaseIterable {
     }
 
     var nextStep: FirstRunStep? {
-        guard let nextRawValue = rawValue + 1,
-              nextRawValue < FirstRunStep.allCases.count else {
+        let nextRawValue = rawValue + 1
+        guard nextRawValue < FirstRunStep.allCases.count else {
             return nil
         }
         return FirstRunStep(rawValue: nextRawValue)

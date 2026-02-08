@@ -327,9 +327,9 @@ struct HealthStatusCard: View {
 }
 
 struct ServiceStatusSection: View {
-    @State private var recordingStatus: LaunchAgentManager.AgentStatus?
-    @State private var processingStatus: LaunchAgentManager.AgentStatus?
-    @State private var cleanupStatus: LaunchAgentManager.AgentStatus?
+    @State private var recordingStatus: LaunchAgentStatus?
+    @State private var processingStatus: LaunchAgentStatus?
+    @State private var cleanupStatus: LaunchAgentStatus?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -363,7 +363,7 @@ struct ServiceStatusSection: View {
 
 struct ServiceStatusRow: View {
     let name: String
-    let status: LaunchAgentManager.AgentStatus
+    let status: LaunchAgentStatus
 
     var body: some View {
         HStack {
@@ -823,7 +823,7 @@ struct SimpleBarChart: View {
                     .font(.caption)
                     .foregroundColor(.secondary)
             } else {
-                let max = maxValue ?? values.max() ?? 1.0
+                let maxVal = maxValue ?? values.max() ?? 1.0
                 let avg = values.reduce(0, +) / Double(values.count)
                 let minVal = values.min() ?? 0
 
@@ -831,7 +831,7 @@ struct SimpleBarChart: View {
                     ForEach(Array(values.enumerated()), id: \.offset) { _, value in
                         Rectangle()
                             .fill(color)
-                            .frame(width: 8, height: max(2, CGFloat(value / max) * 60))
+                            .frame(width: 8, height: max(2, CGFloat(value / maxVal) * 60))
                     }
                 }
                 .frame(height: 70)
@@ -845,7 +845,7 @@ struct SimpleBarChart: View {
                         .font(.caption2)
                         .foregroundColor(.secondary)
                     Spacer()
-                    Text("Max: \(String(format: "%.1f", max))")
+                    Text("Max: \(String(format: "%.1f", maxVal))")
                         .font(.caption2)
                         .foregroundColor(.secondary)
                 }

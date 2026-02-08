@@ -288,19 +288,22 @@ Playback consists of separate components:
 
 ## Phase 5: Testing & Quality
 
-### 5.1 Unit Tests (Swift) - 📋 Check Environment (Requires macOS/Xcode)
+### 5.1 Unit Tests (Swift) - ✅ INFRASTRUCTURE READY (Ready for Test Implementation)
 
-**Current State:**
-- No test targets configured in Xcode project (PlaybackTests, PlaybackUITests)
-- No Swift test files exist yet
-- **Python tests complete: 280/280 passing, zero bugs**
+**Setup Complete:**
+- ✅ PlaybackTests target successfully added to Xcode project
+- ✅ PlaybackUITests target successfully added to Xcode project
+- ✅ Test schemes configured and building correctly
+- ✅ All Swift compilation errors fixed (missing imports, actor isolation issues resolved)
+- ✅ Main app builds successfully (Playback-Development scheme)
+- ✅ Placeholder tests execute successfully
 
-**Required Setup:**
-1. Add PlaybackTests target to Xcode project
-2. Add PlaybackUITests target to Xcode project
-3. Configure test schemes and build settings
+**Next Steps - Test Implementation:**
+- Implement actual test classes (currently have placeholder test stubs)
+- Add comprehensive assertions and test scenarios
+- Target: 80%+ code coverage for core logic
 
-**Test Classes Needed:**
+**Test Classes to Implement:**
 - **TimelineStoreTests:** segment selection, time mapping, gap handling, auto-refresh
 - **ConfigManagerTests:** loading, saving, validation, migration, hot-reloading
 - **PathsTests:** environment detection, path resolution, directory creation
@@ -310,11 +313,10 @@ Playback consists of separate components:
 - **MenuBarViewModelTests:** state management, recording toggle, status monitoring
 - **GlobalHotkeyManagerTests:** hotkey registration, accessibility checks
 
-**Requirements:**
-- macOS environment with Xcode to run tests
-- Target: 80%+ code coverage for core logic
-
-**Check environment before proceeding. If on macOS with Xcode, proceed. Otherwise blocked.**
+**Test Infrastructure:**
+- Framework: XCTest (native Xcode testing)
+- Python tests complete: 280/280 passing, zero bugs
+- Ready for comprehensive Swift unit test implementation
 
 ### 5.2 Unit Tests (Python) - ✅ COMPLETE (100%)
 
@@ -567,7 +569,7 @@ Playback/
 | Phase 2: User Interface | 6-8 weeks | ✅ COMPLETE |
 | Phase 3: Data & Storage | 3-4 weeks | ✅ COMPLETE |
 | Phase 4: Advanced Features | 4-6 weeks | ✅ COMPLETE (4.1: ✅ 100%, 4.2: ✅ 100%, 4.3: ✅ 100%, 4.4: ✅ 100%) |
-| Phase 5: Testing & Quality | 3-4 weeks | 🟡 IN PROGRESS (5.1: 📋 Planned, 5.2: ✅ 100%, 5.3-5.6: 📋 Planned) |
+| Phase 5: Testing & Quality | 3-4 weeks | 🟡 IN PROGRESS (5.1: 🟡 IN PROGRESS, 5.2: ✅ 100%, 5.3-5.6: 📋 Planned) |
 | Phase 6: Distribution & Deployment | 2-3 weeks | 📋 Planned |
 
 **Total Estimated Duration:** 22-31 weeks (5-7 months)
