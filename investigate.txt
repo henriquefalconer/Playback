@@ -1,4 +1,4 @@
-hey the error "Thread 1: signal SIGABRT" "An abort signal terminated the process. Such crashes often happen because of an uncaught exception or unrecoverable error or calling the abort() function." is still happening on line 56 "        process.waitUntilExit()" of src/Playback/Playback/Utilities/ShellCommand.swift. run commands to find out more and make sure you get the exact cause of the error
+hey the error "Thread 1: signal SIGABRT" is still happening on line 56 "        process.waitUntilExit()" of src/Playback/Playback/Utilities/ShellCommand.swift. run commands to find out more and make sure you get the exact cause of the error. write plan in IMPLEMENTATION_PLAN.md to fix it
 
 
 executablePath	String	"/bin/launchctl"	
