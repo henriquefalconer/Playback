@@ -4,6 +4,7 @@
 import SwiftUI
 import AppKit
 import Combine
+import CoreGraphics
 import UniformTypeIdentifiers
 
 struct SettingsView: View {
@@ -1028,25 +1029,12 @@ struct PrivacySettingsTab: View {
     }
 
     private func checkPermissions() async {
-        screenRecordingGranted = await checkScreenRecordingPermission()
+        screenRecordingGranted = checkScreenRecordingPermission()
         accessibilityGranted = checkAccessibilityPermission()
     }
 
-    private func checkScreenRecordingPermission() async -> Bool {
-        do {
-            let result = try await ShellCommand.runAsync("/usr/bin/python3", arguments: ["-c", """
-            import Quartz
-            try:
-                session = Quartz.CGWindowListCopyWindowInfo(Quartz.kCGWindowListOptionAll, Quartz.kCGNullWindowID)
-                print("granted" if session and len(session) > 0 else "denied")
-            except:
-                print("denied")
-            """])
-            let output = result.output.trimmingCharacters(in: .whitespacesAndNewlines)
-            return output == "granted"
-        } catch {
-            return false
-        }
+    private func checkScreenRecordingPermission() -> Bool {
+        CGPreflightScreenCaptureAccess()
     }
 
     private func checkAccessibilityPermission() -> Bool {

@@ -147,12 +147,12 @@ These features are specified but not implemented. They impact UX but are not blo
 - **Source:** `src/Playback/Playback/Search/SearchResultRow.swift`
 - **Missing:** No app icon or app name shown; only timestamp + confidence + snippet displayed
 
-### 2.3 Permission Checking Uses Python Subprocess Instead of Native API
+### 2.3 Permission Checking Uses Python Subprocess Instead of Native API ✅ FIXED
 
-- [ ] **Replace Python subprocess with CGPreflightScreenCaptureAccess()**
+- [x] **Replace Python subprocess with CGPreflightScreenCaptureAccess()**
 - **Source:** `src/Playback/Playback/Settings/SettingsView.swift:1065-1092`
-- **Current:** The `checkScreenRecordingPermission()` function spawns a Python subprocess that imports `Quartz` and calls `CGWindowListCopyWindowInfo`. This is slow and fragile.
-- **Fix:** Replace with Swift's native `CGPreflightScreenCaptureAccess()` -- a single synchronous function call that returns Bool immediately.
+- **Previous:** The `checkScreenRecordingPermission()` function spawned a Python subprocess that imported `Quartz` and called `CGWindowListCopyWindowInfo`. This was slow and fragile.
+- **Fix applied:** Replaced with Swift's native `CGPreflightScreenCaptureAccess()` from ApplicationServices framework -- a single synchronous function call that returns Bool immediately. Shows NSAlert with "Open Settings" button that opens System Settings → Privacy & Security → Screen Recording via URL scheme.
 
 ### 2.4 App Icon Missing
 
