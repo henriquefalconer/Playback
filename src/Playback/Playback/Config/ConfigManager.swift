@@ -30,6 +30,10 @@ final class ConfigManager: ObservableObject {
         }
     }
 
+    deinit {
+        watcher = nil
+    }
+
     func loadConfiguration() {
         do {
             let data = try Data(contentsOf: configPath)
@@ -180,6 +184,10 @@ private class ConfigWatcher {
     }
 
     deinit {
+        if fileDescriptor >= 0 {
+            close(fileDescriptor)
+            fileDescriptor = -1
+        }
         source?.cancel()
     }
 }

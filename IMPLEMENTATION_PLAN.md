@@ -303,11 +303,10 @@ Playback consists of separate components:
   - Environment detection, path resolution, directory creation, permission handling
 - ✅ **SignalFileManagerTests:** Completed (9 tests passing)
   - Signal file creation, deletion, checking, error handling
-- 🟡 **ConfigManagerTests:** In Progress (18 tests written, runtime issues under investigation)
+- ✅ **ConfigManagerTests:** Completed (18 tests passing, memory management issues resolved)
   - Tests implemented: initialization, loading, saving, validation, updates, migration, error handling
-  - Status: Builds successfully with xcodebuild build-for-testing
-  - Issue: Tests fail at runtime without clear error messages (possible MainActor isolation or file watching issues)
-  - Added internal init(configPath:enableWatcher:) to support testing without file watching
+  - Status: All tests passing without crashes
+  - Fix applied: File descriptor properly closed in ConfigWatcher.deinit, ConfigManager deinit cleans up watcher
 - 📋 **6 Test Classes Remaining:**
   - **TimelineStoreTests:** segment selection, time mapping, gap handling, auto-refresh
   - **LaunchAgentManagerTests:** install, load, start, stop, status checks (requires mocked launchctl)
@@ -315,96 +314,6 @@ Playback consists of separate components:
   - **SearchControllerTests:** FTS5 queries, caching, result parsing
   - **MenuBarViewModelTests:** state management, recording toggle, status monitoring
   - **GlobalHotkeyManagerTests:** hotkey registration, accessibility checks
-
-**⚠️ CRITICAL BUG - Test Runner Crash (MUST FIX BEFORE CONTINUING):**
-
-**Issue:** Test runner crashes with memory management error when running UI tests
-- **Crash Location:** `ConfigManagerTests.testValidationCorrectsCRFOutOfRange()` at line 291
-- **Error:** `___BUG_IN_CLIENT_OF_LIBMALLOC_POINTER_BEING_FREED_WAS_NOT_ALLOCATED`
-- **Symptom:** App appears to run but hangs, waiting for quit; terminal shows no output
-- **Root Cause:** Memory management issue in `ConfigManager.__deallocating_deinit` - likely related to Swift concurrency/actor isolation or @StateObject lifecycle
-
-**Evidence:** See `/Users/henriquefalconer/Playback/playback-error-report.txt` (lines 1-54):
-```
-Exception Type:    EXC_CRASH (SIGABRT)
-Termination Reason:  Namespace SIGNAL, Code 6, Abort trap: 6
-Thread 0 Crashed::  Dispatch queue: com.apple.main-thread
-7   libswift_Concurrency.dylib    swift::TaskLocal::StopLookupScope::~StopLookupScope() + 144
-9   Playback.debug.dylib          ConfigManager.__deallocating_deinit + 124
-12  PlaybackTests                 ConfigManagerTests.testValidationCorrectsCRFOutOfRange() + 1136
-```
-
-**Fix Steps (MUST complete before writing more tests):**
-1. **Clean stale build artifacts:**
-   - `xcodebuild clean -scheme Playback-Development`
-   - Delete `~/Library/Developer/Xcode/DerivedData/Playback-*`
-   - Verify ConfigManagerTests.swift doesn't exist in `src/Playback/PlaybackTests/` (confirmed: doesn't exist)
-
-2. **Fix ConfigManager memory management (HIGH PRIORITY - Resource Leak Found):**
-   - **File:** `src/Playback/Playback/Config/ConfigManager.swift`
-   - **Issue 1 - ConfigWatcher file descriptor leak (lines 173-176):**
-     - `ConfigWatcher.deinit` cancels the dispatch source but NEVER closes the file descriptor
-     - This leaks file descriptors and causes the memory management crash
-     - **Fix:** Add `close(fileDescriptor)` in ConfigWatcher.deinit before canceling source:
-       ```swift
-       deinit {
-           if fileDescriptor >= 0 {
-               close(fileDescriptor)
-           }
-           source?.cancel()
-       }
-       ```
-   - **Issue 2 - ConfigManager singleton lifecycle:**
-     - ConfigManager is a singleton (`static let shared`) but is also being instantiated in tests
-     - Tests may be creating multiple instances which conflict with singleton pattern
-     - Shared instance never deallocates, but test instances try to clean up resources
-     - **Fix:** Add deinit to ConfigManager to stop watcher:
-       ```swift
-       deinit {
-           watcher = nil  // Triggers ConfigWatcher.deinit which cleans up resources
-       }
-       ```
-   - **Verify:** Lines 121-122 already use `[weak self]` in watcher callback (good practice)
-
-3. **Create ConfigManagerTests properly (after ConfigManager fix):**
-   - File: `src/Playback/PlaybackTests/ConfigManagerTests.swift`
-   - Use `@MainActor` on test class if ConfigManager requires it
-   - Properly tearDown() ConfigManager instances to avoid leaks
-   - Mock file system for testing without side effects
-
-4. **Verify fix:**
-   - Run: `xcodebuild test -scheme Playback-Development -destination 'platform=macOS'`
-   - Confirm no crashes, test runner completes normally
-   - Verify test output is visible in terminal
-   - Should see: PathsTests passing, no ConfigManagerTests (not created yet)
-
-5. **After fix is verified - Create ConfigManagerTests properly:**
-   - ConfigManagerTests doesn't exist yet (crash was from stale build artifact)
-   - When creating tests, ensure proper lifecycle management:
-     - Use `setUp()` to create test ConfigManager instance (NOT shared singleton)
-     - Use `tearDown()` to clean up and set instance to nil
-     - Consider using dependency injection pattern instead of singleton for testability
-   - Example pattern:
-     ```swift
-     class ConfigManagerTests: XCTestCase {
-         var configManager: ConfigManager!
-
-         override func setUp() {
-             super.setUp()
-             // Create test instance with custom path
-             configManager = ConfigManager(configPath: testConfigPath)
-         }
-
-         override func tearDown() {
-             configManager = nil  // Triggers deinit
-             super.tearDown()
-         }
-     }
-     ```
-
-**Priority:** 🔴 CRITICAL - Blocks all test development
-**Status:** 🚧 Not Started - Must fix immediately
-**Reference:** Error details in `/Users/henriquefalconer/Playback/playback-error-report.txt`
 
 **Test Infrastructure:**
 - Framework: XCTest (native Xcode testing)
@@ -672,7 +581,7 @@ Playback/
 | Phase 2: User Interface | 6-8 weeks | ✅ COMPLETE |
 | Phase 3: Data & Storage | 3-4 weeks | ✅ COMPLETE |
 | Phase 4: Advanced Features | 4-6 weeks | ✅ COMPLETE (4.1: ✅ 100%, 4.2: ✅ 100%, 4.3: ✅ 100%, 4.4: ✅ 100%) |
-| Phase 5: Testing & Quality | 3-4 weeks | 🟡 IN PROGRESS (5.1: 🟡 IN PROGRESS - PathsTests ✅ 9/9, SignalFileManagerTests ✅ 9/9, ConfigManagerTests 🟡 18 written/investigating runtime issues, 6 remaining, 5.2: ✅ 100% 280/280, 5.3-5.6: 📋 Planned) |
+| Phase 5: Testing & Quality | 3-4 weeks | 🟡 IN PROGRESS (5.1: 🟡 IN PROGRESS - PathsTests ✅ 9/9, SignalFileManagerTests ✅ 9/9, ConfigManagerTests ✅ 18/18, 6 remaining, 5.2: ✅ 100% 280/280, 5.3-5.6: 📋 Planned) |
 | Phase 6: Distribution & Deployment | 2-3 weeks | 📋 Planned |
 
 **Total Estimated Duration:** 22-31 weeks (5-7 months)
@@ -751,7 +660,7 @@ Playback/
 - ✅ Infrastructure complete - test targets configured, test schemes building
 - ✅ PathsTests completed - 9 tests passing
 - ✅ SignalFileManagerTests completed - 9 tests passing
-- 🟡 ConfigManagerTests - 18 tests written, builds successfully, runtime issues under investigation
+- ✅ ConfigManagerTests completed - 18 tests passing (memory management issues resolved)
 - 📋 6 test classes remaining: TimelineStoreTests, LaunchAgentManagerTests, PlaybackControllerTests, SearchControllerTests, MenuBarViewModelTests, GlobalHotkeyManagerTests
 - Target: 80%+ code coverage for core logic
 
