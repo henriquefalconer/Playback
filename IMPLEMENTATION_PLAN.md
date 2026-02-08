@@ -360,10 +360,11 @@ These items improve the overall experience but are not blocking core functionali
 - **Source:** `src/Playback/Playback/Paths.swift` -- only checks `PLAYBACK_DEV_MODE`
 - **Fix applied:** Added support for PLAYBACK_CONFIG and PLAYBACK_DATA_DIR environment variables in Paths.swift. These variables override default paths when set, allowing flexible deployment configurations for testing, CI/CD, and custom installations. Environment variable checks happen before dev/prod mode checks, providing highest precedence.
 
-### 3.11 FirstRun: No Notification Listener for Permission Re-check
+### 3.11 FirstRun: Permission Auto-Refresh ✅ FIXED
 
-- [ ] **Auto-refresh permission status when app becomes active**
+- [x] **Auto-refresh permission status when app becomes active**
 - **Source:** `PermissionsView.swift`
+- **Fix applied:** Added NotificationCenter observer for NSApplication.didBecomeActiveNotification in PermissionsView. Automatically re-checks screen recording and accessibility permissions when app becomes active (e.g., after user grants permissions in System Settings). Observer properly cleaned up in onDisappear.
 
 ### 3.12 Diagnostics: Tab Organization Differs from Spec
 

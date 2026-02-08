@@ -48,6 +48,24 @@ struct PermissionsView: View {
         .onAppear {
             checkScreenRecordingPermission()
             checkAccessibilityPermission()
+
+            // Auto-refresh permission status when app becomes active
+            NotificationCenter.default.addObserver(
+                forName: NSApplication.didBecomeActiveNotification,
+                object: nil,
+                queue: .main
+            ) { _ in
+                checkScreenRecordingPermission()
+                checkAccessibilityPermission()
+            }
+        }
+        .onDisappear {
+            // Remove observer when view disappears
+            NotificationCenter.default.removeObserver(
+                self,
+                name: NSApplication.didBecomeActiveNotification,
+                object: nil
+            )
         }
     }
 
