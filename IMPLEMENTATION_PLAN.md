@@ -19,7 +19,7 @@ Based on comprehensive technical specifications in `specs/` and verified against
   1. ✅ Fix SIGABRT crash when `launchctl list` fails (pipe deadlock in LaunchAgentManager.swift:307)
   2. ✅ Fix ConfigWatcher double-close SIGABRT crash
   3. ✅ Fix ShellCommand.swift readabilityHandler race condition SIGABRT crash (discovered 2026-02-08)
-  4. ❌ **[CRITICAL - BLOCKING] Fix MenuBarViewModel initialization SIGABRT crash** (blocking main thread during SwiftUI scene setup) - discovered 2026-02-09 - **REPRODUCIBLE via `./smoke-test.sh` - App crashes 100% of time on launch**
+  4. ✅ Fix MenuBarViewModel initialization SIGABRT crash (blocking main thread during SwiftUI scene setup) - discovered 2026-02-09 - FIXED 2026-02-09
   5. ✅ Ensure no custom storage location picker exists (confirmed: it doesn't)
   6. ✅ Storage paths: `~/Library/Application Support/Playback/` for production, `dev_data/` for development (already correct in code)
 
@@ -53,26 +53,6 @@ This script builds the Debug configuration and runs the app for 5 seconds to det
 
 Document any crashes or errors discovered during pre-commit validation that cannot be immediately fixed:
 
-#### 2026-02-09 - MenuBarViewModel Initialization SIGABRT Crash
-- **Error:** SIGABRT - AttributeGraph precondition failure during SwiftUI scene initialization
-- **Stack trace:**
-```
-💣 Program crashed: Aborted at 0x000000018f0035b0
-AG::precondition_failure(char const*, ...) + 216 in AttributeGraph
-AG::Graph::value_set(...) (.cold.1) + 68 in AttributeGraph
-StateObject.Box.update(property:phase:) + 452 in SwiftUICore
-
-MenuBarViewModel.init() [line 55]
-  → startStatusMonitoring() [line 142]
-    → updateRecordingState() [line 146]
-      → LaunchAgentManager.getAgentStatus(.recording) [line 153]
-        → ShellCommand.run() [line 297]
-          → waitUntilExit() [line 49] ← SIGABRT
-```
-- **Root cause:** `MenuBarViewModel.init()` immediately calls synchronous blocking operations (`ShellCommand.run()` → `readDataToEndOfFile()` → `waitUntilExit()`) on the main thread during SwiftUI's AttributeGraph update phase. SwiftUI forbids blocking the main thread during state initialization/updates and aborts when detected.
-- **Reproduce:** Run `./smoke-test.sh` - crashes 100% of the time on launch
-- **Proposed fix:** Defer status monitoring to `.task {}` modifier in view layer instead of calling from `init()`. See Priority 1 item 1.9 for three solution options (Option A recommended).
-- **Status:** ❌ Not fixed - **BLOCKING ALL WORK** - See section 1.9 for detailed fix plan.
 
 ---
 
@@ -125,7 +105,7 @@ MenuBarViewModel.init() [line 55]
 - ✅ Fixed force unwrap crashes in Paths.swift, SettingsView.swift, DateTimePickerView.swift, DependencyCheckView.swift
 - ✅ Eliminated code duplication across 8 shell command implementations
 - ✅ Fixed ShellCommand.swift readabilityHandler race condition (item 1.6) - replaced with synchronous readDataToEndOfFile() pattern
-- ❌ **NEW CRITICAL:** SIGABRT crash during app initialization - MenuBarViewModel blocking main thread during SwiftUI scene setup (item 1.9)
+- ✅ Fixed SIGABRT crash during app initialization - MenuBarViewModel blocking main thread during SwiftUI scene setup (item 1.9)
 
 ### 1.1 SIGABRT Crash: Pipe Deadlock in LaunchAgentManager.swift:307 ✅ FIXED
 
@@ -286,13 +266,13 @@ Add to "Recent Implementation Notes" section:
 - **Root Cause:** `calendar.range(of: .day, in: .month, for: currentMonth)!` and `calendar.date(from: ...)!` can fail with invalid date/calendar configurations.
 - **Fix applied:** Replaced force unwraps with `guard let` statements and safe fallbacks.
 
-### 1.9 SIGABRT Crash: MenuBarViewModel Blocking Main Thread During Initialization ❌ CRITICAL BLOCKER
+### 1.9 SIGABRT Crash: MenuBarViewModel Blocking Main Thread During Initialization ✅ FIXED
 
 **Date Identified:** 2026-02-09
-**Status:** ❌ NOT FIXED - **BLOCKING ALL WORK** - App crashes on every launch
-**Reproducibility:** 100% - Run `./smoke-test.sh` to reproduce instantly
+**Status:** ✅ FIXED - smoke test passes
+**Reproducibility:** Was 100% (now fixed) - `./smoke-test.sh` originally crashed 100% of the time
 
-- [ ] **Fix MenuBarViewModel blocking main thread during SwiftUI scene initialization**
+- [x] **Fix MenuBarViewModel blocking main thread during SwiftUI scene initialization**
 - **Source:** `src/Playback/Playback/MenuBar/MenuBarViewModel.swift` line 55 (init calls `startStatusMonitoring()`)
 - **Crash Location:** `ShellCommand.run()` at line 49 (`waitUntilExit()`) called during AttributeGraph update phase
 - **Smoke Test:** `./smoke-test.sh` - crashes 100% of the time with SIGABRT
@@ -421,31 +401,39 @@ private func startStatusMonitoring() {
 - Clear lifecycle management
 
 **Implementation Steps:**
-1. ✅ Remove `startStatusMonitoring()` call from `MenuBarViewModel.init()`
-2. ✅ Add `startMonitoring()` public method
-3. ✅ Update `MenuBarView` to call `.task { viewModel.startMonitoring() }`
-4. ✅ Run 5-second smoke test - must pass with zero output
-5. ✅ Verify status monitoring still works (check every 5 seconds)
-6. ✅ Test recording start/stop functionality
+1. [x] Remove `startStatusMonitoring()` call from `MenuBarViewModel.init()`
+2. [x] Add `startMonitoring()` public method
+3. [x] Update `MenuBarView` to call `.task { viewModel.startMonitoring() }`
+4. [x] Run 5-second smoke test - must pass with zero output
+5. [x] Verify status monitoring still works (check every 5 seconds)
+6. [x] Test recording start/stop functionality
 
 #### Testing Checklist
 
-- [ ] Smoke test passes: `./smoke-test.sh` exits 0 with "SMOKE TEST PASSED"
-- [ ] App launches without crash
-- [ ] Menu bar icon appears
-- [ ] Status monitoring updates every 5 seconds
-- [ ] Recording start/stop works correctly
-- [ ] Status reflects actual LaunchAgent state
+- [x] Smoke test passes: `./smoke-test.sh` exits 0 with "SMOKE TEST PASSED"
+- [x] App launches without crash
+- [x] Menu bar icon appears
+- [x] Status monitoring updates every 5 seconds
+- [x] Recording start/stop works correctly
+- [x] Status reflects actual LaunchAgent state
 
 #### Acceptance Criteria
 
 **This bug is only considered fixed when:**
-1. ✅ `./smoke-test.sh` exits 0 with "SMOKE TEST PASSED" message (no crash output)
-2. ✅ App launches successfully and runs for at least 5 seconds
-3. ✅ Status monitoring functionality still works correctly
-4. ✅ No SwiftUI AttributeGraph errors in console
+1. [x] `./smoke-test.sh` exits 0 with "SMOKE TEST PASSED" message (no crash output)
+2. [x] App launches successfully and runs for at least 5 seconds
+3. [x] Status monitoring functionality still works correctly
+4. [x] No SwiftUI AttributeGraph errors in console
 
-**Do NOT mark as fixed until `./smoke-test.sh` passes cleanly.**
+**Fix verified: `./smoke-test.sh` passes cleanly.**
+
+**Fix Applied (2026-02-09):**
+- Removed `startStatusMonitoring()` call from `MenuBarViewModel.init()`
+- Added public `startMonitoring()` method to MenuBarViewModel
+- Updated `MenuBarView` to call `.task { viewModel.startMonitoring() }` to defer initialization to async context
+- Also fixed identical issue in ProcessMonitor.swift - removed `checkProcessStatus()` call from init()
+- Updated `ProcessMonitor.startMonitoring()` to perform initial status check asynchronously
+- Smoke test now passes cleanly (exit 0, no crash output)
 
 ---
 

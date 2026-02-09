@@ -15,7 +15,6 @@ final class ProcessMonitor: ObservableObject {
     static let shared = ProcessMonitor()
 
     private init() {
-        checkProcessStatus()
     }
 
     func startMonitoring() {
@@ -26,6 +25,11 @@ final class ProcessMonitor: ObservableObject {
             Task { @MainActor in
                 await self.checkProcessStatusAsync()
             }
+        }
+
+        // Check initial status asynchronously
+        Task { @MainActor in
+            await checkProcessStatusAsync()
         }
 
         if Paths.isDevelopment {
