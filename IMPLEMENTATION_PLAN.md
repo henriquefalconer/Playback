@@ -9,93 +9,160 @@ Based on comprehensive technical specifications in `specs/` and verified against
 
 ---
 
-## 🚨 CRITICAL: End-to-End Functionality Gaps (2026-02-09)
+## 🚨 CRITICAL: End-to-End Functionality Gaps (Updated 2026-02-09)
 
-**Status: Core recording/processing pipeline NOT functional** — app launches without crashes but services don't start correctly.
+**Status: Core recording/processing pipeline NOT functional** — app launches without crashes but services don't start correctly and the entire pipeline is broken.
 
-The following issues MUST be resolved for the recording/processing pipeline to work end-to-end. These are ordered by dependency (fix earlier items first).
+8 gaps identified (A-H). Ordered by implementation priority within each tier.
 
-### Gap A: Processing Service Not Always-On ❌
+### Tier 1: Pipeline-Breaking (Must Fix — Nothing Works Without These)
 
-- [ ] **Processing service must auto-start when the app launches, regardless of recording toggle state**
-- **Spec:** `specs/menu-bar.md` lines 1137-1139 — Processing plist has `RunAtLoad: true`; `specs/architecture.md` line 88 — processing is an independent service
-- **Current behavior:** `FirstRunCoordinator.completeSetup()` at line 136 only starts processing if `startRecordingNow == true`. `PlaybackApp.swift` does NOT start the processing service on launch at all. There is no code path that ensures processing runs independently of the recording toggle.
-- **Root cause chain:**
-  1. `FirstRunCoordinator.completeSetup()` (line 119-142) installs and loads both agents, but only starts them conditionally (`if startRecordingNow`)
-  2. `PlaybackApp.swift` never calls `startAgent(.processing)` or ensures it's running
-  3. `MenuBarViewModel.toggleRecording()` only controls `.recording` agent (lines 93-109), never touches `.processing`
-  4. Processing plist template has `RunAtLoad: true` (line 19), meaning it SHOULD auto-start when loaded — but if it was never loaded (first-run skipped, or app reinstalled), it won't run
-- **Required fix:** On app launch (e.g., in `PlaybackApp.swift` or `AppDelegate.applicationDidFinishLaunching`), ensure the processing agent is installed, loaded, and started. This should happen unconditionally whenever the menu bar is visible, independent of the recording toggle.
-- **Impact:** Without this fix, unprocessed screenshots accumulate in temp/ and are never converted to video segments.
+#### Gap D: Pipe Deadlock in SettingsView (TWO locations) ❌
 
-### Gap B: FFmpeg Not Found at Runtime ❌
+- [ ] **Migrate TWO remaining pipe deadlock `runShellCommand()` methods to use `ShellCommand.runAsync()`**
+- **Location 1:** `SettingsView.swift:1289-1311` — `AdvancedSettingsTab.runShellCommand()`
+- **Location 2:** `SettingsView.swift:1967-1989` — `PrivacySettingsTab.runShellCommand()`
+- **Root cause:** Both methods call `process.waitUntilExit()` BEFORE `pipe.fileHandleForReading.readDataToEndOfFile()`. Same deadlock pattern fixed elsewhere in Priority 1.3, but these two private methods were missed.
+- **Called by:** `loadSystemInformation()` (every 30s), `exportLogs()`, `runDiagnostics()` — all in the Settings window
+- **Required fix:** Replace both methods with `ShellCommand.runAsync("/bin/bash", arguments: ["-c", command])`. Delete the duplicate private methods entirely.
+- **Risk:** Medium — short commands like `sw_vers` won't fill the pipe buffer, but longer commands (e.g., `ffmpeg -version`, `df -h`) could. Fix independently; no dependencies.
+- **Effort:** Small (replace 2 method bodies)
 
-- [ ] **FFmpeg detection shows "command not found" because SettingsView uses bare `ffmpeg` command via bash**
+#### Gap F: `recording_enabled` Config Field Missing ❌
+
+- [ ] **Add `recording_enabled` boolean field to Config struct (Swift) and Config class (Python)**
+- **Spec:** `specs/menu-bar.md` line 51 — "Persist state in config.json field: `recording_enabled`"
+- **Current behavior:** The field does NOT exist in either `Config/Config.swift` or `src/lib/config.py`. Zero occurrences of `recording_enabled` or `recordingEnabled` in the entire codebase (verified via grep).
+- **Impact:** Recording toggle state cannot be persisted across app restarts. When the app relaunches, there is no way to know whether recording was previously enabled.
+- **Required fix (3 files):**
+  1. **`Config/Config.swift`:** Add `var recordingEnabled: Bool` field (default: `false`). Add to `defaultConfig`, `validated()`, and CodingKeys.
+  2. **`src/lib/config.py`:** Add `self.recording_enabled: bool = config_dict.get("recording_enabled", False)` to `Config.__init__()`.
+  3. **`MenuBarViewModel.swift`:** On toggle, persist state: `ConfigManager.shared.config.recordingEnabled = newValue; ConfigManager.shared.saveConfig()`. On launch, read persisted state to initialize toggle.
+- **Effort:** Small (add field to 2 config files + wire up in ViewModel)
+
+#### Gap G: Recording Service Ignores `recording_enabled` Config ❌
+
+- [ ] **Make `record_screen.py` check `recording_enabled` config field each iteration**
+- **Spec:** `specs/menu-bar.md` line 49 — Toggle "Enable/disable recording via LaunchAgent"
+- **Current behavior:** `record_screen.py` runs unconditionally once started. Its main loop (line 254: `while True:`) checks timeline open signal, screen availability, and app exclusion, but does NOT check any `recording_enabled` config field. The only way to stop recording is to kill the LaunchAgent process.
+- **Impact:** Recording toggle in menu bar starts/stops the LaunchAgent process, but the spec envisions using a config field. This means the toggle approach works but recording state is lost on restart (ties into Gap F).
+- **Design decision needed:** The current approach (start/stop LaunchAgent) works mechanically but doesn't persist state. Two options:
+  - **Option A (Recommended):** Keep LaunchAgent start/stop approach BUT persist `recording_enabled` in config. On app launch, read config and auto-start recording agent if `recording_enabled == true`.
+  - **Option B:** Keep recording agent always running, add `recording_enabled` config check to loop. Toggle just writes config, agent reads it. Simpler but uses more CPU when paused.
+- **Required fix (Option A):** On app launch in `AppDelegate.applicationDidFinishLaunching`, read `config.recordingEnabled` and start recording agent if true. Depends on Gap F.
+- **Effort:** Small (add config check or startup logic)
+
+#### Gap A: Service Lifecycle Manager Missing ❌
+
+- [ ] **Ensure processing + recording + cleanup agents are installed/loaded/started on every app launch**
+- **Spec:** `specs/menu-bar.md` lines 8-9 — Menu bar agent controls recording and processing services; `specs/architecture.md` line 88 — processing is independent
+- **Current behavior:**
+  - `FirstRunCoordinator.completeSetup()` installs+loads recording+processing agents, starts them ONLY if `startRecordingNow == true` (default: false)
+  - `AppDelegate.applicationDidFinishLaunching()` only checks first-run status — does NOT start any services
+  - On subsequent launches, NO code ensures services are running
+  - Processing service has `RunAtLoad: true` in its plist template, so it SHOULD auto-start when launchd loads it — but only if the plist was previously loaded into launchd (which only happens during first-run)
+- **Root cause:** No service lifecycle management on app launch. The app trusts that launchd remembers previous agent loading, but launchd may forget after reboot or if plists are removed.
+- **Required fix:** Add a `ServiceLifecycleManager` (or inline in `AppDelegate`) that runs on every app launch:
+  1. Check if first-run is complete (skip if not)
+  2. Ensure all agent plists are installed (install from template if missing)
+  3. Ensure processing agent is loaded and started (unconditionally — always-on)
+  4. Ensure cleanup agent is loaded (runs on its own schedule)
+  5. If `config.recordingEnabled == true` (from Gap F), ensure recording agent is loaded and started
+  6. If `config.recordingEnabled == false`, ensure recording agent is stopped
+  7. Run this check asynchronously (on background thread) to avoid blocking SwiftUI init
+- **Dependencies:** Gap F (recording_enabled field), Gap E (cleanup agent)
+- **Impact:** Without this fix, services don't start on subsequent app launches, processing never runs, and the entire pipeline is broken.
+- **Effort:** Medium (new lifecycle manager with async startup logic)
+
+#### Gap B: FFmpeg Not Found at Runtime ❌
+
+- [ ] **Fix FFmpeg detection in both Swift Settings UI and Python processing service**
 - **Spec:** `specs/menu-bar.md` line 363 — Settings should show FFmpeg version
-- **Current behavior:** `SettingsView.swift:1608` runs `ffmpeg -version | head -n 1` via `runShellCommand()` which calls `/bin/bash -c "ffmpeg -version | head -n 1"`. In LaunchAgent context, Homebrew's `/opt/homebrew/bin` is NOT in PATH, so bash can't find `ffmpeg`.
 - **Two separate issues:**
-  1. **Settings UI display (SettingsView.swift:1608):** Uses bare `ffmpeg` command name → shows "command not found"
-  2. **Python service runtime (lib/video.py:30,204):** Uses `shutil.which("ffmpeg")` and bare `ffmpeg` in subprocess commands → relies on system PATH
-- **Processing plist template disconnect:** The template sets `FFMPEG_PATH=/opt/homebrew/bin/ffmpeg` environment variable (line 35-36), but **no Python code reads `FFMPEG_PATH`**. The variable is completely unused.
-- **DependencyCheckView.swift (first-run):** Correctly detects ffmpeg at absolute paths (`/opt/homebrew/bin/ffmpeg`, `/usr/local/bin/ffmpeg`, `/usr/bin/ffmpeg`) during first-run (lines 84-96), but the detected path is **not stored anywhere** for runtime reuse.
-- **Required fix (two parts):**
-  1. **Swift side:** In `loadSystemInformation()`, use absolute path detection (same logic as DependencyCheckView) or `ShellCommand.run("/opt/homebrew/bin/ffmpeg", arguments: ["-version"])` instead of bare `ffmpeg` via bash
-  2. **Python side:** Update `lib/video.py` to check `os.environ.get("FFMPEG_PATH")` first, then fall back to `shutil.which("ffmpeg")`, then fall back to hardcoded known paths. Alternatively, add `/opt/homebrew/bin` to PATH in the plist template.
-- **Impact:** Without this fix, the Settings UI shows "ffmpeg command not found" and more critically, the processing service may fail to encode videos if ffmpeg isn't in the LaunchAgent's restricted PATH.
+  1. **Settings UI display (`SettingsView.swift:1608`):** Uses bare `ffmpeg -version | head -n 1` via bash → shows "command not found" because Homebrew's `/opt/homebrew/bin` is NOT in the LaunchAgent/app PATH
+  2. **Python service runtime (`lib/video.py:30,204`):** Uses `shutil.which("ffmpeg")` and bare `ffmpeg` in subprocess commands → fails when ffmpeg not in PATH
+- **Processing plist template disconnect:** Sets `FFMPEG_PATH=/opt/homebrew/bin/ffmpeg` environment variable, but **no Python code reads it** — the variable is completely unused.
+- **DependencyCheckView.swift (first-run):** Correctly detects ffmpeg at absolute paths (`/opt/homebrew/bin/ffmpeg`, `/usr/local/bin/ffmpeg`, `/usr/bin/ffmpeg`) during first-run (lines 84-96), but the detected path is NOT stored for runtime reuse.
+- **Required fix (3 parts):**
+  1. **Swift Settings UI:** In `loadSystemInformation()`, probe absolute paths (same as DependencyCheckView) or use `ShellCommand.run` with absolute path. Replace bare `ffmpeg` with detected path.
+  2. **Python `lib/video.py`:** Add `_get_ffmpeg_path()` helper that checks: (a) `os.environ.get("FFMPEG_PATH")`, (b) `shutil.which("ffmpeg")`, (c) hardcoded fallbacks (`/opt/homebrew/bin/ffmpeg`, `/usr/local/bin/ffmpeg`). Use this helper everywhere instead of bare `"ffmpeg"`. Same for `ffprobe`.
+  3. **Plist templates:** Add `/opt/homebrew/bin` to PATH in all plist templates: `<key>PATH</key><string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>`. This is the simplest fix and covers both ffmpeg and python3.
+- **Impact:** Without this fix, Settings shows "ffmpeg not found" and the processing service fails to encode videos.
+- **Effort:** Medium (3 files to modify, need Python tests updated)
 
-### Gap C: Recording Toggle Appears Non-Functional ❌
+#### Gap C: Recording Toggle UX Broken ❌
 
-- [ ] **Record Screen toggle resets to OFF every 5 seconds because updateRecordingState() polls LaunchAgent status**
-- **Spec:** `specs/menu-bar.md` lines 46-52 — Toggle enables/disables recording via LaunchAgent
-- **Current behavior:** `MenuBarViewModel.updateRecordingState()` (lines 148-161) polls every 5 seconds via timer. When the recording agent isn't running (which is the initial state on app launch), it sets `isRecordingEnabled = false` and `recordingState = .paused`. Even if the user toggles ON, if `startAgent(.recording)` fails silently, the next poll resets the toggle to OFF.
-- **Failure scenarios that cause toggle to appear "stuck OFF":**
-  1. **First-run not completed:** Agents never installed/loaded → `startAgent` fails in `ensureAgentLoaded` → error caught silently → `isRecordingEnabled` toggled back
-  2. **Agent not loaded:** If plist doesn't exist or wasn't loaded → `loadAgent` inside `ensureAgentLoaded` tries to install from template → template might not be in bundle resources → fails
-  3. **Silent failure:** `toggleRecording()` catches errors (line 102-108), logs in dev mode only, sets error state, toggles back — in production, user sees toggle flip back with no feedback
+- [ ] **Fix toggle behavior: ensure it works on first try and provides error feedback**
+- **Spec:** `specs/menu-bar.md` lines 46-52 — Toggle with inline switch, blue when ON, error feedback
+- **Current behavior:** `MenuBarViewModel.updateRecordingState()` (lines 148-161) polls every 5 seconds. If the recording agent isn't running, it forces `isRecordingEnabled = false`, overriding user intent. Error handling only logs to console in dev mode.
+- **Three interacting problems:**
+  1. **Agent not installed/loaded on non-first-run launches** → `startAgent` fails → error caught silently → toggle reverts (Gap A dependency)
+  2. **No error feedback** → user sees toggle flip back with no explanation. Only dev-mode console logging.
+  3. **Polling overwrites intent** → Even if user just toggled ON, next 5s poll sees agent not running and resets to OFF
 - **Required fix:**
-  1. Ensure agents are installed and loaded on app startup (ties into Gap A)
-  2. Add user-visible error feedback when `startAgent` fails (not just dev-mode print)
-  3. Verify that plist templates are included in the app bundle's Resources
-- **Impact:** Toggle flips back to OFF with no explanation, making the app appear broken.
+  1. Fix Gap A first (ensure agents installed on launch)
+  2. In `toggleRecording()`, show NSAlert when `startAgent` fails (not just dev-mode print)
+  3. In `updateRecordingState()`, add debounce: don't override toggle state within 10 seconds of user action (track `lastUserToggleTime`)
+  4. Persist `recording_enabled` in config (Gap F) so toggle state survives app restart
+- **Dependencies:** Gap A, Gap F
+- **Impact:** Toggle appears non-functional without these fixes.
+- **Effort:** Medium (error handling, debounce logic, config persistence)
 
-### Gap D: Pipe Deadlock in SettingsView.runShellCommand() ❌
+### Tier 2: Important (Services Won't Be Complete Without These)
 
-- [ ] **SettingsView.swift:1289-1311 still has the old pipe deadlock pattern (waitUntilExit before readDataToEndOfFile)**
-- **Source:** `src/Playback/Playback/Settings/SettingsView.swift` lines 1289-1311
-- **Root cause:** `AdvancedSettingsTab` has its own private `runShellCommand()` method that was NOT migrated to use `ShellCommand.run()`. It still calls `process.waitUntilExit()` on line 1301 BEFORE `pipe.fileHandleForReading.readDataToEndOfFile()` on line 1303.
-- **Why it was missed:** The Priority 1 pipe deadlock fixes (1.3) migrated instances in ProcessMonitor, DependencyCheckView, and earlier parts of SettingsView, but `AdvancedSettingsTab.runShellCommand()` is a separate private method defined at line 1289 inside the same file.
-- **Current behavior:** This method is called every 30 seconds by `loadSystemInformation()` to get macOS version, Python version, FFmpeg version, and disk space. It CAN deadlock if any command produces enough output to fill the pipe buffer before the process exits.
-- **Required fix:** Replace with `ShellCommand.run("/bin/bash", arguments: ["-c", command])` or `ShellCommand.runAsync()`.
-- **Risk level:** Medium — for short commands like `sw_vers` the buffer won't fill, but it's a ticking time bomb.
+#### Gap E: Cleanup Agent Not Installed During First-Run ❌
 
-### Gap E: Cleanup Agent Not Installed During First-Run ❌
-
-- [ ] **FirstRunCoordinator only installs recording and processing agents, not cleanup**
+- [ ] **Install and load cleanup agent alongside recording and processing**
 - **Source:** `FirstRunCoordinator.swift:131-134` — only installs `.recording` and `.processing`
 - **Spec:** `specs/storage-cleanup.md` — cleanup service should run periodically
-- **Template exists:** `cleanup.plist.template` is in Resources/launchagents/
-- **Required fix:** Add `try agentManager.installAgent(.cleanup)` and `try agentManager.loadAgent(.cleanup)` to `completeSetup()`
-- **Impact:** Old recordings are never cleaned up, disk space grows unbounded.
+- **Template exists:** `cleanup.plist.template` is in `Resources/launchagents/`
+- **Required fix:** Add to `FirstRunCoordinator.completeSetup()`:
+  ```swift
+  try agentManager.installAgent(.cleanup)
+  try agentManager.loadAgent(.cleanup)
+  ```
+- **Also:** The service lifecycle manager from Gap A should ensure cleanup is installed/loaded on every launch.
+- **Impact:** Without this, old recordings accumulate forever, disk grows unbounded.
+- **Effort:** Tiny (2 lines in FirstRunCoordinator + handled by Gap A lifecycle manager)
 
-### Dependency Order for Fixes
+#### Gap H: Services Should Auto-Start When Permissions Granted ❌
+
+- [ ] **Auto-start recording and processing when both Screen Recording and Accessibility permissions are first detected as granted**
+- **Spec:** `specs/menu-bar.md` — Recording requires Screen Recording permission; toggle should work immediately after permission granted
+- **Current behavior:** PermissionsView.swift checks permissions and updates coordinator state, but granting permissions does NOT trigger service start. User must complete entire first-run wizard AND check "Start recording now" to get services running.
+- **Desired behavior:** When the app detects that both Screen Recording permission is granted AND first-run is complete, it should automatically:
+  1. Install and load all agents (if not already)
+  2. Start processing service (always-on)
+  3. Start recording service if `config.recordingEnabled == true`
+- **Implementation:** This is handled by the service lifecycle manager from Gap A, which runs on every app launch. The lifecycle manager should check permissions before starting recording. No additional work needed beyond Gap A if the lifecycle manager checks `CGPreflightScreenCaptureAccess()` before starting the recording agent.
+- **Dependencies:** Gap A (service lifecycle manager)
+- **Effort:** Tiny (add permission check to lifecycle manager)
+
+### Dependency Order for Implementation
 
 ```
-Gap D (pipe deadlock) — independent, fix first for stability
-  ↓
-Gap A (processing always-on) — requires ensuring agents are installed on launch
-  ↓
-Gap B (ffmpeg detection) — requires processing service to be running to matter
-  ↓
-Gap C (toggle feedback) — requires Gap A to be fixed first
-  ↓
-Gap E (cleanup agent) — independent but low priority
+Phase 1 (no dependencies, do first):
+  Gap D  — Fix 2 pipe deadlocks in SettingsView (independent, 15 min)
+  Gap F  — Add recording_enabled config field (independent, 30 min)
+
+Phase 2 (depends on Phase 1):
+  Gap G  — Wire up recording_enabled persistence in ViewModel (depends on F)
+  Gap B  — Fix FFmpeg detection in Swift UI + Python + plist (independent)
+
+Phase 3 (depends on Phase 1+2):
+  Gap A  — Service lifecycle manager on app launch (depends on F, E)
+  Gap E  — Install cleanup agent in FirstRunCoordinator (independent, 5 min)
+
+Phase 4 (depends on Phase 3):
+  Gap C  — Fix toggle UX: debounce, error feedback (depends on A, F)
+  Gap H  — Auto-start on permission grant (handled by A)
 ```
 
 ---
 
 ## 🎉 MVP COMPLETION STATUS - 2026-02-09
 
-**Status: App launches cleanly, but end-to-end pipeline has gaps (see Critical section above)**
+**Status: App launches cleanly, but end-to-end pipeline has 8 gaps (see Critical section above)**
 
 ### Completion Statistics
 - **Priority 1 (Critical Bugs):** 9/9 complete (100%) ✅
@@ -103,7 +170,7 @@ Gap E (cleanup agent) — independent but low priority
 - **Priority 3 (UX Polish):** 11/14 complete (79%)
 - **Priority 4 (Architectural):** Deferred for post-MVP
 - **Tests:** 555/691 running and passing ✅
-- **End-to-End Gaps:** 5 issues identified (see above) ❌
+- **End-to-End Gaps:** 8 issues identified (A-H, see above) ❌
 
 ### What's Complete
 ✅ All SIGABRT crashes fixed (pipe deadlocks, double-close, force unwraps, blocking main thread)
@@ -113,9 +180,10 @@ Gap E (cleanup agent) — independent but low priority
 ✅ Enhanced log export with system information
 ✅ 280 Python tests passing, 203 Swift unit tests passing
 ✅ Smoke test passes cleanly (app launches without crashes)
+✅ Menu bar has a real SwiftUI Toggle (`.toggleStyle(.switch)`) for Record Screen
 
 ### Remaining Items
-❌ **Critical gaps A-E above** — recording/processing pipeline doesn't function end-to-end
+❌ **Critical gaps A-H above** — recording/processing pipeline doesn't function end-to-end
 ❌ App icon assets (2.4) - requires graphic design
 ❌ Momentum scrolling (3.4) - UX polish
 ❌ Drag-drop app exclusion (3.5) - convenience enhancement
@@ -135,11 +203,16 @@ Gap E (cleanup agent) — independent but low priority
   4. ✅ Fix MenuBarViewModel initialization SIGABRT crash (blocking main thread during SwiftUI scene setup) - discovered 2026-02-09 - FIXED 2026-02-09
   5. ✅ Ensure no custom storage location picker exists (confirmed: it doesn't)
   6. ✅ Storage paths: `~/Library/Application Support/Playback/` for production, `dev_data/` for development (already correct in code)
-  7. ❌ Working record screen toggle (not greyed out) — see Gap C above
-  8. ❌ Correct FFmpeg identification — see Gap B above
-  9. ❌ Recording service shows "Running" when toggle ON — see Gaps A, C above
-  10. ❌ Processing service always on when menu bar visible — see Gap A above
-  11. ❌ Screenshots actually process into video segments — see Gaps A, B above
+  7. ✅ Menu bar HAS a real SwiftUI Toggle with `.toggleStyle(.switch)` — confirmed at `MenuBarView.swift:12-13`
+  8. ❌ Toggle state persists across app restarts — see Gap F (recording_enabled config field missing)
+  9. ❌ Toggle works reliably (no silent failures, error feedback) — see Gap C
+  10. ❌ Correct FFmpeg identification — see Gap B
+  11. ❌ Recording service shows "Running" when toggle ON — see Gaps A, C, F, G
+  12. ❌ Processing service always on when menu bar visible — see Gap A
+  13. ❌ Screenshots actually process into video segments — see Gaps A, B
+  14. ❌ Services auto-start on app launch — see Gap A
+  15. ❌ Services auto-start when permissions granted — see Gap H
+  16. ❌ Cleanup agent installed — see Gap E
 
 ---
 
