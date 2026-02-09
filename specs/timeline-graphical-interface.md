@@ -3,10 +3,14 @@
 **Component:** Timeline Viewer (Playback.app - standalone app in Applications folder)
 **Last Updated:** 2026-02-07
 
-**Architecture Note:** The timeline viewer is a standalone app (`Playback.app`) that:
-- Lives in `/Applications/` folder (only user-visible Playback app)
-- Can be launched from menu bar, global hotkey, or app icon
-- Can be quit independently (Cmd+Q or ESC) without stopping recording
+**Architecture Note:** The timeline viewer is a fullscreen window within the menu bar app:
+- Lives in `/Applications/Playback.app` (only user-visible Playback app)
+- Can be launched from menu bar, global hotkey (Option+Shift+Space), or app icon
+- **Quit behavior:** Cmd+Q or quitting from Dock closes ONLY the timeline window, not the app
+  - Menu bar icon remains visible
+  - Recording and processing services continue running
+  - Only "Quit Playback" from menu bar stops all services and quits the app completely
+- ESC key closes the timeline window (same as Cmd+Q)
 - Signals recording service to pause while open, resume when closed
 - Read-only access to database and configuration
 
@@ -39,32 +43,23 @@
   - Trigger 1: Global hotkey (Option+Shift+Space) - handled by menu bar agent
   - Trigger 2: Menu bar "Open Timeline" - launched by menu bar agent via NSWorkspace
   - Trigger 3: Click app icon in Applications/Dock - standard macOS launch
-  - All triggers: Check for running processing service, show loading screen if needed
+  - All triggers: Open timeline immediately, no blocking screens
 
 - [ ] Implement launch sequence
   - Create signal file: `~/Library/Application Support/Playback/data/.timeline_open`
-  - Check if `build_chunks_from_temp.py` is running
-  - Show loading screen if processing
   - Load database and segments (read-only)
   - Enter fullscreen mode
   - Position timeline at most recent timestamp
   - Begin video playback
   - Recording service detects signal file and pauses automatically
+  - Processing continues in background if running (non-blocking)
 
 ### Loading Screen
-- [ ] Implement loading screen UI
-  - Source: `src/Playback/Playback/Timeline/LoadingScreenView.swift`
-  - Design: Centered modal with app name, spinner, status text
-  - Semi-transparent black background
-
-- [ ] Implement process detection
-  - Poll for `build_chunks_from_temp.py` process every 500ms
-  - Use `pgrep` or `ps` to check process status
-  - Show estimated time remaining (if available from logs)
-
-- [ ] Handle user cancellation
-  - ESC key dismisses loading screen and closes app
-  - Clean exit without starting timeline
+- [x] **REMOVED:** No blocking loading screen
+  - Users can navigate timeline freely even while processing is running
+  - Video segments appear as they're processed
+  - No modal overlay or blocking UI
+  - Processing happens in background without interrupting user navigation
 
 ### Fullscreen Timeline Window
 - [ ] Implement fullscreen window configuration
@@ -79,13 +74,14 @@
   - Disable process switching (Cmd+Tab)
   - Restore normal behavior on exit
 
-- [ ] Implement ESC key handler
+- [ ] Implement ESC and Cmd+Q handlers
   - Exit fullscreen mode
   - Delete signal file: `~/Library/Application Support/Playback/data/.timeline_open`
-  - Close window and quit app
+  - Close timeline window (window only, not app)
   - Recording service detects missing file and resumes automatically
-  - Clean shutdown
-  - Note: Cmd+Q has same behavior as ESC
+  - Menu bar icon remains visible
+  - App continues running with services active
+  - Note: To quit the entire app, use "Quit Playback" from menu bar
 
 ### Video Playback System
 - [ ] Implement video player integration (AVPlayer)

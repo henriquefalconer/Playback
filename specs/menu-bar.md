@@ -3,11 +3,13 @@
 **Component:** Menu Bar Agent (LaunchAgent, always running)
 **Last Updated:** 2026-02-07
 
-**Architecture Note:** The menu bar is a separate LaunchAgent process (`PlaybackMenuBar.app`) that runs independently of the timeline viewer (`Playback.app`). The menu bar agent:
-- Always runs in the background (survives timeline viewer quit)
+**Architecture Note:** Playback is a menu bar app with a fullscreen timeline viewer. The menu bar agent:
+- Always runs in the background (survives timeline window closing)
 - Controls recording and processing services
-- Launches timeline viewer on demand
-- When user clicks "Quit Playback", stops all services including itself
+- Launches timeline viewer window on demand
+- **Quit behavior distinction:**
+  - **Cmd+Q or quitting from Dock:** Closes timeline window only, app and services continue
+  - **"Quit Playback" from menu bar:** Stops all services and quits the entire app
 
 ## Implementation Checklist
 
@@ -53,12 +55,11 @@
 
 - [ ] Implement "Open Timeline" menu item
   - Shortcut hint: Option+Shift+Space (⌥⇧Space) displayed on right side in gray
-  - Action: Launch Playback.app (timeline viewer)
-  - Method: `NSWorkspace.shared.open(URL(fileURLWithPath: "/Applications/Playback.app"))`
-  - Behavior: Brings window to front if already running
+  - Action: Open timeline viewer window (fullscreen)
+  - Behavior: Brings window to front if already open
   - Disabled state: When no recordings exist (grayed out with reduced opacity)
   - Icon: Optional timeline icon on left (SF Symbol: `clock.arrow.circlepath`)
-  - Note: Timeline viewer is a separate app, can be quit independently
+  - Note: Closing timeline window (Cmd+Q or ESC) does NOT quit the app or stop services
 
 - [ ] Implement "Settings" menu item
   - Shortcut: Command+Comma (⌘,) displayed on right side in gray
@@ -79,16 +80,17 @@
 
 - [ ] Implement "Quit Playback" menu item
   - Shortcut: Command+Q (⌘Q) displayed on right side in gray
+  - **Note:** This is the ONLY way to fully quit Playback and stop all services
+  - **Cmd+Q on timeline window or quitting from Dock:** Only closes timeline window, services continue
   - Confirmation dialog: Modal alert with title "Stop recording and quit Playback?"
   - Dialog buttons: "Cancel" (default), "Quit" (destructive style in red)
-  - Dialog message: "This will stop all Playback services:\n• Recording service will stop\n• Processing service will stop\n• Timeline viewer will close\n• Menu bar icon will disappear\n\nUnprocessed screenshots will remain for later processing."
+  - Dialog message: "This will stop all Playback services:\n• Recording service will stop\n• Processing service will stop\n• Timeline window will close\n• Menu bar icon will disappear\n\nUnprocessed screenshots will remain for later processing."
   - Action sequence:
-    1. Unload recording LaunchAgent: `launchctl unload ~/Library/LaunchAgents/com.playback.recording.plist`
-    2. Unload processing LaunchAgent: `launchctl unload ~/Library/LaunchAgents/com.playback.processing.plist`
-    3. Close timeline viewer if open: Send quit signal to Playback.app
-    4. Unload menu bar agent (self): `launchctl unload ~/Library/LaunchAgents/com.playback.menubar.plist`
+    1. Stop recording service (in-app Swift service)
+    2. Stop processing LaunchAgent: `launchctl unload ~/Library/LaunchAgents/com.playback.processing.plist`
+    3. Close timeline window if open
+    4. Quit app completely (NSApp.terminate)
   - No confirmation if recording is already stopped
-  - Note: This is the only way to completely quit Playback (quitting timeline viewer alone keeps recording active)
 
 ### Settings Window - General Tab
 - [ ] Create settings window shell

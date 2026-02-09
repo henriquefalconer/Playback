@@ -57,26 +57,35 @@ final class RecordingService: ObservableObject {
 
         // Start timer
         timer = Timer.scheduledTimer(withTimeInterval: captureInterval, repeats: true) { [weak self] _ in
+            print("[RecordingService] Timer fired")
             Task { @MainActor in
                 await self?.captureScreenshot()
             }
         }
+        print("[RecordingService] Timer created with interval \(captureInterval)s")
 
         // Fire immediately
+        print("[RecordingService] Firing initial capture")
         Task {
             await captureScreenshot()
         }
 
         log("Recording service started", metadata: ["interval_seconds": captureInterval])
+        print("[RecordingService] start() complete, isRecording=\(isRecording)")
     }
 
     /// Stop recording
     func stop() {
-        guard isRecording else { return }
+        print("[RecordingService] stop() called, isRecording=\(isRecording)")
+        guard isRecording else {
+            print("[RecordingService] Already stopped, ignoring")
+            return
+        }
 
         timer?.invalidate()
         timer = nil
         isRecording = false
+        print("[RecordingService] Recording stopped")
 
         log("Recording service stopped", metadata: ["total_captures": captureCount])
     }
@@ -98,19 +107,22 @@ final class RecordingService: ObservableObject {
     // MARK: - Screenshot Capture
 
     private func captureScreenshot() async {
+        print("[RecordingService] captureScreenshot() called")
+
         // Check if timeline is open (pause recording)
         if fileManager.fileExists(atPath: Paths.timelineOpenSignalPath.path) {
-            if Paths.isDevelopment {
-                print("[RecordingService] Timeline open - pausing capture")
-            }
+            print("[RecordingService] Timeline open - pausing capture")
             return
         }
 
         // Get frontmost app
         guard let frontmostApp = getFrontmostApp() else {
+            print("[RecordingService] ERROR: Could not determine frontmost app")
             logError("Could not determine frontmost app")
             return
         }
+
+        print("[RecordingService] Frontmost app: \(frontmostApp)")
 
         // Check if app is excluded
         if excludedApps.contains(frontmostApp) {

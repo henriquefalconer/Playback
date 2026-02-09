@@ -37,7 +37,14 @@ enum RecordingState {
 @MainActor
 final class MenuBarViewModel: ObservableObject {
     @Published var recordingState: RecordingState = .paused
-    @Published var isRecordingEnabled: Bool = false
+    @Published var isRecordingEnabled: Bool = false {
+        willSet {
+            print("[MenuBarViewModel] isRecordingEnabled will change: \(isRecordingEnabled) → \(newValue)")
+        }
+        didSet {
+            print("[MenuBarViewModel] isRecordingEnabled did change to: \(isRecordingEnabled)")
+        }
+    }
     @Published var showSettings = false
     @Published var showDiagnostics = false
     @Published var errorCount: Int = 0

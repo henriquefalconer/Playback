@@ -32,22 +32,39 @@ struct PlaybackApp: App {
                     // Connect playback controller to timeline store for segment preloading
                     playbackController.timelineStore = timelineStore
 
-                    // Configure fullscreen presentation options before entering fullscreen
-                    fullscreenManager.configureFullscreenPresentation()
+                    // Activate app and bring window to front BEFORE toggling fullscreen
+                    NSApp.activate(ignoringOtherApps: true)
 
-                    NSApp.windows.first?.toggleFullScreen(nil)
+                    // Find the timeline window
+                    if let window = NSApp.windows.first(where: { $0.title.contains("ContentView") || $0.level == .normal }) {
+                        print("[Playback] Found timeline window, activating and entering fullscreen")
+                        window.makeKeyAndOrderFront(nil)
+
+                        // Configure fullscreen presentation options before entering fullscreen
+                        fullscreenManager.configureFullscreenPresentation()
+
+                        // Enter fullscreen
+                        window.toggleFullScreen(nil)
+                    } else {
+                        print("[Playback] ERROR: Could not find timeline window")
+                    }
+
                     signalManager.createSignal()
                     processMonitor.startMonitoring()
                     hotkeyManager.registerHotkey {
                         NSApp.activate(ignoringOtherApps: true)
-                        if let window = NSApp.windows.first(where: { $0.identifier?.rawValue == "timeline" }) {
+                        if let window = NSApp.windows.first(where: { $0.level == .normal }) {
                             window.makeKeyAndOrderFront(nil)
+                            if !window.styleMask.contains(.fullScreen) {
+                                window.toggleFullScreen(nil)
+                            }
                         }
                     }
                 }
                 .onDisappear {
                     processMonitor.stopMonitoring()
                     fullscreenManager.restoreNormalPresentation()
+                    signalManager.removeSignal()
                 }
         }
         .windowStyle(.hiddenTitleBar)
@@ -99,6 +116,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         print("[AppDelegate] applicationDidFinishLaunching called")
         print("[AppDelegate] hasCompletedFirstRun=\(FirstRunCoordinator.hasCompletedFirstRun)")
+
+        // Clean up stale signal file from previous run (if app crashed or was force-quit)
+        let signalPath = Paths.timelineOpenSignalPath
+        if FileManager.default.fileExists(atPath: signalPath.path) {
+            print("[AppDelegate] Removing stale signal file from previous run")
+            try? FileManager.default.removeItem(at: signalPath)
+        }
 
         if !FirstRunCoordinator.hasCompletedFirstRun {
             print("[AppDelegate] Showing first run window")
@@ -221,6 +245,10 @@ final class SignalFileManagerWrapper: ObservableObject {
                 print("[Playback] Error creating signal file: \(error)")
             }
         }
+    }
+
+    func removeSignal() {
+        manager.removeSignalFile()
     }
 
     deinit {
