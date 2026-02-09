@@ -13,6 +13,15 @@ enum PlaybackError: Equatable {
 final class PlaybackController: ObservableObject {
     let player = AVPlayer()
 
+    /// Separate AVPlayer instance for preloading next segment in background
+    private var preloadPlayer: AVPlayer?
+    /// Reference to the next segment being preloaded
+    private var preloadedSegment: Segment?
+    /// Track whether we've triggered preloading for current segment
+    private var hasPreloadedNext: Bool = false
+    /// Weak reference to TimelineStore for segment queries
+    weak var timelineStore: TimelineStore?
+
     @Published private(set) var currentSegment: Segment?
     @Published var currentTime: TimeInterval = 0
     @Published var isPlaying: Bool = false
@@ -64,6 +73,10 @@ final class PlaybackController: ObservableObject {
             // "teleportation" to the segment start when we're in
             // the middle of it.
             self.currentTime = segment.absoluteTime(forVideoOffset: seconds)
+
+            // Segment preloading: When playback reaches 80% of current segment,
+            // preload the next segment in background for seamless transition
+            self.checkAndPreloadNextSegment(videoOffset: seconds, segment: segment)
         }
     }
 
@@ -107,6 +120,115 @@ final class PlaybackController: ObservableObject {
         if let token = timeObserverToken {
             player.removeTimeObserver(token)
         }
+        preloadPlayer = nil
+    }
+
+    /// Check if we should preload the next segment. Triggers at 80% of current segment duration.
+    private func checkAndPreloadNextSegment(videoOffset: TimeInterval, segment: Segment) {
+        // Skip if already preloaded for this segment
+        if hasPreloadedNext { return }
+
+        // Calculate segment progress as percentage
+        guard let videoDuration = segment.videoDuration, videoDuration > 0 else { return }
+        let progress = videoOffset / videoDuration
+
+        // Trigger preload at 80% threshold
+        guard progress >= 0.8 else { return }
+
+        hasPreloadedNext = true
+
+        // Find next segment in timeline
+        guard let nextSegment = findNextSegment(after: segment) else {
+            if Paths.isDevelopment {
+                print("[Playback] No next segment to preload after \(segment.id)")
+            }
+            return
+        }
+
+        if Paths.isDevelopment {
+            print("[Playback] Preloading next segment at \(Int(progress * 100))% progress: \(nextSegment.id)")
+        }
+
+        preloadSegmentInBackground(nextSegment)
+    }
+
+    /// Find the next segment chronologically after the given segment
+    private func findNextSegment(after segment: Segment) -> Segment? {
+        guard let store = timelineStore else { return nil }
+        let segments = store.segments
+
+        // Find current segment index
+        guard let currentIndex = segments.firstIndex(where: { $0.id == segment.id }) else {
+            return nil
+        }
+
+        // Return next segment if available
+        let nextIndex = currentIndex + 1
+        guard nextIndex < segments.count else {
+            return nil
+        }
+
+        return segments[nextIndex]
+    }
+
+    /// Preload a segment in background using separate AVPlayer instance
+    private func preloadSegmentInBackground(_ segment: Segment) {
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self = self else { return }
+
+            let item = AVPlayerItem(url: segment.videoURL)
+            let player = AVPlayer(playerItem: item)
+
+            // Wait for item to be ready
+            let semaphore = DispatchSemaphore(value: 0)
+            var statusObserver: NSKeyValueObservation?
+
+            statusObserver = item.observe(\.status, options: [.new]) { item, _ in
+                if item.status == .readyToPlay || item.status == .failed {
+                    semaphore.signal()
+                }
+            }
+
+            // Wait up to 5 seconds for preload to complete
+            _ = semaphore.wait(timeout: .now() + 5.0)
+            statusObserver?.invalidate()
+
+            DispatchQueue.main.async {
+                if item.status == .readyToPlay {
+                    self.preloadPlayer = player
+                    self.preloadedSegment = segment
+                    if Paths.isDevelopment {
+                        print("[Playback] Successfully preloaded segment \(segment.id)")
+                    }
+                } else {
+                    if Paths.isDevelopment {
+                        print("[Playback] Failed to preload segment \(segment.id): \(item.error?.localizedDescription ?? "unknown")")
+                    }
+                    self.preloadPlayer = nil
+                    self.preloadedSegment = nil
+                }
+            }
+        }
+    }
+
+    /// Use preloaded segment if available, otherwise load normally
+    private func usePreloadedSegmentIfAvailable(_ segment: Segment) -> Bool {
+        if let preloadedSeg = preloadedSegment,
+           preloadedSeg.id == segment.id,
+           let preloadedPlayer = preloadPlayer {
+            if Paths.isDevelopment {
+                print("[Playback] Using preloaded segment \(segment.id) - seamless transition")
+            }
+            // Transfer the player item to main player
+            if let item = preloadedPlayer.currentItem {
+                player.replaceCurrentItem(with: item)
+                // Clean up preload state
+                self.preloadPlayer = nil
+                self.preloadedSegment = nil
+                return true
+            }
+        }
+        return false
     }
 
     /// Updates the player to a given time **without starting playback**.
@@ -245,58 +367,73 @@ final class PlaybackController: ObservableObject {
             }
 
             currentSegment = segment
-            let url = segment.videoURL
-            let item = AVPlayerItem(url: url)
+            // Reset preload flag for new segment
+            hasPreloadedNext = false
 
-            // Keep the status observer for debugging if something goes wrong during loading.
-            statusObserver = item.observe(\.status, options: [.initial, .new]) { [weak self] item, _ in
-                guard let self else { return }
-                switch item.status {
-                case .readyToPlay:
-                    if Paths.isDevelopment {
-                        print("[Playback] \(isScrub ? "(scrub) " : "")READY to play \(url.path)")
-                    }
-                    DispatchQueue.main.async {
-                        self.consecutiveFailures = 0
-                        self.playbackError = nil
-                        // Only hide the frozen frame if we're no longer
-                        // in scrubbing. During scrubbing, we keep the
-                        // last displayed frame to avoid black flashes
-                        // even if the new segment is already ready.
-                        if !self.isScrubbing {
-                            self.showFrozenFrame = false
+            // Try to use preloaded segment if available
+            if usePreloadedSegmentIfAvailable(segment) {
+                // Preloaded segment successfully used, skip manual loading
+                // Status observer not needed since segment is already ready
+                consecutiveFailures = 0
+                playbackError = nil
+                if !isScrubbing {
+                    showFrozenFrame = false
+                }
+            } else {
+                // No preloaded segment, load normally
+                let url = segment.videoURL
+                let item = AVPlayerItem(url: url)
+
+                // Keep the status observer for debugging if something goes wrong during loading.
+                statusObserver = item.observe(\.status, options: [.initial, .new]) { [weak self] item, _ in
+                    guard let self else { return }
+                    switch item.status {
+                    case .readyToPlay:
+                        if Paths.isDevelopment {
+                            print("[Playback] \(isScrub ? "(scrub) " : "")READY to play \(url.path)")
                         }
-                    }
-                case .failed:
-                    if Paths.isDevelopment {
-                        print("[Playback] \(isScrub ? "(scrub) " : "")FAILED for \(url.path): \(item.error?.localizedDescription ?? "(no error)")")
-                    }
-                    DispatchQueue.main.async {
-                        self.consecutiveFailures += 1
-                        let errorDesc = item.error?.localizedDescription ?? "Unknown error"
-                        if !FileManager.default.fileExists(atPath: url.path) {
-                            self.playbackError = .videoFileMissing(url.lastPathComponent)
-                        } else if self.consecutiveFailures >= 3 {
-                            self.playbackError = .multipleConsecutiveFailures(self.consecutiveFailures)
-                        } else {
-                            self.playbackError = .segmentLoadingFailure(errorDesc)
+                        DispatchQueue.main.async {
+                            self.consecutiveFailures = 0
+                            self.playbackError = nil
+                            // Only hide the frozen frame if we're no longer
+                            // in scrubbing. During scrubbing, we keep the
+                            // last displayed frame to avoid black flashes
+                            // even if the new segment is already ready.
+                            if !self.isScrubbing {
+                                self.showFrozenFrame = false
+                            }
                         }
-                        if !self.isScrubbing {
-                            self.showFrozenFrame = false
+                    case .failed:
+                        if Paths.isDevelopment {
+                            print("[Playback] \(isScrub ? "(scrub) " : "")FAILED for \(url.path): \(item.error?.localizedDescription ?? "(no error)")")
                         }
-                    }
-                case .unknown:
-                    if Paths.isDevelopment {
-                        print("[Playback] \(isScrub ? "(scrub) " : "")status UNKNOWN for \(url.path)")
-                    }
-                @unknown default:
-                    if Paths.isDevelopment {
-                        print("[Playback] \(isScrub ? "(scrub) " : "")unknown status for \(url.path)")
+                        DispatchQueue.main.async {
+                            self.consecutiveFailures += 1
+                            let errorDesc = item.error?.localizedDescription ?? "Unknown error"
+                            if !FileManager.default.fileExists(atPath: url.path) {
+                                self.playbackError = .videoFileMissing(url.lastPathComponent)
+                            } else if self.consecutiveFailures >= 3 {
+                                self.playbackError = .multipleConsecutiveFailures(self.consecutiveFailures)
+                            } else {
+                                self.playbackError = .segmentLoadingFailure(errorDesc)
+                            }
+                            if !self.isScrubbing {
+                                self.showFrozenFrame = false
+                            }
+                        }
+                    case .unknown:
+                        if Paths.isDevelopment {
+                            print("[Playback] \(isScrub ? "(scrub) " : "")status UNKNOWN for \(url.path)")
+                        }
+                    @unknown default:
+                        if Paths.isDevelopment {
+                            print("[Playback] \(isScrub ? "(scrub) " : "")unknown status for \(url.path)")
+                        }
                     }
                 }
-            }
 
-            player.replaceCurrentItem(with: item)
+                player.replaceCurrentItem(with: item)
+            }
         }
 
         let cm = CMTime(seconds: offset, preferredTimescale: 600)
@@ -329,56 +466,70 @@ final class PlaybackController: ObservableObject {
                 captureFrozenFrame(from: oldSeg, atAbsoluteTime: currentTime)
             }
 
-            let url = segment.videoURL
-            let item = AVPlayerItem(url: url)
-
             currentSegment = segment
+            // Reset preload flag for new segment
+            hasPreloadedNext = false
 
-            // Observe status to understand decoding/loading failures
-            statusObserver = item.observe(\.status, options: [.initial, .new]) { [weak self] item, _ in
-                guard let self else { return }
-                switch item.status {
-                case .readyToPlay:
-                    if Paths.isDevelopment {
-                        print("[Playback] READY to play \(url.path)")
-                    }
-                    DispatchQueue.main.async {
-                        self.consecutiveFailures = 0
-                        self.playbackError = nil
-                        if !self.isScrubbing {
-                            self.showFrozenFrame = false
+            // Try to use preloaded segment if available
+            if usePreloadedSegmentIfAvailable(segment) {
+                // Preloaded segment successfully used
+                consecutiveFailures = 0
+                playbackError = nil
+                if !isScrubbing {
+                    showFrozenFrame = false
+                }
+            } else {
+                // No preloaded segment, load normally
+                let url = segment.videoURL
+                let item = AVPlayerItem(url: url)
+
+                // Observe status to understand decoding/loading failures
+                statusObserver = item.observe(\.status, options: [.initial, .new]) { [weak self] item, _ in
+                    guard let self else { return }
+                    switch item.status {
+                    case .readyToPlay:
+                        if Paths.isDevelopment {
+                            print("[Playback] READY to play \(url.path)")
                         }
-                    }
-                case .failed:
-                    if Paths.isDevelopment {
-                        print("[Playback] FAILED for \(url.path): \(item.error?.localizedDescription ?? "(no error)")")
-                    }
-                    DispatchQueue.main.async {
-                        self.consecutiveFailures += 1
-                        let errorDesc = item.error?.localizedDescription ?? "Unknown error"
-                        if !FileManager.default.fileExists(atPath: url.path) {
-                            self.playbackError = .videoFileMissing(url.lastPathComponent)
-                        } else if self.consecutiveFailures >= 3 {
-                            self.playbackError = .multipleConsecutiveFailures(self.consecutiveFailures)
-                        } else {
-                            self.playbackError = .segmentLoadingFailure(errorDesc)
+                        DispatchQueue.main.async {
+                            self.consecutiveFailures = 0
+                            self.playbackError = nil
+                            if !self.isScrubbing {
+                                self.showFrozenFrame = false
+                            }
                         }
-                        if !self.isScrubbing {
-                            self.showFrozenFrame = false
+                    case .failed:
+                        if Paths.isDevelopment {
+                            print("[Playback] FAILED for \(url.path): \(item.error?.localizedDescription ?? "(no error)")")
                         }
-                    }
-                case .unknown:
-                    if Paths.isDevelopment {
-                        print("[Playback] status UNKNOWN for \(url.path)")
-                    }
-                @unknown default:
-                    if Paths.isDevelopment {
-                        print("[Playback] unknown status for \(url.path)")
+                        DispatchQueue.main.async {
+                            self.consecutiveFailures += 1
+                            let errorDesc = item.error?.localizedDescription ?? "Unknown error"
+                            if !FileManager.default.fileExists(atPath: url.path) {
+                                self.playbackError = .videoFileMissing(url.lastPathComponent)
+                            } else if self.consecutiveFailures >= 3 {
+                                self.playbackError = .multipleConsecutiveFailures(self.consecutiveFailures)
+                            } else {
+                                self.playbackError = .segmentLoadingFailure(errorDesc)
+                            }
+                            if !self.isScrubbing {
+                                self.showFrozenFrame = false
+                            }
+                        }
+                    case .unknown:
+                        if Paths.isDevelopment {
+                            print("[Playback] status UNKNOWN for \(url.path)")
+                        }
+                    @unknown default:
+                        if Paths.isDevelopment {
+                            print("[Playback] unknown status for \(url.path)")
+                        }
                     }
                 }
+
+                player.replaceCurrentItem(with: item)
             }
 
-            player.replaceCurrentItem(with: item)
             let cm = CMTime(seconds: offset, preferredTimescale: 600)
             player.seek(to: cm, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
                 self?.player.play()

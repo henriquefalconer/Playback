@@ -28,6 +28,9 @@ struct PlaybackApp: App {
                 .environmentObject(playbackController)
                 .environmentObject(processMonitor)
                 .onAppear {
+                    // Connect playback controller to timeline store for segment preloading
+                    playbackController.timelineStore = timelineStore
+
                     NSApp.windows.first?.toggleFullScreen(nil)
                     signalManager.createSignal()
                     processMonitor.startMonitoring()

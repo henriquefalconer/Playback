@@ -369,12 +369,21 @@ These items improve the overall experience but are not blocking core functionali
 - **Problem:** Pinch zoom changes scale but doesn't maintain the timestamp under the cursor
 - **Fix applied:** Implemented cursor-anchored zoom that maintains the timestamp under the cursor during pinch gestures. Added `pinchAnchorTimestamp` state variable to track anchor point, and adjusted `centerTime` proportionally during zoom to keep anchor timestamp at same screen position using formula: `centerTime = anchorTimestamp + (centerTime - anchorTimestamp) * (newWindow / oldWindow)`
 
-### 3.2 Timeline: No Segment Preloading
+### 3.2 Timeline: No Segment Preloading ✅ COMPLETE
 
-- [ ] **Preload next segment at 80% playback**
+- [x] **Preload next segment at 80% playback** (2026-02-08)
 - **Spec:** `specs/timeline-graphical-interface.md` lines 329-332
 - **Source:** `PlaybackController.swift`
-- **Missing:** Segments loaded reactively, causing 100-500ms pause on each segment transition
+- **Implementation complete:**
+  - Added separate `preloadedPlayer` AVPlayer instance for background preloading
+  - Implemented 80% playback threshold monitoring in periodic time observer
+  - Created `findNextSegment()` method to locate chronological next segment
+  - Implemented `preloadSegmentInBackground()` for async segment loading without blocking current playback
+  - Added `usePreloadedSegmentIfAvailable()` for seamless transition to preloaded segment
+  - Integrated `timelineStore` weak reference into PlaybackController for segment lookup
+  - Updated both `seek()` and `update()` methods to check and use preloaded segments
+  - Connected `playbackController.timelineStore` in `PlaybackApp.swift` onAppear
+- **Result:** Eliminates 100-500ms pause on segment transitions by preloading next segment in background
 
 ### 3.3 Timeline: Fullscreen Configuration Incomplete
 
