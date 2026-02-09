@@ -102,6 +102,12 @@ Key operational learnings from Phase 2 development (2026-02-07):
 - **Comment translation:** When translating comments, preserve technical terminology (segment, timeline, scrubbing, frozen frame) and maintain original formatting. Use concise professional tone appropriate for code documentation
 - **Segment preloading pattern:** For seamless video transitions, use separate AVPlayer for background preloading. Monitor playback progress in timeObserver, trigger preload at 80% threshold. Load AVPlayerItem asynchronously on background queue, swap to main player when ready. Requires weak reference to data source (TimelineStore) for finding next segment chronologically. Pattern eliminates 100-500ms pause during segment transitions
 - **Config migration framework:** Use array of (from_version, to_version, migrate_function) tuples for sequential version upgrades. System automatically chains migrations (e.g., 1.0.0 → 1.1.0 → 1.2.0). Each migration receives mutable Config for transformation. Log progress in dev mode
+- **Service lifecycle management:** Always ensure services are installed/loaded on every app launch, not just first-run. LaunchAgent state can be lost after reboot. Use AppDelegate.applicationDidFinishLaunching() to restore service state
+- **Recording toggle debounce:** When polling service status, track lastUserToggleTime and skip updates within 10 seconds of user action to prevent overriding user intent
+- **Error feedback in toggles:** Always show NSAlert on toggle failures, not just console logging. Silent failures confuse users
+- **Config persistence pattern:** Update config immediately after successful state change (e.g., after startAgent succeeds). Don't wait for polling to detect state
+- **FFmpeg in LaunchAgents:** Add PATH environment variable to plist templates with /opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin. Also provide FFMPEG_PATH and FFPROBE_PATH for explicit fallback
+- **Python ffmpeg detection:** Check env vars first (FFMPEG_PATH), then hardcoded paths, then shutil.which(). Never rely solely on PATH in LaunchAgent context
 
 ## Specifications
 
