@@ -499,10 +499,12 @@ struct ProcessingSettingsTab: View {
     private func loadLastProcessingRun() async {
         let logPath: String
         if Paths.isDevelopment {
-            let projectRoot = Bundle.main.bundleURL
-                .deletingLastPathComponent()
-                .deletingLastPathComponent()
-                .deletingLastPathComponent()
+            // Use SRCROOT environment variable
+            guard let srcRoot = ProcessInfo.processInfo.environment["SRCROOT"] else {
+                fatalError("SRCROOT environment variable not set - required in development mode")
+            }
+            let expandedPath = NSString(string: srcRoot).expandingTildeInPath
+            let projectRoot = URL(fileURLWithPath: expandedPath)
             logPath = projectRoot.appendingPathComponent("dev_logs/processing.log").path
         } else {
             logPath = NSString(string: "~/Library/Logs/Playback/processing.log").expandingTildeInPath
@@ -610,10 +612,12 @@ struct ProcessingSettingsTab: View {
 
         let scriptPath: String
         if Paths.isDevelopment {
-            let projectRoot = Bundle.main.bundleURL
-                .deletingLastPathComponent()
-                .deletingLastPathComponent()
-                .deletingLastPathComponent()
+            // Use SRCROOT environment variable
+            guard let srcRoot = ProcessInfo.processInfo.environment["SRCROOT"] else {
+                fatalError("SRCROOT environment variable not set - required in development mode")
+            }
+            let expandedPath = NSString(string: srcRoot).expandingTildeInPath
+            let projectRoot = URL(fileURLWithPath: expandedPath)
             scriptPath = projectRoot.appendingPathComponent("src/scripts/build_chunks_from_temp.py").path
 
             let command = "PLAYBACK_DEV_MODE=1 python3 '\(scriptPath)' --auto 2>&1"
@@ -986,10 +990,12 @@ struct StorageSettingsTab: View {
 
     private func findProjectRoot() -> URL {
         if Paths.isDevelopment {
-            return Bundle.main.bundleURL
-                .deletingLastPathComponent()
-                .deletingLastPathComponent()
-                .deletingLastPathComponent()
+            // Use SRCROOT environment variable
+            guard let srcRoot = ProcessInfo.processInfo.environment["SRCROOT"] else {
+                fatalError("SRCROOT environment variable not set - required in development mode")
+            }
+            let expandedPath = NSString(string: srcRoot).expandingTildeInPath
+            return URL(fileURLWithPath: expandedPath)
         } else {
             guard let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
                 fatalError("Application Support directory not available")
@@ -1274,10 +1280,12 @@ struct PrivacySettingsTab: View {
 
     private func findProjectRoot() -> URL {
         if Paths.isDevelopment {
-            return Bundle.main.bundleURL
-                .deletingLastPathComponent()
-                .deletingLastPathComponent()
-                .deletingLastPathComponent()
+            // Use SRCROOT environment variable
+            guard let srcRoot = ProcessInfo.processInfo.environment["SRCROOT"] else {
+                fatalError("SRCROOT environment variable not set - required in development mode")
+            }
+            let expandedPath = NSString(string: srcRoot).expandingTildeInPath
+            return URL(fileURLWithPath: expandedPath)
         } else {
             guard let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
                 fatalError("Application Support directory not available")
@@ -2187,8 +2195,8 @@ struct AdvancedSettingsTab: View {
             try await LaunchAgentManager.shared.startAgent(.recording)
             diagnostics.append("✓ Recording service started")
 
-            // Wait a moment and check status
-            try await Task.sleep(nanoseconds: 1_000_000_000) // 1 second
+            // Wait for launchd to register the process
+            try await Task.sleep(nanoseconds: 3_000_000_000) // 3 seconds
             let status = LaunchAgentManager.shared.getAgentStatus(.recording)
             if status.isRunning {
                 diagnostics.append("✓ Recording service confirmed running (PID: \(status.pid ?? -1))")
@@ -2213,8 +2221,8 @@ struct AdvancedSettingsTab: View {
             try await LaunchAgentManager.shared.startAgent(.processing)
             diagnostics.append("✓ Processing service started")
 
-            // Wait a moment and check status
-            try await Task.sleep(nanoseconds: 1_000_000_000) // 1 second
+            // Wait for launchd to register the process
+            try await Task.sleep(nanoseconds: 3_000_000_000) // 3 seconds
             let status = LaunchAgentManager.shared.getAgentStatus(.processing)
             if status.isRunning {
                 diagnostics.append("✓ Processing service confirmed running (PID: \(status.pid ?? -1))")
@@ -2330,10 +2338,12 @@ struct AdvancedSettingsTab: View {
 
     private func findProjectRoot() -> URL {
         if Paths.isDevelopment {
-            return Bundle.main.bundleURL
-                .deletingLastPathComponent()
-                .deletingLastPathComponent()
-                .deletingLastPathComponent()
+            // Use SRCROOT environment variable
+            guard let srcRoot = ProcessInfo.processInfo.environment["SRCROOT"] else {
+                fatalError("SRCROOT environment variable not set - required in development mode")
+            }
+            let expandedPath = NSString(string: srcRoot).expandingTildeInPath
+            return URL(fileURLWithPath: expandedPath)
         } else {
             guard let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
                 fatalError("Application Support directory not available")

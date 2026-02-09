@@ -107,10 +107,12 @@ final class DiagnosticsController: ObservableObject {
     private func loadLogEntriesFromDisk() async throws -> [LogEntry] {
         let logDir: URL
         if Paths.isDevelopment {
-            let projectRoot = Bundle.main.bundleURL
-                .deletingLastPathComponent()
-                .deletingLastPathComponent()
-                .deletingLastPathComponent()
+            // Use SRCROOT environment variable
+            guard let srcRoot = ProcessInfo.processInfo.environment["SRCROOT"] else {
+                fatalError("SRCROOT environment variable not set - required in development mode")
+            }
+            let expandedPath = NSString(string: srcRoot).expandingTildeInPath
+            let projectRoot = URL(fileURLWithPath: expandedPath)
             logDir = projectRoot.appendingPathComponent("dev_logs")
         } else {
             logDir = URL(fileURLWithPath: "\(NSHomeDirectory())/Library/Logs/Playback")
@@ -203,10 +205,12 @@ final class DiagnosticsController: ObservableObject {
             do {
                 let logDir: URL
                 if Paths.isDevelopment {
-                    let projectRoot = Bundle.main.bundleURL
-                        .deletingLastPathComponent()
-                        .deletingLastPathComponent()
-                        .deletingLastPathComponent()
+                    // Use SRCROOT environment variable
+                    guard let srcRoot = ProcessInfo.processInfo.environment["SRCROOT"] else {
+                        fatalError("SRCROOT environment variable not set - required in development mode")
+                    }
+                    let expandedPath = NSString(string: srcRoot).expandingTildeInPath
+                    let projectRoot = URL(fileURLWithPath: expandedPath)
                     logDir = projectRoot.appendingPathComponent("dev_logs")
                 } else {
                     logDir = URL(fileURLWithPath: "\(NSHomeDirectory())/Library/Logs/Playback")

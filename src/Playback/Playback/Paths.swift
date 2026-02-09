@@ -14,12 +14,12 @@ enum Paths {
         }
 
         if isDevelopment {
-            // Development: use dev_data/ relative to project root
-            // Assumes project root is 3 levels up from Playback.app location
-            let projectRoot = Bundle.main.bundleURL
-                .deletingLastPathComponent()
-                .deletingLastPathComponent()
-                .deletingLastPathComponent()
+            // Development: use SRCROOT environment variable
+            guard let srcRoot = ProcessInfo.processInfo.environment["SRCROOT"] else {
+                fatalError("SRCROOT environment variable not set - required in development mode")
+            }
+            let expandedPath = NSString(string: srcRoot).expandingTildeInPath
+            let projectRoot = URL(fileURLWithPath: expandedPath)
             return projectRoot.appendingPathComponent("dev_data")
         } else {
             // Production: use ~/Library/Application Support/Playback/data/
@@ -58,10 +58,12 @@ enum Paths {
         }
 
         if isDevelopment {
-            let projectRoot = Bundle.main.bundleURL
-                .deletingLastPathComponent()
-                .deletingLastPathComponent()
-                .deletingLastPathComponent()
+            // Development: use SRCROOT environment variable
+            guard let srcRoot = ProcessInfo.processInfo.environment["SRCROOT"] else {
+                fatalError("SRCROOT environment variable not set - required in development mode")
+            }
+            let expandedPath = NSString(string: srcRoot).expandingTildeInPath
+            let projectRoot = URL(fileURLWithPath: expandedPath)
             return projectRoot.appendingPathComponent("dev_config.json")
         } else {
             guard let appSupport = FileManager.default.urls(
