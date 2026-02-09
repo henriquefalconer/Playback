@@ -178,7 +178,7 @@ Phase 4 (depends on Phase 3):
 ### Completion Statistics
 - **Priority 1 (Critical Bugs):** 9/9 complete (100%) ✅
 - **Priority 2 (Important Features):** 4/4 complete (100%) ✅
-- **Priority 3 (UX Polish):** 11/14 complete (79%)
+- **Priority 3 (UX Polish):** 11/15 complete (73%)
 - **Priority 4 (Architectural):** Deferred for post-MVP
 - **Tests:** 555/691 running and passing ✅
 - **End-to-End Gaps:** 8/8 complete (A-H, see above) ✅
@@ -197,6 +197,7 @@ Phase 4 (depends on Phase 3):
 ❌ App icon assets (2.4) - requires graphic design
 ❌ Momentum scrolling (3.4) - UX polish
 ❌ Drag-drop app exclusion (3.5) - convenience enhancement
+❌ Remove quit confirmation dialog (3.15) - UX simplification
 
 ---
 
@@ -933,6 +934,15 @@ This provides complete log export functionality as specified in specs/menu-bar.m
 - **Previous:** `"com.playback.timeline"` -- incorrect/stale bundle ID used to find timeline viewer
 - **Fix applied:** Changed to `"com.falconer.Playback"` to match the actual bundle identifier
 - **Note:** In single-app architecture, this code likely doesn't work anyway since there's no separate timeline app to terminate.
+
+### 3.15 Menu Bar: Remove Quit Confirmation Dialog
+
+- [ ] **Remove "Stop recording and quit Playback?" confirmation dialog**
+- **Source:** `src/Playback/Playback/MenuBar/MenuBarViewModel.swift` lines 119-131
+- **Current behavior:** Shows NSAlert with detailed message about stopping all services before quitting
+- **Requested:** Remove confirmation dialog and quit immediately when user selects "Quit Playback"
+- **Rationale:** Standard macOS apps don't show quit confirmations; users expect Cmd+Q to quit immediately
+- **Change needed:** Remove NSAlert code from `quitPlayback()` method, keep only the `performQuit()` logic
 
 ---
 
