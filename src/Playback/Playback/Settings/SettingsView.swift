@@ -1607,18 +1607,6 @@ struct AdvancedSettingsTab: View {
                 Text("Logs exported successfully")
             }
         }
-        .alert("Service Execution Error", isPresented: $showForceRunError) {
-            Button("Export Error") {
-                exportForceRunError()
-            }
-            Button("OK") { }
-        } message: {
-            if let error = forceRunError {
-                Text(error)
-            } else {
-                Text("An unknown error occurred while running the services.")
-            }
-        }
     }
 
     private func loadSystemInformation() async {
@@ -2002,55 +1990,301 @@ struct AdvancedSettingsTab: View {
             forceRunError = nil
         }
 
+        var diagnostics: [String] = []
         var errors: [String] = []
 
-        // Force run recording service
+        // STEP 1: Enable recording in config
+        diagnostics.append("=== STEP 1: Enable Recording ===")
         do {
-            let recordScriptPath = findProjectRoot().appendingPathComponent("src/scripts/record_screen.py").path
-            if Paths.isDevelopment {
-                print("[ForceRun] Running recording service: PLAYBACK_DEV_MODE=1 python3 \(recordScriptPath)")
-            }
-
-            // Set environment variable for development mode
-            let command = Paths.isDevelopment
-                ? "PLAYBACK_DEV_MODE=1 python3 '\(recordScriptPath)' 2>&1"
-                : "python3 '\(recordScriptPath)' 2>&1"
-
-            let recordOutput = await runShellCommand(command)
-            if recordOutput.contains("Error") || recordOutput.contains("Traceback") {
-                errors.append("Recording service failed:\n\(recordOutput)")
+            var updatedConfig = configManager.config
+            if !updatedConfig.recordingEnabled {
+                updatedConfig.recordingEnabled = true
+                configManager.updateConfig(updatedConfig)
+                diagnostics.append("✓ Recording enabled in config")
+                // Give config a moment to save
+                try await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
+            } else {
+                diagnostics.append("✓ Recording already enabled")
             }
         } catch {
-            errors.append("Recording service error: \(error.localizedDescription)")
+            errors.append("Failed to enable recording: \(error.localizedDescription)")
         }
 
-        // Force run processing service
-        do {
-            let processScriptPath = findProjectRoot().appendingPathComponent("src/scripts/build_chunks_from_temp.py").path
-            if Paths.isDevelopment {
-                print("[ForceRun] Running processing service: PLAYBACK_DEV_MODE=1 python3 \(processScriptPath) --auto")
+        // STEP 2: Check permissions
+        diagnostics.append("\n=== STEP 2: Check Permissions ===")
+        let screenRecordingGranted = CGPreflightScreenCaptureAccess()
+        diagnostics.append(screenRecordingGranted ? "✓ Screen Recording: Granted" : "✗ Screen Recording: DENIED - Go to System Settings → Privacy & Security → Screen Recording")
+
+        // STEP 3: Check script paths (try multiple locations)
+        diagnostics.append("\n=== STEP 3: Verify Script Paths ===")
+
+        let possibleScriptLocations = [
+            // Try project root (for development from Xcode)
+            Bundle.main.bundleURL
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .appendingPathComponent("src/scripts"),
+            // Try bundle resources (for production)
+            Bundle.main.resourceURL?.appendingPathComponent("scripts") ?? URL(fileURLWithPath: "/"),
+            // Try Application Support (fallback)
+            findProjectRoot().appendingPathComponent("src/scripts")
+        ]
+
+        var recordScriptPath: String?
+        var processScriptPath: String?
+
+        for location in possibleScriptLocations {
+            let recordPath = location.appendingPathComponent("record_screen.py").path
+            let processPath = location.appendingPathComponent("build_chunks_from_temp.py").path
+
+            if FileManager.default.fileExists(atPath: recordPath) && recordScriptPath == nil {
+                recordScriptPath = recordPath
+            }
+            if FileManager.default.fileExists(atPath: processPath) && processScriptPath == nil {
+                processScriptPath = processPath
             }
 
-            // Set environment variable for development mode
-            let command = Paths.isDevelopment
-                ? "PLAYBACK_DEV_MODE=1 python3 '\(processScriptPath)' --auto 2>&1"
-                : "python3 '\(processScriptPath)' --auto 2>&1"
+            if recordScriptPath != nil && processScriptPath != nil {
+                break
+            }
+        }
 
-            let processOutput = await runShellCommand(command)
-            if processOutput.contains("Error") || processOutput.contains("Traceback") {
-                errors.append("Processing service failed:\n\(processOutput)")
+        if let recordPath = recordScriptPath {
+            diagnostics.append("✓ Recording script found: \(recordPath)")
+        } else {
+            diagnostics.append("✗ Recording script MISSING - searched:")
+            for loc in possibleScriptLocations {
+                diagnostics.append("  - \(loc.appendingPathComponent("record_screen.py").path)")
+            }
+            errors.append("Recording script not found in any expected location")
+        }
+
+        if let processPath = processScriptPath {
+            diagnostics.append("✓ Processing script found: \(processPath)")
+        } else {
+            diagnostics.append("✗ Processing script MISSING - searched:")
+            for loc in possibleScriptLocations {
+                diagnostics.append("  - \(loc.appendingPathComponent("build_chunks_from_temp.py").path)")
+            }
+            errors.append("Processing script not found in any expected location")
+        }
+
+        // Store paths for later use
+        let finalRecordScriptPath = recordScriptPath
+        let finalProcessScriptPath = processScriptPath
+
+        // STEP 4: Check/Install LaunchAgents
+        diagnostics.append("\n=== STEP 4: Install/Load LaunchAgents ===")
+
+        // Skip if scripts not found
+        guard recordScriptPath != nil && processScriptPath != nil else {
+            diagnostics.append("✗ Skipping LaunchAgent installation - scripts not found")
+            diagnostics.append("RESOLUTION: Ensure you're running from the correct location or scripts are bundled")
+            // Jump to final steps
+            await MainActor.run {
+                isForceRunning = false
+                loadServiceStatus()
+            }
+
+            let finalRecordingStatus = LaunchAgentManager.shared.getAgentStatus(.recording)
+            let finalProcessingStatus = LaunchAgentManager.shared.getAgentStatus(.processing)
+
+            diagnostics.append("\n=== STEP 6: Final Service Status ===")
+            diagnostics.append("Recording: \(statusText(finalRecordingStatus)) - Loaded: \(finalRecordingStatus.isLoaded), Running: \(finalRecordingStatus.isRunning), PID: \(finalRecordingStatus.pid?.description ?? "none")")
+            diagnostics.append("Processing: \(statusText(finalProcessingStatus)) - Loaded: \(finalProcessingStatus.isLoaded), Running: \(finalProcessingStatus.isRunning), PID: \(finalProcessingStatus.pid?.description ?? "none")")
+
+            diagnostics.append("\n=== STEP 7: Environment Info ===")
+            diagnostics.append("Development Mode: \(Paths.isDevelopment)")
+            diagnostics.append("Bundle Path: \(Bundle.main.bundleURL.path)")
+            diagnostics.append("Config Path: \(Paths.configPath().path)")
+            diagnostics.append("Data Directory: \(Paths.baseDataDirectory.path)")
+            diagnostics.append("Python: \(pythonVersion)")
+            diagnostics.append("FFmpeg: \(ffmpegVersion)")
+
+            await showResults(errors: errors, diagnostics: diagnostics, finalRecordingStatus: finalRecordingStatus, finalProcessingStatus: finalProcessingStatus)
+            return
+        }
+
+        // Recording agent
+        do {
+            let recordingStatus = LaunchAgentManager.shared.getAgentStatus(.recording)
+            if !recordingStatus.isLoaded {
+                diagnostics.append("Installing recording agent...")
+                try await LaunchAgentManager.shared.installAgent(.recording)
+                diagnostics.append("✓ Recording agent installed")
+            } else {
+                diagnostics.append("✓ Recording agent already installed")
             }
         } catch {
-            errors.append("Processing service error: \(error.localizedDescription)")
+            let errorMsg = "Failed to install recording agent: \(error.localizedDescription)"
+            diagnostics.append("✗ \(errorMsg)")
+            errors.append(errorMsg)
         }
 
+        // Processing agent
+        do {
+            let processingStatus = LaunchAgentManager.shared.getAgentStatus(.processing)
+            if !processingStatus.isLoaded {
+                diagnostics.append("Installing processing agent...")
+                try await LaunchAgentManager.shared.installAgent(.processing)
+                diagnostics.append("✓ Processing agent installed")
+            } else {
+                diagnostics.append("✓ Processing agent already installed")
+            }
+        } catch {
+            let errorMsg = "Failed to install processing agent: \(error.localizedDescription)"
+            diagnostics.append("✗ \(errorMsg)")
+            errors.append(errorMsg)
+        }
+
+        // STEP 5: Start LaunchAgent services
+        diagnostics.append("\n=== STEP 5: Start LaunchAgent Services ===")
+
+        // Start recording service
+        do {
+            try await LaunchAgentManager.shared.startAgent(.recording)
+            diagnostics.append("✓ Recording service started")
+
+            // Wait a moment and check status
+            try await Task.sleep(nanoseconds: 1_000_000_000) // 1 second
+            let status = LaunchAgentManager.shared.getAgentStatus(.recording)
+            if status.isRunning {
+                diagnostics.append("✓ Recording service confirmed running (PID: \(status.pid ?? -1))")
+            } else {
+                let errorMsg = "Recording service failed to start (exit status: \(status.lastExitStatus ?? -1))"
+                diagnostics.append("✗ \(errorMsg)")
+                errors.append(errorMsg)
+
+                // Try to get error from logs
+                if let logError = await getRecentLogErrors(service: "recording") {
+                    diagnostics.append("Recent log error: \(logError)")
+                }
+            }
+        } catch {
+            let errorMsg = "Failed to start recording service: \(error.localizedDescription)"
+            diagnostics.append("✗ \(errorMsg)")
+            errors.append(errorMsg)
+        }
+
+        // Start processing service
+        do {
+            try await LaunchAgentManager.shared.startAgent(.processing)
+            diagnostics.append("✓ Processing service started")
+
+            // Wait a moment and check status
+            try await Task.sleep(nanoseconds: 1_000_000_000) // 1 second
+            let status = LaunchAgentManager.shared.getAgentStatus(.processing)
+            if status.isRunning {
+                diagnostics.append("✓ Processing service confirmed running (PID: \(status.pid ?? -1))")
+            } else {
+                let errorMsg = "Processing service failed to start (exit status: \(status.lastExitStatus ?? -1))"
+                diagnostics.append("✗ \(errorMsg)")
+                errors.append(errorMsg)
+
+                // Try to get error from logs
+                if let logError = await getRecentLogErrors(service: "processing") {
+                    diagnostics.append("Recent log error: \(logError)")
+                }
+            }
+        } catch {
+            let errorMsg = "Failed to start processing service: \(error.localizedDescription)"
+            diagnostics.append("✗ \(errorMsg)")
+            errors.append(errorMsg)
+        }
+
+        // STEP 6: Verify final status
+        diagnostics.append("\n=== STEP 6: Final Service Status ===")
+        await MainActor.run {
+            loadServiceStatus()
+        }
+
+        // Wait a moment for status to update
+        try? await Task.sleep(nanoseconds: 500_000_000)
+
+        let finalRecordingStatus = LaunchAgentManager.shared.getAgentStatus(.recording)
+        let finalProcessingStatus = LaunchAgentManager.shared.getAgentStatus(.processing)
+
+        diagnostics.append("Recording: \(statusText(finalRecordingStatus)) - Loaded: \(finalRecordingStatus.isLoaded), Running: \(finalRecordingStatus.isRunning), PID: \(finalRecordingStatus.pid?.description ?? "none")")
+        diagnostics.append("Processing: \(statusText(finalProcessingStatus)) - Loaded: \(finalProcessingStatus.isLoaded), Running: \(finalProcessingStatus.isRunning), PID: \(finalProcessingStatus.pid?.description ?? "none")")
+
+        // STEP 7: Environment info
+        diagnostics.append("\n=== STEP 7: Environment Info ===")
+        diagnostics.append("Development Mode: \(Paths.isDevelopment)")
+        diagnostics.append("Config Path: \(Paths.configPath().path)")
+        diagnostics.append("Data Directory: \(Paths.baseDataDirectory.path)")
+        diagnostics.append("Python: \(pythonVersion)")
+        diagnostics.append("FFmpeg: \(ffmpegVersion)")
+
+        await showResults(errors: errors, diagnostics: diagnostics, finalRecordingStatus: finalRecordingStatus, finalProcessingStatus: finalProcessingStatus)
+    }
+
+    private func showResults(errors: [String], diagnostics: [String], finalRecordingStatus: LaunchAgentStatus, finalProcessingStatus: LaunchAgentStatus) async {
         await MainActor.run {
             isForceRunning = false
+            loadServiceStatus()
+
+            // Store full diagnostic report for export
+            var fullReport = ""
             if !errors.isEmpty {
-                forceRunError = errors.joined(separator: "\n\n")
-                showForceRunError = true
+                fullReport = "ERRORS OCCURRED:\n\n"
+                fullReport += errors.joined(separator: "\n\n")
+                fullReport += "\n\n" + String(repeating: "=", count: 50)
+                fullReport += "\n\nFULL DIAGNOSTIC LOG:\n\n"
+            }
+            fullReport += diagnostics.joined(separator: "\n")
+            forceRunError = fullReport
+
+            if !errors.isEmpty {
+                // Show concise error summary in alert
+                let summary = "Failed to start services. Key issues:\n\n" + errors.prefix(3).joined(separator: "\n\n")
+                    + (errors.count > 3 ? "\n\n...and \(errors.count - 3) more issues" : "")
+                    + "\n\nClick 'Export Report' to save full diagnostics."
+
+                let alert = NSAlert()
+                alert.messageText = "Service Start Failed"
+                alert.informativeText = summary
+                alert.alertStyle = .warning
+                alert.addButton(withTitle: "Export Report")
+                alert.addButton(withTitle: "OK")
+
+                let response = alert.runModal()
+                if response == .alertFirstButtonReturn {
+                    exportForceRunError()
+                }
+            } else {
+                // Show success message
+                let alert = NSAlert()
+                alert.messageText = "Services Started Successfully"
+                alert.informativeText = "Recording and processing services are now running.\n\nRecording: PID \(finalRecordingStatus.pid ?? -1)\nProcessing: PID \(finalProcessingStatus.pid ?? -1)\n\nClick 'Export Report' to save full diagnostics."
+                alert.alertStyle = .informational
+                alert.addButton(withTitle: "Export Report")
+                alert.addButton(withTitle: "OK")
+
+                let response = alert.runModal()
+                if response == .alertFirstButtonReturn {
+                    exportForceRunError()
+                }
             }
         }
+    }
+
+    private func getRecentLogErrors(service: String) async -> String? {
+        let logPath: String
+        if Paths.isDevelopment {
+            let projectRoot = findProjectRoot()
+            logPath = projectRoot.appendingPathComponent("dev_logs/\(service).log").path
+        } else {
+            logPath = NSString(string: "~/Library/Logs/Playback/\(service).log").expandingTildeInPath
+        }
+
+        guard FileManager.default.fileExists(atPath: logPath) else {
+            return "Log file not found: \(logPath)"
+        }
+
+        let command = "tail -20 '\(logPath)' | grep -i 'error\\|exception\\|failed\\|traceback' | tail -5"
+        let output = await runShellCommand(command)
+        return output.isEmpty ? nil : output
     }
 
     private func findProjectRoot() -> URL {
@@ -2068,30 +2302,32 @@ struct AdvancedSettingsTab: View {
     }
 
     private func exportForceRunError() {
-        guard let error = forceRunError else { return }
+        guard let report = forceRunError else { return }
 
         let panel = NSSavePanel()
         let timestamp = formatDate(Date())
-        panel.nameFieldStringValue = "playback-service-error-\(timestamp).txt"
+        let isError = report.contains("ERRORS OCCURRED")
+        let filename = isError ? "playback-service-error-\(timestamp).txt" : "playback-service-diagnostics-\(timestamp).txt"
+        panel.nameFieldStringValue = filename
         panel.allowedContentTypes = [.plainText]
         panel.canCreateDirectories = true
 
         panel.begin { response in
             if response == .OK, let url = panel.url {
                 do {
-                    // Create detailed error report
-                    var report = "Playback Service Error Report\n"
-                    report += "Generated: \(Date())\n"
-                    report += "macOS Version: \(self.macOSVersion)\n"
-                    report += "Python Version: \(self.pythonVersion)\n"
-                    report += "FFmpeg Version: \(self.ffmpegVersion)\n"
-                    report += "\n--- Error Details ---\n\n"
-                    report += error
-                    report += "\n\n--- Service Status ---\n"
-                    report += "Recording Service: \(self.statusText(self.recordingStatus))\n"
-                    report += "Processing Service: \(self.statusText(self.processingStatus))\n"
+                    // Create detailed report with system info
+                    var fullReport = "Playback Service \(isError ? "Error" : "Diagnostic") Report\n"
+                    fullReport += String(repeating: "=", count: 60)
+                    fullReport += "\n\nGenerated: \(Date())\n"
+                    fullReport += "macOS Version: \(self.macOSVersion)\n"
+                    fullReport += "Python Version: \(self.pythonVersion)\n"
+                    fullReport += "FFmpeg Version: \(self.ffmpegVersion)\n"
+                    fullReport += "Available Space: \(self.availableSpace)\n"
+                    fullReport += "\n" + String(repeating: "=", count: 60)
+                    fullReport += "\n\n"
+                    fullReport += report
 
-                    try report.write(to: url, atomically: true, encoding: .utf8)
+                    try fullReport.write(to: url, atomically: true, encoding: .utf8)
 
                     // Show success notification
                     NSWorkspace.shared.activateFileViewerSelecting([url])
@@ -2099,7 +2335,7 @@ struct AdvancedSettingsTab: View {
                     // Show error alert
                     let alert = NSAlert()
                     alert.messageText = "Export Failed"
-                    alert.informativeText = "Could not save error report: \(error.localizedDescription)"
+                    alert.informativeText = "Could not save report: \(error.localizedDescription)"
                     alert.alertStyle = .warning
                     alert.addButton(withTitle: "OK")
                     alert.runModal()

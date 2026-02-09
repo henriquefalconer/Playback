@@ -173,13 +173,33 @@ Each spec includes:
 
 ## Development
 
+### Quick Start
+
+First-time setup or cloning on a new machine:
+
+```bash
+# Run the setup script
+./scripts/setup_dev_env.sh
+
+# Set PLAYBACK_DEV_MODE=1 in Xcode (see DEVELOPMENT_SETUP.md)
+# Then build and run (Cmd+R)
+```
+
+**Important:** You must set `PLAYBACK_DEV_MODE=1` in the Xcode scheme for development mode to work correctly.
+
+See [DEVELOPMENT_SETUP.md](./DEVELOPMENT_SETUP.md) for detailed setup instructions including:
+- Xcode environment variable configuration
+- Development vs production mode
+- Setting up on new machines
+- Troubleshooting common issues
+
 See [AGENTS.md](./AGENTS.md) for comprehensive development guidelines including:
 - Building and testing procedures
 - LaunchAgent management
 - Database migrations
 - SwiftUI patterns and state management
 - Code style and best practices
-- Troubleshooting common issues
+- Advanced troubleshooting
 
 ## Technical Stack
 

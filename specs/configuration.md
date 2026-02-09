@@ -387,115 +387,247 @@ User clicks "Force Run Services"
          ↓
 Button shows progress indicator
          ↓
-Recording service executes (record_screen.py)
+Step 1: Enable recording in config
          ↓
-Processing service executes (build_chunks_from_temp.py --auto)
+Step 2: Check permissions (Screen Recording)
          ↓
-Services complete or fail
+Step 3: Verify script paths exist
+         ↓
+Step 4: Install LaunchAgents (if needed)
+         ↓
+Step 5: Start LaunchAgent services
+         ↓
+Step 6: Verify services are running
+         ↓
+Step 7: Collect environment info
          ↓
 Button returns to idle state
          ↓
-If errors: Show error alert
+Show diagnostic report (success or errors)
 ```
 
 #### Service Execution Details
 
+**Pre-Start Actions**:
+1. **Enable Recording**: Sets `recordingEnabled = true` in config if not already enabled
+2. **Permission Check**: Verifies Screen Recording permission granted
+3. **Script Verification**: Confirms Python scripts exist at expected paths
+4. **LaunchAgent Installation**: Installs agent plists if not already present
+
 **Recording Service**:
-- Script: `record_screen.py`
-- Execution: Single run (not continuous loop)
-- Environment: `PLAYBACK_DEV_MODE=1` in development
-- Captures one iteration of screenshots
+- **Type**: LaunchAgent (continuous background service)
+- **Script**: `record_screen.py`
+- **Action**: Starts the LaunchAgent via `launchctl start`
+- **Verification**: Confirms service running with PID check
+- **Continuous**: Runs continuously in background (not one-shot)
 
 **Processing Service**:
-- Script: `build_chunks_from_temp.py`
-- Argument: `--auto` (process pending days)
-- Environment: `PLAYBACK_DEV_MODE=1` in development
-- Processes all pending screenshots into video segments
+- **Type**: LaunchAgent (scheduled background service)
+- **Script**: `build_chunks_from_temp.py`
+- **Action**: Starts the LaunchAgent via `launchctl start`
+- **Verification**: Confirms service running with PID check
+- **Scheduled**: Runs on interval defined in config
 
 **Script Path Resolution**:
 - **Development**: `<project_root>/src/scripts/` (resolved via `findProjectRoot()`)
 - **Production**: `~/Library/Application Support/Playback/` or bundle Resources
 - Uses same path resolution as other settings tabs for consistency
 
-**Environment Variables**:
-- Sets `PLAYBACK_DEV_MODE=1` when `Paths.isDevelopment` is true
-- Scripts inherit config and data paths from environment
+**LaunchAgent Management**:
+- Uses `LaunchAgentManager.shared` for all service operations
+- Calls `installAgent()` to create plist files
+- Calls `startAgent()` to start via launchctl
+- Calls `getAgentStatus()` to verify running state
+
+#### Diagnostic Information Collected
+
+The force run feature collects comprehensive diagnostic information to help identify why services might not be starting:
+
+**Step 1: Recording Configuration**
+- ✓/✗ Recording enabled in config
+- Shows if config was updated to enable recording
+
+**Step 2: Permissions**
+- ✓/✗ Screen Recording permission status
+- Provides actionable guidance if denied: "Go to System Settings → Privacy & Security → Screen Recording"
+
+**Step 3: Script Paths**
+- ✓/✗ Recording script exists at path
+- ✓/✗ Processing script exists at path
+- Shows full paths for verification
+
+**Step 4: LaunchAgent Installation**
+- ✓/✗ Recording agent installation status
+- ✓/✗ Processing agent installation status
+- Shows installation attempts and results
+
+**Step 5: Service Start Status**
+- ✓/✗ Recording service start result
+- ✓/✗ Processing service start result
+- Shows PID if service starts successfully
+- Shows exit status if service fails to start
+- Includes recent log errors if available
+
+**Step 6: Final Service Status**
+- Loaded: true/false
+- Running: true/false
+- PID: number or "none"
+- Shows status for both recording and processing
+
+**Step 7: Environment Information**
+- Development mode: true/false
+- Config path
+- Data directory path
+- Python version
+- FFmpeg version
+
+**Example Success Report**:
+```
+=== STEP 1: Enable Recording ===
+✓ Recording already enabled
+
+=== STEP 2: Check Permissions ===
+✓ Screen Recording: Granted
+
+=== STEP 3: Verify Script Paths ===
+✓ Recording script found: /Users/.../src/scripts/record_screen.py
+✓ Processing script found: /Users/.../src/scripts/build_chunks_from_temp.py
+
+=== STEP 4: Install/Load LaunchAgents ===
+✓ Recording agent already installed
+✓ Processing agent already installed
+
+=== STEP 5: Start LaunchAgent Services ===
+✓ Recording service started
+✓ Recording service confirmed running (PID: 12345)
+✓ Processing service started
+✓ Processing service confirmed running (PID: 12346)
+
+=== STEP 6: Final Service Status ===
+Recording: Running - Loaded: true, Running: true, PID: 12345
+Processing: Running - Loaded: true, Running: true, PID: 12346
+
+=== STEP 7: Environment Info ===
+Development Mode: true
+Config Path: /Users/.../dev_config.json
+Data Directory: /Users/.../dev_data
+Python: Python 3.12.1
+FFmpeg: ffmpeg version 7.1
+```
+
+**Example Error Report**:
+```
+ERRORS OCCURRED:
+
+Failed to start recording service: Screen Recording permission denied
+
+==================================================
+
+FULL DIAGNOSTIC LOG:
+
+=== STEP 1: Enable Recording ===
+✓ Recording enabled in config
+
+=== STEP 2: Check Permissions ===
+✗ Screen Recording: DENIED - Go to System Settings → Privacy & Security → Screen Recording
+
+=== STEP 3: Verify Script Paths ===
+✓ Recording script found: /Users/.../src/scripts/record_screen.py
+✓ Processing script found: /Users/.../src/scripts/build_chunks_from_temp.py
+
+=== STEP 4: Install/Load LaunchAgents ===
+✓ Recording agent already installed
+✓ Processing agent already installed
+
+=== STEP 5: Start LaunchAgent Services ===
+✗ Failed to start recording service: launchctl failed
+✓ Processing service started
+✓ Processing service confirmed running (PID: 12346)
+
+=== STEP 6: Final Service Status ===
+Recording: Not Running - Loaded: true, Running: false, PID: none
+Processing: Running - Loaded: true, Running: true, PID: 12346
+
+=== STEP 7: Environment Info ===
+Development Mode: true
+Config Path: /Users/.../dev_config.json
+Data Directory: /Users/.../dev_data
+Python: Python 3.12.1
+FFmpeg: ffmpeg version 7.1
+```
 
 #### Error Handling
 
 **Error Detection**:
-- Monitors command output for "Error" or "Traceback" keywords
-- Checks exit codes (non-zero indicates failure)
-- Collects stderr and stdout from both services
+- LaunchAgent installation failures
+- Service start failures (launchctl errors)
+- Permission denials
+- Missing scripts or paths
+- Service exit codes and statuses
 
 **Error Aggregation**:
-- Combines errors from recording and processing services
-- Separates errors with double newlines for readability
-- Preserves full error output including tracebacks
+- Combines all errors encountered during startup
+- Shows full diagnostic log even when errors occur
+- Preserves error context and actionable guidance
 
-**Error Alert**:
-- **Title**: "Service Execution Error"
-- **Message**: Combined error details from both services
+**Diagnostic Alert**:
+- **Title**: "Service Start Failed" (if errors) or "Service Diagnostics" (if success)
+- **Message**: Full diagnostic report with step-by-step results
 - **Actions**:
-  - "Export Error": Saves error report to file
+  - "Export Report": Saves complete diagnostic report to file
   - "OK": Dismisses alert
 
-**Alert Example**:
-```
-Recording service failed:
-Traceback (most recent call last):
-  File "record_screen.py", line 45, in <module>
-    ...error details...
+**Recent Log Errors**:
+- If a service fails to start, fetches last 5 error lines from service logs
+- Searches for keywords: "error", "exception", "failed", "traceback"
+- Provides immediate context for debugging
 
-Processing service failed:
-Traceback (most recent call last):
-  File "build_chunks_from_temp.py", line 123, in <module>
-    ...error details...
-```
-
-#### Error Export Feature
+#### Diagnostic Report Export Feature
 
 **File Export Dialog**:
-- **Filename Format**: `playback-service-error-YYYYMMDD-HHMMSS.txt`
+- **Filename Format**:
+  - Success: `playback-service-diagnostics-YYYYMMDD-HHMMSS.txt`
+  - Errors: `playback-service-error-YYYYMMDD-HHMMSS.txt`
 - **File Type**: Plain text (`.txt`)
 - **Dialog Type**: `NSSavePanel`
 - **Can Create Directories**: Yes
 - **Default Location**: User's Documents folder
 
-**Error Report Format**:
+**Report Format**:
 ```
-Playback Service Error Report
+Playback Service Diagnostic Report
+============================================================
+
 Generated: <ISO 8601 timestamp>
 macOS Version: <version from sw_vers>
 Python Version: <version from python3 --version>
 FFmpeg Version: <version from ffmpeg -version>
+Available Space: <disk space in data directory>
 
---- Error Details ---
+============================================================
 
-<Full error output from services>
-
---- Service Status ---
-Recording Service: <status from LaunchAgentManager>
-Processing Service: <status from LaunchAgentManager>
+<Full diagnostic log from all 7 steps>
 ```
 
 **Post-Export Action**:
 - Opens Finder with exported file selected
 - Uses `NSWorkspace.shared.activateFileViewerSelecting([url])`
-- Allows user to immediately view or share error report
+- Allows user to immediately view or share diagnostic report
 
 **Export Failure Handling**:
 - Shows alert if file write fails
 - Alert includes failure reason (permissions, disk space, etc.)
-- Original error alert remains accessible
+- Original diagnostic alert remains accessible
 
 #### Success Behavior
 
-When both services execute successfully:
-- No alert is shown
-- Button returns to idle state
-- User can check logs or diagnostics for confirmation
-- Silent success (follows principle of "no news is good news")
+When both services start successfully:
+- Shows "Service Diagnostics" alert with full diagnostic report
+- Alert includes all 7 steps with checkmarks showing success
+- Shows final service status with PIDs
+- User can export the diagnostic report for record-keeping
+- Service Status section in settings updates to show "Running" state
+- Provides confirmation and transparency of what happened
 
 #### Implementation Notes
 
