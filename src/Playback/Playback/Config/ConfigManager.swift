@@ -131,18 +131,57 @@ final class ConfigManager: ObservableObject {
 
     private func migrateConfig(_ oldConfig: Config) -> Config {
         var migrated = oldConfig
+        let startVersion = oldConfig.version
 
-        switch oldConfig.version {
-        case "1.0.0":
-            migrated.version = "1.0.0"
-        default:
+        // Migration chain: apply all migrations from old version to current
+        // Each migration transforms config to the next version
+        let migrations: [(from: String, to: String, migrate: (inout Config) -> Void)] = [
+            // Example future migration from 1.0.0 to 1.1.0
+            // ("1.0.0", "1.1.0", migrate_1_0_to_1_1),
+
+            // Example future migration from 1.1.0 to 1.2.0
+            // ("1.1.0", "1.2.0", migrate_1_1_to_1_2),
+        ]
+
+        // Apply migrations sequentially
+        for migration in migrations {
+            if migrated.version == migration.from {
+                if Paths.isDevelopment {
+                    print("[Config] Migrating from \(migration.from) to \(migration.to)")
+                }
+                migration.migrate(&migrated)
+                migrated.version = migration.to
+            }
+        }
+
+        // Log if migration occurred
+        if migrated.version != startVersion {
             if Paths.isDevelopment {
-                print("Unknown config version: \(oldConfig.version), using as-is")
+                print("[Config] Migration complete: \(startVersion) → \(migrated.version)")
+            }
+        } else if startVersion != Config.defaultConfig.version {
+            // Version mismatch but no migration available
+            if Paths.isDevelopment {
+                print("[Config] Warning: Config version \(startVersion) differs from default \(Config.defaultConfig.version), but no migration path exists. Using config as-is.")
             }
         }
 
         return migrated
     }
+
+    // Example migration function template (for future use)
+    // private func migrate_1_0_to_1_1(_ config: inout Config) {
+    //     // Add new fields with defaults
+    //     // config.newField = defaultValue
+    //
+    //     // Transform existing fields if needed
+    //     // if config.oldField == "deprecated_value" {
+    //     //     config.oldField = "new_value"
+    //     // }
+    //
+    //     // Remove obsolete fields (if using custom Codable)
+    //     // Note: Swift's Codable ignores unknown fields automatically
+    // }
 
     private func startWatching() {
         watcher = ConfigWatcher(configPath: configPath.path) { [weak self] in

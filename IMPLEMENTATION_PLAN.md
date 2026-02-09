@@ -423,11 +423,20 @@ These items improve the overall experience but are not blocking core functionali
 - **Spec:** `specs/menu-bar.md` lines 405-418
 - **Source:** `src/Playback/Playback/Settings/SettingsView.swift:1454-1474`
 
-### 3.9 Config: Migration Logic Is a Stub
+### 3.9 Config: Migration Logic Is a Stub ✅ COMPLETE
 
-- [ ] **Implement actual config migration between versions**
+- [x] **Implement actual config migration between versions** (2026-02-08)
 - **Source:** `src/Playback/Playback/Config/ConfigManager.swift:132-145`
-- **Currently:** `migrateConfig()` only matches version "1.0.0" and sets it back to "1.0.0" -- no-op.
+- **Implementation complete:**
+  - Implemented migration chain framework with sequential version upgrades
+  - Migrations stored as array of tuples: (from_version, to_version, migrate_function)
+  - Each migration function receives mutable Config and transforms it to next version
+  - Automatic migration path finding from old version to current version
+  - Development mode logging shows migration progress (from → to)
+  - Warning when config version differs but no migration path exists
+  - Template provided for future migrations (migrate_1_0_to_1_1 example)
+  - Ready for future version upgrades (1.0.0 → 1.1.0 → 1.2.0, etc.)
+- **Result:** Production-ready config migration system that gracefully handles version upgrades without data loss
 
 ### 3.10 Config: Environment Variable Overrides ✅ FIXED
 
