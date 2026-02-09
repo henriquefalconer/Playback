@@ -2015,21 +2015,62 @@ struct AdvancedSettingsTab: View {
         let screenRecordingGranted = CGPreflightScreenCaptureAccess()
         diagnostics.append(screenRecordingGranted ? "✓ Screen Recording: Granted" : "✗ Screen Recording: DENIED - Go to System Settings → Privacy & Security → Screen Recording")
 
-        // STEP 3: Check script paths (try multiple locations)
+        // STEP 3: Check script paths
         diagnostics.append("\n=== STEP 3: Verify Script Paths ===")
 
-        let possibleScriptLocations = [
-            // Try project root (for development from Xcode)
-            Bundle.main.bundleURL
-                .deletingLastPathComponent()
-                .deletingLastPathComponent()
-                .deletingLastPathComponent()
-                .appendingPathComponent("src/scripts"),
-            // Try bundle resources (for production)
-            Bundle.main.resourceURL?.appendingPathComponent("scripts") ?? URL(fileURLWithPath: "/"),
-            // Try Application Support (fallback)
-            findProjectRoot().appendingPathComponent("src/scripts")
-        ]
+        var possibleScriptLocations: [URL] = []
+
+        if Paths.isDevelopment {
+            // DEVELOPMENT MODE: SRCROOT is REQUIRED
+            guard let srcRoot = ProcessInfo.processInfo.environment["SRCROOT"] else {
+                diagnostics.append("✗ SRCROOT environment variable NOT SET")
+                diagnostics.append("")
+                diagnostics.append("REQUIRED: Set SRCROOT in Xcode scheme:")
+                diagnostics.append("  1. Edit Scheme → Run → Arguments")
+                diagnostics.append("  2. Add Environment Variable:")
+                diagnostics.append("     Name: SRCROOT")
+                diagnostics.append("     Value: /Users/YOUR_USERNAME/Playback")
+                diagnostics.append("           (or ~/Playback works too)")
+                errors.append("SRCROOT environment variable not set - cannot locate scripts in development mode")
+
+                // Skip remaining steps
+                await MainActor.run {
+                    isForceRunning = false
+                    loadServiceStatus()
+                }
+
+                let finalRecordingStatus = LaunchAgentManager.shared.getAgentStatus(.recording)
+                let finalProcessingStatus = LaunchAgentManager.shared.getAgentStatus(.processing)
+
+                diagnostics.append("\n=== STEP 6: Final Service Status ===")
+                diagnostics.append("Recording: Not Loaded")
+                diagnostics.append("Processing: Not Loaded")
+
+                diagnostics.append("\n=== STEP 7: Environment Info ===")
+                diagnostics.append("Development Mode: true")
+                diagnostics.append("SRCROOT: NOT SET ✗")
+                diagnostics.append("Bundle Path: \(Bundle.main.bundleURL.path)")
+                diagnostics.append("Python: \(pythonVersion)")
+                diagnostics.append("FFmpeg: \(ffmpegVersion)")
+
+                await showResults(errors: errors, diagnostics: diagnostics, finalRecordingStatus: finalRecordingStatus, finalProcessingStatus: finalProcessingStatus)
+                return
+            }
+
+            // Expand tilde in path if present
+            let expandedPath = NSString(string: srcRoot).expandingTildeInPath
+            diagnostics.append("SRCROOT: \(expandedPath)")
+            possibleScriptLocations.append(URL(fileURLWithPath: expandedPath).appendingPathComponent("src/scripts"))
+
+        } else {
+            // PRODUCTION MODE: Check bundle resources
+            diagnostics.append("Production mode - checking bundle resources")
+            if let resourceURL = Bundle.main.resourceURL {
+                possibleScriptLocations.append(resourceURL.appendingPathComponent("scripts"))
+            }
+            // Also check Application Support
+            possibleScriptLocations.append(findProjectRoot().appendingPathComponent("src/scripts"))
+        }
 
         var recordScriptPath: String?
         var processScriptPath: String?

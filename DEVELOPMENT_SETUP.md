@@ -14,19 +14,33 @@ Run this script to automatically set up the development environment:
 
 If you need to set up manually or on a new machine, follow these steps:
 
-### 1. Set Environment Variable in Xcode
+### 1. Set Environment Variables in Xcode
 
-**CRITICAL:** The app determines development mode via the `PLAYBACK_DEV_MODE` environment variable.
+**CRITICAL:** Both environment variables are REQUIRED for development mode.
 
 1. In Xcode, click on the scheme dropdown (next to the Run/Stop buttons)
 2. Select "Edit Scheme..."
 3. Select "Run" in the left sidebar
 4. Click the "Arguments" tab
-5. Under "Environment Variables", click the "+" button
-6. Add:
+5. Under "Environment Variables", click the "+" button to add **TWO** variables:
+
+   **Variable 1 - Enable Development Mode:**
    - **Name:** `PLAYBACK_DEV_MODE`
    - **Value:** `1`
-7. Click "Close"
+   - ✓ Enable checkbox
+
+   **Variable 2 - Set Project Root:**
+   - **Name:** `SRCROOT`
+   - **Value:** `/Users/YOUR_USERNAME/Playback` (replace with your actual path)
+   - ✓ Enable checkbox
+   - **Shortcuts that work:**
+     - `~/Playback` (tilde will be expanded automatically)
+     - `/Users/yourusername/Playback` (full path)
+   - **Example:** `~/Playback` or `/Users/henriquefalconer/Playback`
+
+6. Click "Close"
+
+**Why SRCROOT is required:** The app needs to know where your project files are located to find the Python scripts in `src/scripts/`. Without this, the services cannot start.
 
 **Verification:** After setting this, the app will:
 - Use `dev_config.json` instead of production config

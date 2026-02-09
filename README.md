@@ -181,11 +181,13 @@ First-time setup or cloning on a new machine:
 # Run the setup script
 ./scripts/setup_dev_env.sh
 
-# Set PLAYBACK_DEV_MODE=1 in Xcode (see DEVELOPMENT_SETUP.md)
-# Then build and run (Cmd+R)
+# Then set environment variables in Xcode (see below)
+# Build and run (Cmd+R)
 ```
 
-**Important:** You must set `PLAYBACK_DEV_MODE=1` in the Xcode scheme for development mode to work correctly.
+**Required:** Set two environment variables in Xcode scheme (Edit Scheme → Run → Arguments → Environment Variables):
+1. `PLAYBACK_DEV_MODE` = `1`
+2. `SRCROOT` = `~/Playback` (or your actual project path)
 
 See [DEVELOPMENT_SETUP.md](./DEVELOPMENT_SETUP.md) for detailed setup instructions including:
 - Xcode environment variable configuration
