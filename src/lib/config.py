@@ -65,6 +65,7 @@ class Config:
         self.ffmpeg_crf: int = config_dict.get("ffmpeg_crf", 28)
         self.video_fps: int = config_dict.get("video_fps", 30)
         self.timeline_shortcut: str = config_dict.get("timeline_shortcut", "Option+Shift+Space")
+        self.recording_enabled: bool = config_dict.get("recording_enabled", False)
 
         notifications = config_dict.get("notifications", {})
         self.notifications_processing_complete: bool = notifications.get("processing_complete", True)

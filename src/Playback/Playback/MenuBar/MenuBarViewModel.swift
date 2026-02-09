@@ -51,6 +51,8 @@ final class MenuBarViewModel: ObservableObject {
         self.configManager = configManager
         self.launchAgentManager = launchAgentManager
 
+        self.isRecordingEnabled = configManager.config.recordingEnabled
+
         setupBindings()
     }
 
@@ -95,9 +97,17 @@ final class MenuBarViewModel: ObservableObject {
                 if isRecordingEnabled {
                     try launchAgentManager.startAgent(.recording)
                     recordingState = .recording
+
+                    var config = configManager.config
+                    config.recordingEnabled = true
+                    configManager.updateConfig(config)
                 } else {
                     try launchAgentManager.stopAgent(.recording)
                     recordingState = .paused
+
+                    var config = configManager.config
+                    config.recordingEnabled = false
+                    configManager.updateConfig(config)
                 }
             } catch {
                 if Paths.isDevelopment {

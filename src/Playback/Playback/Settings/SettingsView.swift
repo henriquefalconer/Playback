@@ -1287,27 +1287,11 @@ struct PrivacySettingsTab: View {
     }
 
     private func runShellCommand(_ command: String) async -> String {
-        await withCheckedContinuation { continuation in
-            let process = Process()
-            let pipe = Pipe()
-
-            process.executableURL = URL(fileURLWithPath: "/bin/bash")
-            process.arguments = ["-c", command]
-            process.standardOutput = pipe
-            process.standardError = pipe
-
-            do {
-                try process.run()
-                process.waitUntilExit()
-
-                let data = pipe.fileHandleForReading.readDataToEndOfFile()
-                let output = String(data: data, encoding: .utf8)?
-                    .trimmingCharacters(in: .whitespacesAndNewlines) ?? "Error"
-
-                continuation.resume(returning: output)
-            } catch {
-                continuation.resume(returning: "Error: \(error.localizedDescription)")
-            }
+        do {
+            let result = try await ShellCommand.runAsync("/bin/bash", arguments: ["-c", command])
+            return result.output.trimmingCharacters(in: .whitespacesAndNewlines)
+        } catch {
+            return "Error: \(error.localizedDescription)"
         }
     }
 
@@ -1965,27 +1949,12 @@ struct AdvancedSettingsTab: View {
     }
 
     private func runShellCommand(_ command: String) async -> String {
-        await withCheckedContinuation { continuation in
-            let process = Process()
-            let pipe = Pipe()
-
-            process.executableURL = URL(fileURLWithPath: "/bin/bash")
-            process.arguments = ["-c", command]
-            process.standardOutput = pipe
-            process.standardError = pipe
-
-            do {
-                try process.run()
-                process.waitUntilExit()
-
-                let data = pipe.fileHandleForReading.readDataToEndOfFile()
-                let output = String(data: data, encoding: .utf8)?
-                    .trimmingCharacters(in: .whitespacesAndNewlines) ?? "Error"
-
-                continuation.resume(returning: output.isEmpty ? "Not found" : output)
-            } catch {
-                continuation.resume(returning: "Error")
-            }
+        do {
+            let result = try await ShellCommand.runAsync("/bin/bash", arguments: ["-c", command])
+            let output = result.output.trimmingCharacters(in: .whitespacesAndNewlines)
+            return output.isEmpty ? "Not found" : output
+        } catch {
+            return "Error"
         }
     }
 

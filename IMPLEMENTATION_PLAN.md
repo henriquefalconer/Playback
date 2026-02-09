@@ -17,27 +17,27 @@ Based on comprehensive technical specifications in `specs/` and verified against
 
 ### Tier 1: Pipeline-Breaking (Must Fix — Nothing Works Without These)
 
-#### Gap D: Pipe Deadlock in SettingsView (TWO locations) ❌
+#### Gap D: Pipe Deadlock in SettingsView (TWO locations) ✅ FIXED
 
-- [ ] **Migrate TWO remaining pipe deadlock `runShellCommand()` methods to use `ShellCommand.runAsync()`**
+- [x] **Migrate TWO remaining pipe deadlock `runShellCommand()` methods to use `ShellCommand.runAsync()`**
 - **Location 1:** `SettingsView.swift:1289-1311` — `AdvancedSettingsTab.runShellCommand()`
 - **Location 2:** `SettingsView.swift:1967-1989` — `PrivacySettingsTab.runShellCommand()`
 - **Root cause:** Both methods call `process.waitUntilExit()` BEFORE `pipe.fileHandleForReading.readDataToEndOfFile()`. Same deadlock pattern fixed elsewhere in Priority 1.3, but these two private methods were missed.
 - **Called by:** `loadSystemInformation()` (every 30s), `exportLogs()`, `runDiagnostics()` — all in the Settings window
-- **Required fix:** Replace both methods with `ShellCommand.runAsync("/bin/bash", arguments: ["-c", command])`. Delete the duplicate private methods entirely.
+- **Fix applied:** Both methods replaced with `ShellCommand.runAsync()`. All shell command execution now uses the centralized utility, eliminating the pipe deadlock pattern.
 - **Risk:** Medium — short commands like `sw_vers` won't fill the pipe buffer, but longer commands (e.g., `ffmpeg -version`, `df -h`) could. Fix independently; no dependencies.
 - **Effort:** Small (replace 2 method bodies)
 
-#### Gap F: `recording_enabled` Config Field Missing ❌
+#### Gap F: `recording_enabled` Config Field Missing ✅ FIXED
 
-- [ ] **Add `recording_enabled` boolean field to Config struct (Swift) and Config class (Python)**
+- [x] **Add `recording_enabled` boolean field to Config struct (Swift) and Config class (Python)**
 - **Spec:** `specs/menu-bar.md` line 51 — "Persist state in config.json field: `recording_enabled`"
-- **Current behavior:** The field does NOT exist in either `Config/Config.swift` or `src/lib/config.py`. Zero occurrences of `recording_enabled` or `recordingEnabled` in the entire codebase (verified via grep).
+- **Previous behavior:** The field did NOT exist in either `Config/Config.swift` or `src/lib/config.py`. Zero occurrences of `recording_enabled` or `recordingEnabled` in the entire codebase.
 - **Impact:** Recording toggle state cannot be persisted across app restarts. When the app relaunches, there is no way to know whether recording was previously enabled.
-- **Required fix (3 files):**
-  1. **`Config/Config.swift`:** Add `var recordingEnabled: Bool` field (default: `false`). Add to `defaultConfig`, `validated()`, and CodingKeys.
-  2. **`src/lib/config.py`:** Add `self.recording_enabled: bool = config_dict.get("recording_enabled", False)` to `Config.__init__()`.
-  3. **`MenuBarViewModel.swift`:** On toggle, persist state: `ConfigManager.shared.config.recordingEnabled = newValue; ConfigManager.shared.saveConfig()`. On launch, read persisted state to initialize toggle.
+- **Fix applied (3 files):**
+  1. **`Config/Config.swift`:** Added `var recordingEnabled: Bool` field (default: `false`). Added to `defaultConfig`, `validated()`, and CodingKeys.
+  2. **`src/lib/config.py`:** Added `self.recording_enabled: bool = config_dict.get("recording_enabled", False)` to `Config.__init__()`.
+  3. **`MenuBarViewModel.swift`:** Updated to persist state on toggle and read persisted state on initialization.
 - **Effort:** Small (add field to 2 config files + wire up in ViewModel)
 
 #### Gap G: Recording Service Ignores `recording_enabled` Config ❌
