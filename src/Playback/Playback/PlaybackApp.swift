@@ -82,6 +82,40 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 self.showFirstRunWindow()
             }
+        } else {
+            Task {
+                await self.ensureServicesRunning()
+            }
+        }
+    }
+
+    private func ensureServicesRunning() async {
+        let agentManager = LaunchAgentManager.shared
+        let configManager = ConfigManager.shared
+
+        do {
+            try agentManager.installAgent(.processing)
+            try agentManager.loadAgent(.processing)
+            try agentManager.startAgent(.processing)
+
+            try agentManager.installAgent(.cleanup)
+            try agentManager.loadAgent(.cleanup)
+
+            if configManager.config.recordingEnabled {
+                try agentManager.installAgent(.recording)
+                try agentManager.loadAgent(.recording)
+                try agentManager.startAgent(.recording)
+            } else {
+                try? agentManager.stopAgent(.recording)
+            }
+
+            if Paths.isDevelopment {
+                print("[ServiceLifecycle] All services ensured running")
+            }
+        } catch {
+            if Paths.isDevelopment {
+                print("[ServiceLifecycle] Error ensuring services: \(error)")
+            }
         }
     }
 
