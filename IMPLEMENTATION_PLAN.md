@@ -13,7 +13,7 @@ Based on comprehensive technical specifications in `specs/` and verified against
 
 **Status: Core recording/processing pipeline NOT functional** — app launches without crashes but services don't start correctly and the entire pipeline is broken.
 
-8 gaps identified (A-H). Ordered by implementation priority within each tier.
+8 gaps identified (A-H). **4 fixed, 4 remaining**. Ordered by implementation priority within each tier.
 
 ### Tier 1: Pipeline-Breaking (Must Fix — Nothing Works Without These)
 
@@ -121,20 +121,15 @@ Based on comprehensive technical specifications in `specs/` and verified against
 
 ### Tier 2: Important (Services Won't Be Complete Without These)
 
-#### Gap E: Cleanup Agent Not Installed During First-Run ❌
+#### Gap E: Cleanup Agent Not Installed During First-Run ✅ FIXED
 
-- [ ] **Install and load cleanup agent alongside recording and processing**
+- [x] **Install and load cleanup agent alongside recording and processing**
 - **Source:** `FirstRunCoordinator.swift:131-134` — only installs `.recording` and `.processing`
 - **Spec:** `specs/storage-cleanup.md` — cleanup service should run periodically
 - **Template exists:** `cleanup.plist.template` is in `Resources/launchagents/`
-- **Required fix:** Add to `FirstRunCoordinator.completeSetup()`:
-  ```swift
-  try agentManager.installAgent(.cleanup)
-  try agentManager.loadAgent(.cleanup)
-  ```
-- **Also:** The service lifecycle manager from Gap A should ensure cleanup is installed/loaded on every launch.
-- **Impact:** Without this, old recordings accumulate forever, disk grows unbounded.
-- **Effort:** Tiny (2 lines in FirstRunCoordinator + handled by Gap A lifecycle manager)
+- **Fix applied:** Added `installAgent(.cleanup)` and `loadAgent(.cleanup)` to `FirstRunCoordinator.completeSetup()`. Cleanup agent now installed and loaded alongside recording and processing during first-run setup. Agent runs daily at 2 AM to enforce retention policies.
+- **Result:** Old recordings will be automatically cleaned up according to retention policies, preventing unbounded disk growth.
+- **Effort:** Tiny (2 lines in FirstRunCoordinator)
 
 #### Gap H: Services Should Auto-Start When Permissions Granted ❌
 
@@ -156,13 +151,13 @@ Phase 1 (no dependencies, do first):
   Gap D  — ✅ FIXED (2 pipe deadlocks in SettingsView)
   Gap F  — ✅ FIXED (recording_enabled config field)
   Gap B  — ✅ FIXED (FFmpeg detection in Swift UI + Python + plist)
+  Gap E  — ✅ FIXED (Install cleanup agent in FirstRunCoordinator)
 
 Phase 2 (depends on Phase 1):
   Gap G  — Wire up recording_enabled persistence in ViewModel (depends on F)
 
 Phase 3 (depends on Phase 1+2):
   Gap A  — Service lifecycle manager on app launch (depends on F, E)
-  Gap E  — Install cleanup agent in FirstRunCoordinator (independent, 5 min)
 
 Phase 4 (depends on Phase 3):
   Gap C  — Fix toggle UX: debounce, error feedback (depends on A, F)

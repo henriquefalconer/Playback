@@ -130,8 +130,10 @@ final class FirstRunCoordinator: ObservableObject {
         let agentManager = LaunchAgentManager.shared
         try agentManager.installAgent(.recording)
         try agentManager.installAgent(.processing)
+        try agentManager.installAgent(.cleanup)
         try agentManager.loadAgent(.recording)
         try agentManager.loadAgent(.processing)
+        try agentManager.loadAgent(.cleanup)
 
         if startRecordingNow {
             try agentManager.startAgent(.recording)
