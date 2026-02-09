@@ -9,11 +9,93 @@ Based on comprehensive technical specifications in `specs/` and verified against
 
 ---
 
+## 🚨 CRITICAL: End-to-End Functionality Gaps (2026-02-09)
+
+**Status: Core recording/processing pipeline NOT functional** — app launches without crashes but services don't start correctly.
+
+The following issues MUST be resolved for the recording/processing pipeline to work end-to-end. These are ordered by dependency (fix earlier items first).
+
+### Gap A: Processing Service Not Always-On ❌
+
+- [ ] **Processing service must auto-start when the app launches, regardless of recording toggle state**
+- **Spec:** `specs/menu-bar.md` lines 1137-1139 — Processing plist has `RunAtLoad: true`; `specs/architecture.md` line 88 — processing is an independent service
+- **Current behavior:** `FirstRunCoordinator.completeSetup()` at line 136 only starts processing if `startRecordingNow == true`. `PlaybackApp.swift` does NOT start the processing service on launch at all. There is no code path that ensures processing runs independently of the recording toggle.
+- **Root cause chain:**
+  1. `FirstRunCoordinator.completeSetup()` (line 119-142) installs and loads both agents, but only starts them conditionally (`if startRecordingNow`)
+  2. `PlaybackApp.swift` never calls `startAgent(.processing)` or ensures it's running
+  3. `MenuBarViewModel.toggleRecording()` only controls `.recording` agent (lines 93-109), never touches `.processing`
+  4. Processing plist template has `RunAtLoad: true` (line 19), meaning it SHOULD auto-start when loaded — but if it was never loaded (first-run skipped, or app reinstalled), it won't run
+- **Required fix:** On app launch (e.g., in `PlaybackApp.swift` or `AppDelegate.applicationDidFinishLaunching`), ensure the processing agent is installed, loaded, and started. This should happen unconditionally whenever the menu bar is visible, independent of the recording toggle.
+- **Impact:** Without this fix, unprocessed screenshots accumulate in temp/ and are never converted to video segments.
+
+### Gap B: FFmpeg Not Found at Runtime ❌
+
+- [ ] **FFmpeg detection shows "command not found" because SettingsView uses bare `ffmpeg` command via bash**
+- **Spec:** `specs/menu-bar.md` line 363 — Settings should show FFmpeg version
+- **Current behavior:** `SettingsView.swift:1608` runs `ffmpeg -version | head -n 1` via `runShellCommand()` which calls `/bin/bash -c "ffmpeg -version | head -n 1"`. In LaunchAgent context, Homebrew's `/opt/homebrew/bin` is NOT in PATH, so bash can't find `ffmpeg`.
+- **Two separate issues:**
+  1. **Settings UI display (SettingsView.swift:1608):** Uses bare `ffmpeg` command name → shows "command not found"
+  2. **Python service runtime (lib/video.py:30,204):** Uses `shutil.which("ffmpeg")` and bare `ffmpeg` in subprocess commands → relies on system PATH
+- **Processing plist template disconnect:** The template sets `FFMPEG_PATH=/opt/homebrew/bin/ffmpeg` environment variable (line 35-36), but **no Python code reads `FFMPEG_PATH`**. The variable is completely unused.
+- **DependencyCheckView.swift (first-run):** Correctly detects ffmpeg at absolute paths (`/opt/homebrew/bin/ffmpeg`, `/usr/local/bin/ffmpeg`, `/usr/bin/ffmpeg`) during first-run (lines 84-96), but the detected path is **not stored anywhere** for runtime reuse.
+- **Required fix (two parts):**
+  1. **Swift side:** In `loadSystemInformation()`, use absolute path detection (same logic as DependencyCheckView) or `ShellCommand.run("/opt/homebrew/bin/ffmpeg", arguments: ["-version"])` instead of bare `ffmpeg` via bash
+  2. **Python side:** Update `lib/video.py` to check `os.environ.get("FFMPEG_PATH")` first, then fall back to `shutil.which("ffmpeg")`, then fall back to hardcoded known paths. Alternatively, add `/opt/homebrew/bin` to PATH in the plist template.
+- **Impact:** Without this fix, the Settings UI shows "ffmpeg command not found" and more critically, the processing service may fail to encode videos if ffmpeg isn't in the LaunchAgent's restricted PATH.
+
+### Gap C: Recording Toggle Appears Non-Functional ❌
+
+- [ ] **Record Screen toggle resets to OFF every 5 seconds because updateRecordingState() polls LaunchAgent status**
+- **Spec:** `specs/menu-bar.md` lines 46-52 — Toggle enables/disables recording via LaunchAgent
+- **Current behavior:** `MenuBarViewModel.updateRecordingState()` (lines 148-161) polls every 5 seconds via timer. When the recording agent isn't running (which is the initial state on app launch), it sets `isRecordingEnabled = false` and `recordingState = .paused`. Even if the user toggles ON, if `startAgent(.recording)` fails silently, the next poll resets the toggle to OFF.
+- **Failure scenarios that cause toggle to appear "stuck OFF":**
+  1. **First-run not completed:** Agents never installed/loaded → `startAgent` fails in `ensureAgentLoaded` → error caught silently → `isRecordingEnabled` toggled back
+  2. **Agent not loaded:** If plist doesn't exist or wasn't loaded → `loadAgent` inside `ensureAgentLoaded` tries to install from template → template might not be in bundle resources → fails
+  3. **Silent failure:** `toggleRecording()` catches errors (line 102-108), logs in dev mode only, sets error state, toggles back — in production, user sees toggle flip back with no feedback
+- **Required fix:**
+  1. Ensure agents are installed and loaded on app startup (ties into Gap A)
+  2. Add user-visible error feedback when `startAgent` fails (not just dev-mode print)
+  3. Verify that plist templates are included in the app bundle's Resources
+- **Impact:** Toggle flips back to OFF with no explanation, making the app appear broken.
+
+### Gap D: Pipe Deadlock in SettingsView.runShellCommand() ❌
+
+- [ ] **SettingsView.swift:1289-1311 still has the old pipe deadlock pattern (waitUntilExit before readDataToEndOfFile)**
+- **Source:** `src/Playback/Playback/Settings/SettingsView.swift` lines 1289-1311
+- **Root cause:** `AdvancedSettingsTab` has its own private `runShellCommand()` method that was NOT migrated to use `ShellCommand.run()`. It still calls `process.waitUntilExit()` on line 1301 BEFORE `pipe.fileHandleForReading.readDataToEndOfFile()` on line 1303.
+- **Why it was missed:** The Priority 1 pipe deadlock fixes (1.3) migrated instances in ProcessMonitor, DependencyCheckView, and earlier parts of SettingsView, but `AdvancedSettingsTab.runShellCommand()` is a separate private method defined at line 1289 inside the same file.
+- **Current behavior:** This method is called every 30 seconds by `loadSystemInformation()` to get macOS version, Python version, FFmpeg version, and disk space. It CAN deadlock if any command produces enough output to fill the pipe buffer before the process exits.
+- **Required fix:** Replace with `ShellCommand.run("/bin/bash", arguments: ["-c", command])` or `ShellCommand.runAsync()`.
+- **Risk level:** Medium — for short commands like `sw_vers` the buffer won't fill, but it's a ticking time bomb.
+
+### Gap E: Cleanup Agent Not Installed During First-Run ❌
+
+- [ ] **FirstRunCoordinator only installs recording and processing agents, not cleanup**
+- **Source:** `FirstRunCoordinator.swift:131-134` — only installs `.recording` and `.processing`
+- **Spec:** `specs/storage-cleanup.md` — cleanup service should run periodically
+- **Template exists:** `cleanup.plist.template` is in Resources/launchagents/
+- **Required fix:** Add `try agentManager.installAgent(.cleanup)` and `try agentManager.loadAgent(.cleanup)` to `completeSetup()`
+- **Impact:** Old recordings are never cleaned up, disk space grows unbounded.
+
+### Dependency Order for Fixes
+
+```
+Gap D (pipe deadlock) — independent, fix first for stability
+  ↓
+Gap A (processing always-on) — requires ensuring agents are installed on launch
+  ↓
+Gap B (ffmpeg detection) — requires processing service to be running to matter
+  ↓
+Gap C (toggle feedback) — requires Gap A to be fixed first
+  ↓
+Gap E (cleanup agent) — independent but low priority
+```
+
+---
+
 ## 🎉 MVP COMPLETION STATUS - 2026-02-09
 
-**Status: Ready for MVP Release** ✅
-
-The Playback implementation has reached production quality with all critical bugs resolved and core functionality operational.
+**Status: App launches cleanly, but end-to-end pipeline has gaps (see Critical section above)**
 
 ### Completion Statistics
 - **Priority 1 (Critical Bugs):** 9/9 complete (100%) ✅
@@ -21,6 +103,7 @@ The Playback implementation has reached production quality with all critical bug
 - **Priority 3 (UX Polish):** 11/14 complete (79%)
 - **Priority 4 (Architectural):** Deferred for post-MVP
 - **Tests:** 555/691 running and passing ✅
+- **End-to-End Gaps:** 5 issues identified (see above) ❌
 
 ### What's Complete
 ✅ All SIGABRT crashes fixed (pipe deadlocks, double-close, force unwraps, blocking main thread)
@@ -31,12 +114,11 @@ The Playback implementation has reached production quality with all critical bug
 ✅ 280 Python tests passing, 203 Swift unit tests passing
 ✅ Smoke test passes cleanly (app launches without crashes)
 
-### Remaining Non-Critical Items
+### Remaining Items
+❌ **Critical gaps A-E above** — recording/processing pipeline doesn't function end-to-end
 ❌ App icon assets (2.4) - requires graphic design
 ❌ Momentum scrolling (3.4) - UX polish
 ❌ Drag-drop app exclusion (3.5) - convenience enhancement
-
-These can be addressed in post-MVP releases (v1.1.0+).
 
 ---
 
@@ -53,6 +135,11 @@ These can be addressed in post-MVP releases (v1.1.0+).
   4. ✅ Fix MenuBarViewModel initialization SIGABRT crash (blocking main thread during SwiftUI scene setup) - discovered 2026-02-09 - FIXED 2026-02-09
   5. ✅ Ensure no custom storage location picker exists (confirmed: it doesn't)
   6. ✅ Storage paths: `~/Library/Application Support/Playback/` for production, `dev_data/` for development (already correct in code)
+  7. ❌ Working record screen toggle (not greyed out) — see Gap C above
+  8. ❌ Correct FFmpeg identification — see Gap B above
+  9. ❌ Recording service shows "Running" when toggle ON — see Gaps A, C above
+  10. ❌ Processing service always on when menu bar visible — see Gap A above
+  11. ❌ Screenshots actually process into video segments — see Gaps A, B above
 
 ---
 
