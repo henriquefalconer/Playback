@@ -24,6 +24,73 @@ Based on comprehensive technical specifications in `specs/` and verified against
 
 ---
 
+## ⚠️ MANDATORY Pre-Commit Validation
+
+**CRITICAL REQUIREMENT:** Before committing ANY changes to the Xcode project (Swift files, project.pbxproj, entitlements, etc.), you MUST:
+
+### 1. Build the Project
+```bash
+cd ~/Playback/src/Playback && xcodebuild -scheme Playback -configuration Debug build
+```
+
+### 2. Run 5-Second Smoke Test
+```bash
+SWIFT_BACKTRACE=crash app=$(find ~/Library/Developer/Xcode/DerivedData -type f -path "*/Build/Products/Debug/Playback.app/Contents/MacOS/Playback" -print0 2>/dev/null | xargs -0 ls -t | head -n1) && [ -x "$app" ] && "$app" & pid=$!; sleep 5; kill $pid 2>/dev/null 2>&1
+```
+
+### Complete Validation Script
+```bash
+if [ "$(uname -s)" = "Darwin" ] && command -v xcodebuild >/dev/null 2>&1; then
+    echo "Running Xcode validation..."
+
+    cd ~/Playback/src/Playback && xcodebuild -scheme Playback -configuration Debug build
+    if [ $? -ne 0 ]; then
+        echo "❌ Build failed - cannot commit"
+        exit 1
+    fi
+
+    echo "Build finished."
+    echo "Running 5-second smoke test...\n"
+    SWIFT_BACKTRACE=crash app=$(find ~/Library/Developer/Xcode/DerivedData -type f -path "*/Build/Products/Debug/Playback.app/Contents/MacOS/Playback" -print0 2>/dev/null | xargs -0 ls -t | head -n1) && [ -x "$app" ] && "$app" & pid=$!; sleep 5; kill $pid 2>/dev/null 2>&1
+else
+    echo "⏭️  Skipping Xcode validation (not on macOS or xcodebuild not found)"
+fi
+```
+
+### 3. Evaluate Results
+- **Empty output = PASS** ✅ Safe to commit
+- **Any output = FAIL** ❌ Must take action:
+  - **Option A:** Fix the bug before committing (preferred)
+  - **Option B:** If immediate fix not possible, document below with:
+    - Clear description of crash/error
+    - Stack trace or error output
+    - Root cause analysis
+    - Steps to reproduce
+    - Proposed fix
+
+### 4. Environment Check
+- **Skip validation if:** Running on Linux OR `xcodebuild` not available
+- **Check with:** `uname -s` (Darwin = macOS, Linux = skip)
+
+### Active Runtime Issues Log
+
+Document any crashes or errors discovered during pre-commit validation that cannot be immediately fixed:
+
+#### [DATE] - [Brief Description]
+- **Error:** [Crash type, e.g., SIGABRT, SIGSEGV, uncaught exception]
+- **Stack trace:**
+```
+[Paste relevant stack trace here]
+```
+- **Root cause:** [Analysis of what's causing the issue]
+- **Reproduce:** [Minimal steps to trigger the crash]
+- **Proposed fix:** [What needs to be done to resolve this]
+- **Status:** [In progress / Blocked / Needs investigation]
+
+---
+
+---
+
 ## Completed Work Summary
 
 ### Python Backend -- 100% Complete

@@ -505,6 +505,76 @@ Fast tests that run before each commit:
 - Fast unit tests only (<5 seconds)
 - Python unit tests
 
+### Pre-Commit Xcode Build Validation (MANDATORY)
+
+**CRITICAL:** Before committing ANY changes involving the Xcode project (Swift source files, project.pbxproj, entitlements, Info.plist, etc.), you MUST perform the following validation:
+
+#### Requirements
+- Only required on macOS with Xcode installed
+- Skip this check if running on Linux or if `xcodebuild` is not available
+- Check environment: `uname -s` (Darwin = macOS, Linux = skip validation)
+
+#### Validation Steps
+
+1. **Build the project:**
+```bash
+cd src/Playback && xcodebuild -scheme Playback -configuration Debug build
+```
+
+2. **Launch and test the app (5-second smoke test):**
+```bash
+SWIFT_BACKTRACE=crash app=$(find ~/Library/Developer/Xcode/DerivedData -type f -path "*/Build/Products/Debug/Playback.app/Contents/MacOS/Playback" -print0 2>/dev/null | xargs -0 ls -t | head -n1) && [ -x "$app" ] && "$app" & pid=$!; sleep 5; kill $pid 2>/dev/null
+```
+
+3. **Evaluate results:**
+   - **Empty output (nothing returned):** ✅ Validation PASSED - safe to commit
+   - **Any output (crash logs, SIGABRT, errors):** ❌ Validation FAILED - take action:
+     - **Option A (Preferred):** Fix the bug before committing
+     - **Option B (If fix not immediately possible):** Document the issue in `IMPLEMENTATION_PLAN.md` with:
+       - Clear description of the crash/error
+       - Stack trace or relevant error output
+       - Root cause analysis (if known)
+       - Steps to reproduce
+       - Proposed fix or workaround
+
+#### Example Validation Failures to Document
+
+- SIGABRT crashes on launch
+- Uncaught exceptions in initialization
+- Missing required resources causing crashes
+- Thread safety violations detected during startup
+- Force unwrap crashes in critical paths
+
+#### Integration with Commit Workflow
+
+```bash
+if [ "$(uname -s)" = "Darwin" ] && command -v xcodebuild >/dev/null 2>&1; then
+    echo "Running Xcode validation..."
+
+    cd ~/Playback/src/Playback && xcodebuild -scheme Playback -configuration Debug build
+    if [ $? -ne 0 ]; then
+        echo "❌ Build failed - cannot commit"
+        exit 1
+    fi
+
+    echo "Build finished."
+    echo "Running 5-second smoke test...\n"
+    SWIFT_BACKTRACE=crash app=$(find ~/Library/Developer/Xcode/DerivedData -type f -path "*/Build/Products/Debug/Playback.app/Contents/MacOS/Playback" -print0 2>/dev/null | xargs -0 ls -t | head -n1) && [ -x "$app" ] && "$app" & pid=$!; sleep 5; kill $pid 2>/dev/null 2>&1
+else
+    echo "⏭️  Skipping Xcode validation (not on macOS or xcodebuild not found)"
+fi
+```
+
+#### Purpose
+
+This validation catches:
+- Build-breaking changes before they reach the repository
+- Runtime crashes that occur during app initialization
+- Resource loading failures
+- Critical startup bugs that would affect all users
+
+By enforcing this check, we maintain a working baseline and ensure the app can always launch successfully after each commit.
+
 ## Common Tasks
 
 ### Adding a New Setting
