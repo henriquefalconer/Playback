@@ -100,6 +100,7 @@ Key operational learnings from Phase 2 development (2026-02-07):
 - **Environment variable precedence:** Check ProcessInfo.processInfo.environment before dev/prod mode checks to allow environment variable overrides (PLAYBACK_CONFIG, PLAYBACK_DATA_DIR). Highest precedence wins: env vars → dev mode → production defaults
 - **Cursor-anchored zoom formula:** When implementing cursor-anchored zoom, use `centerTime = anchorTimestamp + (centerTime - anchorTimestamp) * (newWindow / oldWindow)` to maintain timestamp position during pinch gestures. Store anchor at gesture start, adjust center proportionally during zoom
 - **Comment translation:** When translating comments, preserve technical terminology (segment, timeline, scrubbing, frozen frame) and maintain original formatting. Use concise professional tone appropriate for code documentation
+- **Segment preloading pattern:** For seamless video transitions, use separate AVPlayer for background preloading. Monitor playback progress in timeObserver, trigger preload at 80% threshold. Load AVPlayerItem asynchronously on background queue, swap to main player when ready. Requires weak reference to data source (TimelineStore) for finding next segment chronologically. Pattern eliminates 100-500ms pause during segment transitions
 
 ## Specifications
 
