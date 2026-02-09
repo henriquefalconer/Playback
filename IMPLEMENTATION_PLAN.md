@@ -74,9 +74,9 @@ Based on comprehensive technical specifications in `specs/` and verified against
 - **Impact:** Without this fix, services don't start on subsequent app launches, processing never runs, and the entire pipeline is broken.
 - **Effort:** Medium (new lifecycle manager with async startup logic)
 
-#### Gap B: FFmpeg Not Found at Runtime ❌
+#### Gap B: FFmpeg Not Found at Runtime ✅ FIXED
 
-- [ ] **Fix FFmpeg detection in both Swift Settings UI and Python processing service**
+- [x] **Fix FFmpeg detection in both Swift Settings UI and Python processing service**
 - **Spec:** `specs/menu-bar.md` line 363 — Settings should show FFmpeg version
 - **Two separate issues:**
   1. **Settings UI display (`SettingsView.swift:1608`):** Uses bare `ffmpeg -version | head -n 1` via bash → shows "command not found" because Homebrew's `/opt/homebrew/bin` is NOT in the LaunchAgent/app PATH
@@ -89,6 +89,17 @@ Based on comprehensive technical specifications in `specs/` and verified against
   3. **Plist templates:** Add `/opt/homebrew/bin` to PATH in all plist templates: `<key>PATH</key><string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>`. This is the simplest fix and covers both ffmpeg and python3.
 - **Impact:** Without this fix, Settings shows "ffmpeg not found" and the processing service fails to encode videos.
 - **Effort:** Medium (3 files to modify, need Python tests updated)
+- **Fix applied (2026-02-09):**
+  1. **Python `lib/video.py`:** Added `_get_ffmpeg_path()` and `_get_ffprobe_path()` helper functions that check:
+     - `FFMPEG_PATH` / `FFPROBE_PATH` environment variables
+     - Hardcoded paths (`/opt/homebrew/bin/ffmpeg`, `/usr/local/bin/ffmpeg`, `/usr/bin/ffmpeg`)
+     - `shutil.which()` as fallback to PATH
+  2. **Updated all 5 subprocess calls** in `video.py` to use the helper functions instead of bare `"ffmpeg"` / `"ffprobe"`
+  3. **Updated all 3 plist templates:** Added `PATH` environment variable containing `/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin`
+  4. **Updated processing.plist.template:** Added `FFPROBE_PATH` environment variable
+  5. **Swift Settings UI:** Updated `loadSystemInformation()` to probe absolute paths (same logic as DependencyCheckView)
+  6. **Python tests:** Updated `test_video.py` to match new detection logic with proper mocking
+- **Result:** All 34 video tests pass, smoke test passes, FFmpeg detection works in both Swift UI and Python services
 
 #### Gap C: Recording Toggle UX Broken ❌
 
@@ -142,12 +153,12 @@ Based on comprehensive technical specifications in `specs/` and verified against
 
 ```
 Phase 1 (no dependencies, do first):
-  Gap D  — Fix 2 pipe deadlocks in SettingsView (independent, 15 min)
-  Gap F  — Add recording_enabled config field (independent, 30 min)
+  Gap D  — ✅ FIXED (2 pipe deadlocks in SettingsView)
+  Gap F  — ✅ FIXED (recording_enabled config field)
+  Gap B  — ✅ FIXED (FFmpeg detection in Swift UI + Python + plist)
 
 Phase 2 (depends on Phase 1):
   Gap G  — Wire up recording_enabled persistence in ViewModel (depends on F)
-  Gap B  — Fix FFmpeg detection in Swift UI + Python + plist (independent)
 
 Phase 3 (depends on Phase 1+2):
   Gap A  — Service lifecycle manager on app launch (depends on F, E)

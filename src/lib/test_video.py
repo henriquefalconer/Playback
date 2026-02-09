@@ -19,23 +19,27 @@ class TestFFmpegAvailability:
 
     def test_ffmpeg_available(self):
         """Test that FFmpeg is detected when available in PATH."""
-        with patch('shutil.which', return_value='/usr/local/bin/ffmpeg'):
-            assert video.check_ffmpeg_available() is True
+        with patch('lib.video._get_ffmpeg_path', return_value='/usr/local/bin/ffmpeg'):
+            with patch('os.path.exists', return_value=True):
+                assert video.check_ffmpeg_available() is True
 
     def test_ffmpeg_not_available(self):
         """Test that FFmpeg is detected as unavailable when not in PATH."""
-        with patch('shutil.which', return_value=None):
-            assert video.check_ffmpeg_available() is False
+        with patch('lib.video._get_ffmpeg_path', return_value='ffmpeg'):
+            with patch('shutil.which', return_value=None):
+                assert video.check_ffmpeg_available() is False
 
     def test_ffprobe_available(self):
         """Test that FFprobe is detected when available in PATH."""
-        with patch('shutil.which', return_value='/usr/local/bin/ffprobe'):
-            assert video.check_ffprobe_available() is True
+        with patch('lib.video._get_ffprobe_path', return_value='/usr/local/bin/ffprobe'):
+            with patch('os.path.exists', return_value=True):
+                assert video.check_ffprobe_available() is True
 
     def test_ffprobe_not_available(self):
         """Test that FFprobe is detected as unavailable when not in PATH."""
-        with patch('shutil.which', return_value=None):
-            assert video.check_ffprobe_available() is False
+        with patch('lib.video._get_ffprobe_path', return_value='ffprobe'):
+            with patch('shutil.which', return_value=None):
+                assert video.check_ffprobe_available() is False
 
 
 class TestImageSizeDetection:

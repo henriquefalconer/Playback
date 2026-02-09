@@ -35,6 +35,8 @@
         <string>{{DATA_DIR}}</string>
         <key>PLAYBACK_DEV_MODE</key>
         <string>{{DEV_MODE}}</string>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
     </dict>
 
     <key>ProcessType</key>

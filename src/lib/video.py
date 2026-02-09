@@ -4,6 +4,7 @@ This module provides clean, reusable wrappers around FFmpeg and FFprobe
 for video encoding and image processing operations used throughout Playback.
 """
 
+import os
 import shutil
 import subprocess
 import tempfile
@@ -21,22 +22,72 @@ class FFprobeError(Exception):
     pass
 
 
+def _get_ffmpeg_path() -> str:
+    """Get FFmpeg executable path from environment or common locations.
+
+    Checks in order:
+    1. FFMPEG_PATH environment variable (set by LaunchAgent)
+    2. Common Homebrew and system locations
+    3. System PATH search via shutil.which
+
+    Returns:
+        Absolute path to ffmpeg executable, or "ffmpeg" as fallback.
+    """
+    if "FFMPEG_PATH" in os.environ:
+        ffmpeg_path = os.environ["FFMPEG_PATH"]
+        if os.path.exists(ffmpeg_path):
+            return ffmpeg_path
+
+    for path in ["/opt/homebrew/bin/ffmpeg", "/usr/local/bin/ffmpeg", "/usr/bin/ffmpeg"]:
+        if os.path.exists(path):
+            return path
+
+    found = shutil.which("ffmpeg")
+    return found if found else "ffmpeg"
+
+
+def _get_ffprobe_path() -> str:
+    """Get FFprobe executable path from environment or common locations.
+
+    Checks in order:
+    1. FFPROBE_PATH environment variable
+    2. Common Homebrew and system locations
+    3. System PATH search via shutil.which
+
+    Returns:
+        Absolute path to ffprobe executable, or "ffprobe" as fallback.
+    """
+    if "FFPROBE_PATH" in os.environ:
+        ffprobe_path = os.environ["FFPROBE_PATH"]
+        if os.path.exists(ffprobe_path):
+            return ffprobe_path
+
+    for path in ["/opt/homebrew/bin/ffprobe", "/usr/local/bin/ffprobe", "/usr/bin/ffprobe"]:
+        if os.path.exists(path):
+            return path
+
+    found = shutil.which("ffprobe")
+    return found if found else "ffprobe"
+
+
 def check_ffmpeg_available() -> bool:
-    """Check if FFmpeg is available in the system PATH.
+    """Check if FFmpeg is available in the system.
 
     Returns:
         True if FFmpeg is available, False otherwise.
     """
-    return shutil.which("ffmpeg") is not None
+    ffmpeg_path = _get_ffmpeg_path()
+    return os.path.exists(ffmpeg_path) if os.path.isabs(ffmpeg_path) else shutil.which(ffmpeg_path) is not None
 
 
 def check_ffprobe_available() -> bool:
-    """Check if FFprobe is available in the system PATH.
+    """Check if FFprobe is available in the system.
 
     Returns:
         True if FFprobe is available, False otherwise.
     """
-    return shutil.which("ffprobe") is not None
+    ffprobe_path = _get_ffprobe_path()
+    return os.path.exists(ffprobe_path) if os.path.isabs(ffprobe_path) else shutil.which(ffprobe_path) is not None
 
 
 def get_image_size(path: Path) -> Tuple[Optional[int], Optional[int]]:
@@ -56,7 +107,7 @@ def get_image_size(path: Path) -> Tuple[Optional[int], Optional[int]]:
 
     try:
         cmd = [
-            "ffprobe",
+            _get_ffprobe_path(),
             "-v", "error",
             "-select_streams", "v:0",
             "-show_entries", "stream=width,height",
@@ -109,7 +160,7 @@ def get_video_dimensions(path: Path) -> Tuple[Optional[int], Optional[int]]:
 
     try:
         cmd = [
-            "ffprobe",
+            _get_ffprobe_path(),
             "-v", "error",
             "-select_streams", "v:0",
             "-show_entries", "stream=width,height",
@@ -201,7 +252,7 @@ def create_video_from_images(
 
         # Build FFmpeg command
         cmd = [
-            "ffmpeg",
+            _get_ffmpeg_path(),
             "-y",  # Overwrite output file if it exists
             "-framerate", str(fps),
             "-i", str(tmpdir / "frame_%05d.png"),
@@ -257,7 +308,7 @@ def get_video_duration(path: Path) -> Optional[float]:
 
     try:
         cmd = [
-            "ffprobe",
+            _get_ffprobe_path(),
             "-v", "error",
             "-show_entries", "format=duration",
             "-of", "default=noprint_wrappers=1:nokey=1",
@@ -302,7 +353,7 @@ def get_video_frame_count(path: Path) -> Optional[int]:
 
     try:
         cmd = [
-            "ffprobe",
+            _get_ffprobe_path(),
             "-v", "error",
             "-select_streams", "v:0",
             "-count_frames",

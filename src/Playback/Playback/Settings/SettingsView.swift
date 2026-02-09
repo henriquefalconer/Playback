@@ -1589,7 +1589,20 @@ struct AdvancedSettingsTab: View {
     private func loadSystemInformation() async {
         macOSVersion = await runShellCommand("sw_vers -productVersion")
         pythonVersion = await runShellCommand("python3 --version")
-        ffmpegVersion = await runShellCommand("ffmpeg -version | head -n 1")
+
+        let ffmpegPaths = ["/opt/homebrew/bin/ffmpeg", "/usr/local/bin/ffmpeg", "/usr/bin/ffmpeg"]
+        var ffmpegFound = false
+        for path in ffmpegPaths {
+            let version = await runShellCommand("\(path) -version | head -n 1")
+            if !version.isEmpty && !version.hasPrefix("Error") {
+                ffmpegVersion = version
+                ffmpegFound = true
+                break
+            }
+        }
+        if !ffmpegFound {
+            ffmpegVersion = "Not found"
+        }
 
         let dataDir = Paths.baseDataDirectory.path
         let spaceOutput = await runShellCommand("df -h '\(dataDir)' | tail -n 1 | awk '{print $4}'")
