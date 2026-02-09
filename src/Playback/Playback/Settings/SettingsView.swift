@@ -1346,6 +1346,9 @@ struct AdvancedSettingsTab: View {
     @State private var diagnosticsMessage = ""
     @State private var showExportSuccess = false
     @State private var exportedFilePath: URL? = nil
+    @State private var showForceRunError = false
+    @State private var forceRunError: String? = nil
+    @State private var isForceRunning = false
 
     var body: some View {
         Form {
@@ -1486,6 +1489,26 @@ struct AdvancedSettingsTab: View {
                 }
                 .buttonStyle(.borderless)
                 .accessibilityIdentifier("settings.advanced.diagnosticsButton")
+
+                Button(action: {
+                    Task {
+                        await forceRunServices()
+                    }
+                }) {
+                    HStack {
+                        if isForceRunning {
+                            ProgressView()
+                                .controlSize(.small)
+                                .scaleEffect(0.8)
+                            Text("Running Services...")
+                        } else {
+                            Text("Force Run Services")
+                        }
+                    }
+                }
+                .disabled(isForceRunning)
+                .buttonStyle(.borderless)
+                .accessibilityIdentifier("settings.advanced.forceRunServicesButton")
             }
         }
         .formStyle(.grouped)
@@ -1582,6 +1605,18 @@ struct AdvancedSettingsTab: View {
                 Text("Logs exported successfully to \(url.lastPathComponent)")
             } else {
                 Text("Logs exported successfully")
+            }
+        }
+        .alert("Service Execution Error", isPresented: $showForceRunError) {
+            Button("Export Error") {
+                exportForceRunError()
+            }
+            Button("OK") { }
+        } message: {
+            if let error = forceRunError {
+                Text(error)
+            } else {
+                Text("An unknown error occurred while running the services.")
             }
         }
     }
@@ -1957,6 +1992,111 @@ struct AdvancedSettingsTab: View {
             await MainActor.run {
                 diagnosticsMessage = diagnostics.joined(separator: "\n")
                 showDiagnosticsResults = true
+            }
+        }
+    }
+
+    private func forceRunServices() async {
+        await MainActor.run {
+            isForceRunning = true
+            forceRunError = nil
+        }
+
+        var errors: [String] = []
+
+        // Get scripts directory path
+        let scriptsDir: String
+        if Paths.isDevelopment {
+            let projectRoot = Bundle.main.bundleURL
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+            scriptsDir = projectRoot.appendingPathComponent("src/scripts").path
+        } else {
+            // In production, scripts are bundled in Resources
+            scriptsDir = Bundle.main.resourcePath ?? ""
+        }
+
+        // Force run recording service
+        do {
+            let recordScriptPath = "\(scriptsDir)/record_screen.py"
+            if Paths.isDevelopment {
+                print("[ForceRun] Running recording service: python3 \(recordScriptPath)")
+            }
+            let recordResult = try await ShellCommand.runAsync(
+                "/usr/bin/python3",
+                arguments: [recordScriptPath]
+            )
+            if !recordResult.isSuccess {
+                errors.append("Recording service failed (exit code \(recordResult.exitCode)):\n\(recordResult.output)")
+            }
+        } catch {
+            errors.append("Recording service error: \(error.localizedDescription)")
+        }
+
+        // Force run processing service
+        do {
+            let processScriptPath = "\(scriptsDir)/build_chunks_from_temp.py"
+            if Paths.isDevelopment {
+                print("[ForceRun] Running processing service: python3 \(processScriptPath) --auto")
+            }
+            let processResult = try await ShellCommand.runAsync(
+                "/usr/bin/python3",
+                arguments: [processScriptPath, "--auto"]
+            )
+            if !processResult.isSuccess {
+                errors.append("Processing service failed (exit code \(processResult.exitCode)):\n\(processResult.output)")
+            }
+        } catch {
+            errors.append("Processing service error: \(error.localizedDescription)")
+        }
+
+        await MainActor.run {
+            isForceRunning = false
+            if !errors.isEmpty {
+                forceRunError = errors.joined(separator: "\n\n")
+                showForceRunError = true
+            }
+        }
+    }
+
+    private func exportForceRunError() {
+        guard let error = forceRunError else { return }
+
+        let panel = NSSavePanel()
+        let timestamp = formatDate(Date())
+        panel.nameFieldStringValue = "playback-service-error-\(timestamp).txt"
+        panel.allowedContentTypes = [.plainText]
+        panel.canCreateDirectories = true
+
+        panel.begin { response in
+            if response == .OK, let url = panel.url {
+                do {
+                    // Create detailed error report
+                    var report = "Playback Service Error Report\n"
+                    report += "Generated: \(Date())\n"
+                    report += "macOS Version: \(self.macOSVersion)\n"
+                    report += "Python Version: \(self.pythonVersion)\n"
+                    report += "FFmpeg Version: \(self.ffmpegVersion)\n"
+                    report += "\n--- Error Details ---\n\n"
+                    report += error
+                    report += "\n\n--- Service Status ---\n"
+                    report += "Recording Service: \(self.statusText(self.recordingStatus))\n"
+                    report += "Processing Service: \(self.statusText(self.processingStatus))\n"
+
+                    try report.write(to: url, atomically: true, encoding: .utf8)
+
+                    // Show success notification
+                    NSWorkspace.shared.activateFileViewerSelecting([url])
+                } catch {
+                    // Show error alert
+                    let alert = NSAlert()
+                    alert.messageText = "Export Failed"
+                    alert.informativeText = "Could not save error report: \(error.localizedDescription)"
+                    alert.alertStyle = .warning
+                    alert.addButton(withTitle: "OK")
+                    alert.runModal()
+                }
             }
         }
     }

@@ -1031,6 +1031,96 @@ Note: `$HOME` must be expanded to actual home directory path in LaunchAgent plis
   - Excluded apps list is privacy-sensitive but not encrypted
   - Log sanitized config (redact sensitive fields if any added)
 
+### Force Run Services Feature
+- [ ] Implement "Force Run Services" button in Advanced settings
+  - Source: `src/Playback/Playback/Settings/SettingsView.swift`
+  - Location: Advanced Settings Tab → Maintenance Section
+  - Button triggers manual execution of recording and processing services
+  - Shows progress indicator while running
+  - **Example:**
+    ```swift
+    Button(action: {
+        Task {
+            await forceRunServices()
+        }
+    }) {
+        HStack {
+            if isForceRunning {
+                ProgressView()
+                    .controlSize(.small)
+                Text("Running Services...")
+            } else {
+                Text("Force Run Services")
+            }
+        }
+    }
+    .disabled(isForceRunning)
+    ```
+
+- [ ] Implement error handling with alert dialog
+  - Display alert if any service fails
+  - Show detailed error message with exit codes
+  - Include both recording and processing service errors
+  - Alert title: "Service Execution Error"
+  - Alert provides two actions: "Export Error" and "OK"
+  - **Example:**
+    ```swift
+    .alert("Service Execution Error", isPresented: $showForceRunError) {
+        Button("Export Error") {
+            exportForceRunError()
+        }
+        Button("OK") { }
+    } message: {
+        Text(forceRunError ?? "An unknown error occurred")
+    }
+    ```
+
+- [ ] Implement error export functionality
+  - Export button in error alert saves error details to file
+  - Suggested filename format: `playback-service-error-YYYYMMDD-HHMMSS.txt`
+  - File type: Plain text (.txt)
+  - Export includes comprehensive diagnostic information:
+    - Error timestamp
+    - macOS version
+    - Python version
+    - FFmpeg version
+    - Full error messages from services
+    - Service status (recording and processing)
+  - Opens Finder to show exported file after save
+  - **Example error report format:**
+    ```
+    Playback Service Error Report
+    Generated: 2026-02-09 14:23:45
+    macOS Version: 26.0
+    Python Version: Python 3.12.1
+    FFmpeg Version: ffmpeg version 7.0.1
+
+    --- Error Details ---
+
+    Recording service failed (exit code 1):
+    Traceback (most recent call last):
+      ...error details...
+
+    Processing service failed (exit code 2):
+    ...error details...
+
+    --- Service Status ---
+    Recording Service: Running (PID: 12345)
+    Processing Service: Not Running
+    ```
+
+- [ ] Service execution implementation
+  - Function: `forceRunServices() async`
+  - Runs recording service: `python3 record_screen.py`
+  - Runs processing service: `python3 build_chunks_from_temp.py --auto`
+  - Uses `ShellCommand.runAsync()` for non-blocking execution
+  - Handles both development and production script paths
+  - Collects errors from both services
+  - Shows combined error message if either fails
+  - **Script path resolution:**
+    - Development: `<project>/src/scripts/`
+    - Production: `<bundle>/Resources/`
+
 ### Configuration Access API
 - [ ] Create ConfigManager singleton
   - Source: `src/Playback/Playback/Config/ConfigManager.swift`
@@ -1311,3 +1401,75 @@ Note: `$HOME` must be expanded to actual home directory path in LaunchAgent plis
   - Production config should be in Application Support
   - Dev config should be in project directory
   - Should not be in publicly accessible location
+
+### Integration Tests - Force Run Services
+- [ ] Test force run button in UI
+  - Button should be enabled when services idle
+  - Button should show progress indicator while running
+  - Button should be disabled while services running
+  - Button should be accessible via identifier
+
+- [ ] Test successful service execution
+  - Recording service executes without errors
+  - Processing service executes without errors
+  - No error alert shown on success
+  - Services return to idle state after completion
+
+- [ ] Test error handling for recording service failure
+  - Simulate recording service failure
+  - Error alert should display
+  - Error message should include "Recording service failed"
+  - Error message should include exit code
+  - Error message should include service output
+
+- [ ] Test error handling for processing service failure
+  - Simulate processing service failure
+  - Error alert should display
+  - Error message should include "Processing service failed"
+  - Error message should include exit code
+  - Error message should include service output
+
+- [ ] Test error handling for both services failing
+  - Simulate both services failing
+  - Error alert should display combined errors
+  - Both error messages should be separated clearly
+  - Alert should remain dismissible
+
+- [ ] Test error export functionality
+  - Click "Export Error" button in error alert
+  - Save panel should appear with suggested filename
+  - Filename format: `playback-service-error-YYYYMMDD-HHMMSS.txt`
+  - File type filter: Plain text only
+  - Can create new directories in save panel
+
+- [ ] Test exported error file contents
+  - File should contain error report header
+  - File should include timestamp
+  - File should include system information (macOS, Python, FFmpeg)
+  - File should include full error details
+  - File should include service status
+  - File should be valid UTF-8 text
+
+- [ ] Test error export success
+  - File should be saved to chosen location
+  - Finder should open showing exported file
+  - No error dialog on successful export
+
+- [ ] Test error export failure
+  - Simulate write permission error
+  - Error alert should appear
+  - Alert should describe export failure
+  - Original error dialog should remain accessible
+
+- [ ] Test script path resolution
+  - Development mode: Should use `<project>/src/scripts/`
+  - Production mode: Should use `<bundle>/Resources/`
+  - Scripts should be found in correct location
+  - Missing scripts should generate clear error
+
+- [ ] Test concurrent force run attempts
+  - Start force run
+  - Attempt second force run while first running
+  - Second attempt should be blocked (button disabled)
+  - First run should complete normally
+  - Button should re-enable after completion
