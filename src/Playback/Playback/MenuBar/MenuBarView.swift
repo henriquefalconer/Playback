@@ -116,9 +116,6 @@ struct MenuBarView: View {
             .accessibilityIdentifier("menubar.quitButton")
         }
         .frame(minWidth: 220)
-        .task {
-            viewModel.startMonitoring()
-        }
     }
 }
 

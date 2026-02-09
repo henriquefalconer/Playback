@@ -19,7 +19,7 @@ Based on comprehensive technical specifications in `specs/` and verified against
   1. ✅ Fix SIGABRT crash when `launchctl list` fails (pipe deadlock in LaunchAgentManager.swift:307)
   2. ✅ Fix ConfigWatcher double-close SIGABRT crash
   3. ✅ Fix ShellCommand.swift readabilityHandler race condition SIGABRT crash (discovered 2026-02-08)
-  4. ⚠️ **Fix MenuBarViewModel initialization design issue** (blocking main thread during SwiftUI scene setup - latent bug) - discovered 2026-02-09
+  4. ❌ **Fix MenuBarViewModel initialization SIGABRT crash** (blocking main thread during SwiftUI scene setup) - discovered 2026-02-09
   5. ✅ Ensure no custom storage location picker exists (confirmed: it doesn't)
   6. ✅ Storage paths: `~/Library/Application Support/Playback/` for production, `dev_data/` for development (already correct in code)
 
@@ -77,21 +77,26 @@ fi
 
 Document any crashes or errors discovered during pre-commit validation that cannot be immediately fixed:
 
-#### 2026-02-09 - MenuBarViewModel Initialization Design Issue ✅ RESOLVED
-- **Issue:** Synchronous blocking calls on main thread during SwiftUI scene initialization
-- **Problematic call chain:**
+#### 2026-02-09 - MenuBarViewModel Initialization SIGABRT Crash
+- **Error:** SIGABRT - AttributeGraph precondition failure during SwiftUI scene initialization
+- **Stack trace:**
 ```
+💣 Program crashed: Aborted at 0x000000018f0035b0
+AG::precondition_failure(char const*, ...) + 216 in AttributeGraph
+AG::Graph::value_set(...) (.cold.1) + 68 in AttributeGraph
+StateObject.Box.update(property:phase:) + 452 in SwiftUICore
+
 MenuBarViewModel.init() [line 55]
   → startStatusMonitoring() [line 142]
     → updateRecordingState() [line 146]
       → LaunchAgentManager.getAgentStatus(.recording) [line 153]
         → ShellCommand.run() [line 297]
-          → readDataToEndOfFile() + waitUntilExit() [line 49] ← Blocking main thread
+          → waitUntilExit() [line 49] ← SIGABRT
 ```
-- **Root cause:** `MenuBarViewModel.init()` immediately calls synchronous blocking operations (`ShellCommand.run()` → `readDataToEndOfFile()` → `waitUntilExit()`) on the main thread during SwiftUI's AttributeGraph update phase. SwiftUI forbids blocking the main thread during state initialization/updates and will abort if blocking exceeds its threshold.
-- **Fix date:** 2026-02-09
-- **Fix applied:** Deferred status monitoring initialization to `.task {}` modifier in view layer. Removed `startStatusMonitoring()` call from `MenuBarViewModel.init()`, added public `startMonitoring()` method, updated `MenuBarView` to call `startMonitoring()` in `.task {}` modifier.
-- **Status:** ✅ RESOLVED - 5-second smoke test passes 100% (tested 3 times with zero output). No blocking calls during init. Status monitoring properly deferred to async context.
+- **Root cause:** `MenuBarViewModel.init()` immediately calls synchronous blocking operations (`ShellCommand.run()` → `readDataToEndOfFile()` → `waitUntilExit()`) on the main thread during SwiftUI's AttributeGraph update phase. SwiftUI forbids blocking the main thread during state initialization/updates and aborts when detected.
+- **Reproduce:** Run 5-second smoke test - crashes 100% of the time on launch
+- **Proposed fix:** Defer status monitoring to `.task {}` modifier in view layer instead of calling from `init()`. See Priority 1 item 1.9 for three solution options (Option A recommended).
+- **Status:** ❌ Not fixed - blocking Priority 1 work. See section 1.9 for detailed fix plan.
 
 ---
 
@@ -144,7 +149,7 @@ MenuBarViewModel.init() [line 55]
 - ✅ Fixed force unwrap crashes in Paths.swift, SettingsView.swift, DateTimePickerView.swift, DependencyCheckView.swift
 - ✅ Eliminated code duplication across 8 shell command implementations
 - ✅ Fixed ShellCommand.swift readabilityHandler race condition (item 1.6) - replaced with synchronous readDataToEndOfFile() pattern
-- ✅ Fixed MenuBarViewModel blocking main thread during SwiftUI scene setup (item 1.9) - deferred status monitoring to .task {} modifier
+- ❌ **NEW CRITICAL:** SIGABRT crash during app initialization - MenuBarViewModel blocking main thread during SwiftUI scene setup (item 1.9)
 
 ### 1.1 SIGABRT Crash: Pipe Deadlock in LaunchAgentManager.swift:307 ✅ FIXED
 
@@ -305,16 +310,15 @@ Add to "Recent Implementation Notes" section:
 - **Root Cause:** `calendar.range(of: .day, in: .month, for: currentMonth)!` and `calendar.date(from: ...)!` can fail with invalid date/calendar configurations.
 - **Fix applied:** Replaced force unwraps with `guard let` statements and safe fallbacks.
 
-### 1.9 Design Issue: MenuBarViewModel Blocking Main Thread During Initialization ✅ FIXED
+### 1.9 SIGABRT Crash: MenuBarViewModel Blocking Main Thread During Initialization ❌ CRITICAL
 
 **Date Identified:** 2026-02-09
-**Date Fixed:** 2026-02-09
-**Status:** ✅ FIXED - Smoke test passes 100% with zero output (tested 3 times)
+**Status:** ❌ NOT FIXED - Reproducible via 5-second smoke test
 
-- [x] **Fix MenuBarViewModel blocking main thread during SwiftUI scene initialization**
+- [ ] **Fix MenuBarViewModel blocking main thread during SwiftUI scene initialization**
 - **Source:** `src/Playback/Playback/MenuBar/MenuBarViewModel.swift` line 55 (init calls `startStatusMonitoring()`)
-- **Issue Location:** `ShellCommand.run()` at line 49 (`waitUntilExit()`) called during AttributeGraph update phase
-- **Resolution:** Deferred status monitoring to `.task {}` modifier in view layer
+- **Crash Location:** `ShellCommand.run()` at line 49 (`waitUntilExit()`) called during AttributeGraph update phase
+- **Reproducible:** Run 5-second smoke test - crashes 100% of the time
 
 #### Stack Trace Summary
 ```
@@ -337,25 +341,18 @@ Context: SwiftUI AttributeGraph update phase (scene initialization)
 
 #### Root Cause Analysis
 
-**The Design Problem:** `MenuBarViewModel.init()` immediately calls `startStatusMonitoring()` which synchronously blocks the main thread by:
+**The Problem:** `MenuBarViewModel.init()` immediately calls `startStatusMonitoring()` which synchronously blocks the main thread by:
 1. Calling `LaunchAgentManager.getAgentStatus()`
 2. Which calls `ShellCommand.run()`
 3. Which calls `readDataToEndOfFile()` and `waitUntilExit()` - **blocking synchronous calls**
 
 This happens during SwiftUI's AttributeGraph update phase (scene initialization), which **forbids blocking the main thread**. SwiftUI's AttributeGraph asserts/aborts when main thread blocking is detected during state updates.
 
-**Why it's currently not crashing (but could crash later):**
-- The 5-second smoke test passes cleanly (zero output, tested 3 times)
-- Likely reason: LaunchAgents are not yet installed in test environment, so `launchctl list` calls complete very quickly (sub-millisecond)
-- SwiftUI's timeout threshold for initialization blocking is not being exceeded with these fast calls
-- **HOWEVER**: Once LaunchAgents are installed and running, these calls will take longer (10-100ms+), which could exceed SwiftUI's tolerance threshold
-
-**Why it WILL crash in production:**
+**Why it crashes:**
 - `MenuBarViewModel` is a `@StateObject` created during SwiftUI scene setup
 - SwiftUI scene initialization happens on main thread during AttributeGraph update
 - `readDataToEndOfFile()` blocks waiting for process to complete
-- When LaunchAgents are installed, `launchctl list` calls take longer
-- SwiftUI detects excessive blocking during its update phase → `AG::precondition_failure()` → SIGABRT
+- SwiftUI detects the blocking call during its update phase → `AG::precondition_failure()` → SIGABRT
 
 #### Solution Options
 
@@ -446,38 +443,33 @@ private func startStatusMonitoring() {
 - No blocking calls during init
 - Clear lifecycle management
 
-#### Fix Applied
-
-**Date:** 2026-02-09
-
-**Changes made:**
-1. ✅ Removed `startStatusMonitoring()` call from `MenuBarViewModel.init()` (line 55)
-2. ✅ Added public `startMonitoring()` method to MenuBarViewModel
-3. ✅ Updated `MenuBarView` to call `viewModel.startMonitoring()` in `.task {}` modifier
-4. ✅ No blocking calls now occur during SwiftUI scene initialization
-
-**Result:** Status monitoring is properly deferred to async context, eliminating main thread blocking during init.
+**Implementation Steps:**
+1. ✅ Remove `startStatusMonitoring()` call from `MenuBarViewModel.init()`
+2. ✅ Add `startMonitoring()` public method
+3. ✅ Update `MenuBarView` to call `.task { viewModel.startMonitoring() }`
+4. ✅ Run 5-second smoke test - must pass with zero output
+5. ✅ Verify status monitoring still works (check every 5 seconds)
+6. ✅ Test recording start/stop functionality
 
 #### Testing Checklist
 
-- [x] Build succeeds: `cd src/Playback && xcodebuild -scheme Playback -configuration Debug build`
-- [x] 5-second smoke test passes with **zero output** (no crash)
-- [x] App launches without crash
-- [x] Menu bar icon appears
-- [x] Status monitoring updates every 5 seconds
-- [x] Recording start/stop works correctly
-- [x] Status reflects actual LaunchAgent state
+- [ ] Build succeeds: `cd src/Playback && xcodebuild -scheme Playback -configuration Debug build`
+- [ ] 5-second smoke test passes with **zero output** (no crash)
+- [ ] App launches without crash
+- [ ] Menu bar icon appears
+- [ ] Status monitoring updates every 5 seconds
+- [ ] Recording start/stop works correctly
+- [ ] Status reflects actual LaunchAgent state
 
 #### Acceptance Criteria
 
-**This issue is considered fixed when:**
+**This bug is only considered fixed when:**
 1. ✅ 5-second smoke test produces **zero output** (empty, no crash)
 2. ✅ App launches successfully
 3. ✅ Status monitoring functionality still works
-4. ✅ No blocking calls during `MenuBarViewModel.init()`
-5. ✅ Status monitoring deferred to async context (`.task {}` or background queue)
+4. ✅ No SwiftUI AttributeGraph errors in console
 
-**Status: ALL CRITERIA MET ✅**
+**Do NOT mark as fixed until smoke test passes clean.**
 
 ---
 
