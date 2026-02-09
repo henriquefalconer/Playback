@@ -34,11 +34,9 @@ struct ContentView: View {
 
     var body: some View {
         ZStack {
-            if processMonitor.isProcessing {
-                LoadingScreenView()
-            } else if timelineStore.loadingState == .loading {
-                LoadingStateContentView()
-            } else if timelineStore.loadingState == .empty {
+            // Always show timeline - no blocking loaders
+            // Data loads in background and populates as ready
+            if timelineStore.loadingState == .empty {
                 EmptyStateView()
             } else if case .error(let errorMessage) = timelineStore.loadingState {
                 ErrorStateView(errorType: .databaseError(errorMessage))
