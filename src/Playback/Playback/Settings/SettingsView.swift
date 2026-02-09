@@ -2123,8 +2123,8 @@ struct AdvancedSettingsTab: View {
         let finalRecordScriptPath = recordScriptPath
         let finalProcessScriptPath = processScriptPath
 
-        // STEP 4: Check/Install LaunchAgents
-        diagnostics.append("\n=== STEP 4: Install/Load LaunchAgents ===")
+        // STEP 4: Force Install LaunchAgents (always reinstall to ensure latest templates)
+        diagnostics.append("\n=== STEP 4: Force Install LaunchAgents ===")
 
         // Skip if scripts not found
         guard recordScriptPath != nil && processScriptPath != nil else {
@@ -2155,32 +2155,22 @@ struct AdvancedSettingsTab: View {
             return
         }
 
-        // Recording agent
+        // Recording agent - FORCE reinstall to ensure latest template
         do {
-            let recordingStatus = LaunchAgentManager.shared.getAgentStatus(.recording)
-            if !recordingStatus.isLoaded {
-                diagnostics.append("Installing recording agent...")
-                try await LaunchAgentManager.shared.installAgent(.recording)
-                diagnostics.append("✓ Recording agent installed")
-            } else {
-                diagnostics.append("✓ Recording agent already installed")
-            }
+            diagnostics.append("Force installing recording agent...")
+            try await LaunchAgentManager.shared.installAgent(.recording)
+            diagnostics.append("✓ Recording agent installed")
         } catch {
             let errorMsg = "Failed to install recording agent: \(error.localizedDescription)"
             diagnostics.append("✗ \(errorMsg)")
             errors.append(errorMsg)
         }
 
-        // Processing agent
+        // Processing agent - FORCE reinstall to ensure latest template
         do {
-            let processingStatus = LaunchAgentManager.shared.getAgentStatus(.processing)
-            if !processingStatus.isLoaded {
-                diagnostics.append("Installing processing agent...")
-                try await LaunchAgentManager.shared.installAgent(.processing)
-                diagnostics.append("✓ Processing agent installed")
-            } else {
-                diagnostics.append("✓ Processing agent already installed")
-            }
+            diagnostics.append("Force installing processing agent...")
+            try await LaunchAgentManager.shared.installAgent(.processing)
+            diagnostics.append("✓ Processing agent installed")
         } catch {
             let errorMsg = "Failed to install processing agent: \(error.localizedDescription)"
             diagnostics.append("✗ \(errorMsg)")

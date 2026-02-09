@@ -50,9 +50,8 @@ final class LaunchAgentManager {
     }
 
     func installAgent(_ type: AgentType) throws {
-        // Templates are in Resources/launchagents/ subdirectory
+        // Templates are directly in Resources/ (Xcode flattens the directory structure)
         let templatePath = Bundle.main.resourceURL?
-            .appendingPathComponent("launchagents")
             .appendingPathComponent(type.templateName)
 
         guard let templatePath = templatePath,

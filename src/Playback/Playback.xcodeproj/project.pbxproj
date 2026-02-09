@@ -6,6 +6,23 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXContainerItemProxy section */
+		E50AA4222EF9E50000F73C14 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = E50AA4012EF9DBF000F73C14 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = E50AA4082EF9DBF000F73C14;
+			remoteInfo = Playback;
+		};
+		E50AA4322EF9E52000F73C14 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = E50AA4012EF9DBF000F73C14 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = E50AA4082EF9DBF000F73C14;
+			remoteInfo = Playback;
+		};
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXFileReference section */
 		E50AA4092EF9DBF000F73C14 /* Playback.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Playback.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		E50AA4202EF9E50000F73C14 /* PlaybackTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = PlaybackTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -60,6 +77,7 @@
 			children = (
 				E50AA40B2EF9DBF000F73C14 /* Playback */,
 				E50AA40A2EF9DBF000F73C14 /* Products */,
+				E55B8DFA2F3981060027470A /* Recovered References */,
 			);
 			sourceTree = "<group>";
 		};
@@ -71,6 +89,15 @@
 				E50AA4302EF9E52000F73C14 /* PlaybackUITests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		E55B8DFA2F3981060027470A /* Recovered References */ = {
+			isa = PBXGroup;
+			children = (
+				E50AA4212EF9E50000F73C14 /* PlaybackTests */,
+				E50AA4312EF9E52000F73C14 /* PlaybackUITests */,
+			);
+			name = "Recovered References";
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -145,36 +172,6 @@
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
 /* End PBXNativeTarget section */
-
-/* Begin PBXContainerItemProxy section */
-		E50AA4222EF9E50000F73C14 /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = E50AA4012EF9DBF000F73C14 /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = E50AA4082EF9DBF000F73C14;
-			remoteInfo = Playback;
-		};
-		E50AA4322EF9E52000F73C14 /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = E50AA4012EF9DBF000F73C14 /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = E50AA4082EF9DBF000F73C14;
-			remoteInfo = Playback;
-		};
-/* End PBXContainerItemProxy section */
-
-/* Begin PBXTargetDependency section */
-		E50AA4232EF9E50000F73C14 /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = E50AA4082EF9DBF000F73C14 /* Playback */;
-			targetProxy = E50AA4222EF9E50000F73C14 /* PBXContainerItemProxy */;
-		};
-		E50AA4332EF9E52000F73C14 /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = E50AA4082EF9DBF000F73C14 /* Playback */;
-			targetProxy = E50AA4322EF9E52000F73C14 /* PBXContainerItemProxy */;
-		};
-/* End PBXTargetDependency section */
 
 /* Begin PBXProject section */
 		E50AA4012EF9DBF000F73C14 /* Project object */ = {
@@ -265,6 +262,19 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		E50AA4232EF9E50000F73C14 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = E50AA4082EF9DBF000F73C14 /* Playback */;
+			targetProxy = E50AA4222EF9E50000F73C14 /* PBXContainerItemProxy */;
+		};
+		E50AA4332EF9E52000F73C14 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = E50AA4082EF9DBF000F73C14 /* Playback */;
+			targetProxy = E50AA4322EF9E52000F73C14 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		E50AA4122EF9DBF200F73C14 /* Debug */ = {
