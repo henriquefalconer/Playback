@@ -540,12 +540,26 @@ These items improve the overall experience but are not blocking core functionali
 - **Spec:** `specs/menu-bar.md` lines 314-316
 - **Source:** `src/Playback/Playback/Settings/SettingsView.swift:966-1001`
 
-### 3.6 Settings: Database Rebuild Is a Stub
+### 3.6 Settings: Database Rebuild Is a Stub ✅ COMPLETE
 
-- [ ] **Implement actual database rebuild logic with progress feedback**
+- [x] **Implement actual database rebuild logic with progress feedback**
 - **Spec:** `specs/menu-bar.md` lines 393-402
 - **Source:** `src/Playback/Playback/Settings/SettingsView.swift:1450-1452`
-- **Currently:** `rebuildDatabase()` just sets `showRebuildProgress = true`, no actual rebuild logic.
+
+**Implementation complete (2026-02-09):**
+- Added confirmation dialog with warning message before rebuild
+- Implemented full database rebuild logic that scans all video chunks in chunks directory
+- Uses ffprobe to extract video metadata (width, height, duration, frame_count, file_size)
+- Recreates database with all segment records based on discovered chunks
+- Shows progress dialog with:
+  * Linear progress bar tracking processed files
+  * Real-time status messages (e.g., "Processing video X of Y...")
+  * Success state with count of processed chunks
+  * Error state with descriptive error messages
+  * Backup of existing database before rebuild
+- Progress tracking uses JSON communication between Python and Swift
+- Database rebuild runs asynchronously to avoid blocking UI
+- Location: `src/Playback/Playback/Settings/SettingsView.swift:1600-1750` (performDatabaseRebuild function)
 
 ### 3.7 Settings: Reset All With App Restart ✅ FIXED
 

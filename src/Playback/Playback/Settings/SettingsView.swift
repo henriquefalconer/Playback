@@ -1353,7 +1353,11 @@ struct AdvancedSettingsTab: View {
     @State private var processingStatus = LaunchAgentStatus(isLoaded: false, isRunning: false, pid: nil, lastExitStatus: nil)
 
     @State private var showResetConfirmation = false
+    @State private var showRebuildConfirmation = false
     @State private var showRebuildProgress = false
+    @State private var rebuildProgress: Double = 0.0
+    @State private var rebuildStatusMessage = ""
+    @State private var rebuildError: String? = nil
     @State private var showDiagnosticsResults = false
     @State private var diagnosticsMessage = ""
 
@@ -1480,7 +1484,7 @@ struct AdvancedSettingsTab: View {
                 .accessibilityIdentifier("settings.advanced.resetButton")
 
                 Button("Rebuild Database") {
-                    rebuildDatabase()
+                    showRebuildConfirmation = true
                 }
                 .buttonStyle(.borderless)
                 .accessibilityIdentifier("settings.advanced.rebuildDatabaseButton")
@@ -1520,10 +1524,60 @@ struct AdvancedSettingsTab: View {
         } message: {
             Text("This will reset all settings to their default values. This action cannot be undone.")
         }
-        .alert("Database Rebuild", isPresented: $showRebuildProgress) {
-            Button("OK") { }
+        .alert("Rebuild Database?", isPresented: $showRebuildConfirmation) {
+            Button("Cancel", role: .cancel) { }
+            Button("Rebuild") {
+                Task {
+                    await performDatabaseRebuild()
+                }
+            }
         } message: {
-            Text("Database rebuild initiated. This may take a few minutes.")
+            Text("This will scan all video chunks and rebuild the database. This may take several minutes depending on your recording history.")
+        }
+        .sheet(isPresented: $showRebuildProgress) {
+            VStack(spacing: 20) {
+                Text("Rebuilding Database")
+                    .font(.headline)
+
+                if let error = rebuildError {
+                    VStack(spacing: 12) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.system(size: 48))
+                            .foregroundColor(.red)
+                        Text("Rebuild Failed")
+                            .font(.title2)
+                        Text(error)
+                            .foregroundColor(.secondary)
+                        Button("Close") {
+                            showRebuildProgress = false
+                            rebuildError = nil
+                        }
+                        .buttonStyle(.borderedProminent)
+                    }
+                } else if rebuildProgress >= 1.0 {
+                    VStack(spacing: 12) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 48))
+                            .foregroundColor(.green)
+                        Text("Rebuild Complete")
+                            .font(.title2)
+                        Text(rebuildStatusMessage)
+                            .foregroundColor(.secondary)
+                        Button("Close") {
+                            showRebuildProgress = false
+                        }
+                        .buttonStyle(.borderedProminent)
+                    }
+                } else {
+                    ProgressView(value: rebuildProgress, total: 1.0)
+                        .progressViewStyle(.linear)
+                        .frame(width: 300)
+                    Text(rebuildStatusMessage)
+                        .foregroundColor(.secondary)
+                }
+            }
+            .frame(width: 400, height: 250)
+            .padding()
         }
         .alert("Diagnostics Results", isPresented: $showDiagnosticsResults) {
             Button("OK") { }
@@ -1591,8 +1645,182 @@ struct AdvancedSettingsTab: View {
         }
     }
 
-    private func rebuildDatabase() {
-        showRebuildProgress = true
+    private func performDatabaseRebuild() async {
+        await MainActor.run {
+            showRebuildProgress = true
+            rebuildProgress = 0.0
+            rebuildStatusMessage = "Initializing..."
+            rebuildError = nil
+        }
+
+        do {
+            let result = try await Task.detached {
+                try ShellCommand.run(
+                    "/usr/bin/python3",
+                    arguments: [
+                        "-c",
+                        """
+                        import sys
+                        import os
+                        from pathlib import Path
+                        import sqlite3
+                        import json
+
+                        # Add lib directory to path
+                        sys.path.insert(0, str(Path('\(Bundle.main.resourcePath ?? "")')/../../..') + '/lib')
+
+                        try:
+                            from lib.paths import get_chunks_directory, get_database_path
+                            from lib.database import init_database
+
+                            # Get paths
+                            chunks_dir = get_chunks_directory()
+                            db_path = get_database_path()
+
+                            # Backup existing database
+                            if db_path.exists():
+                                backup_path = db_path.with_suffix('.backup')
+                                import shutil
+                                shutil.copy2(db_path, backup_path)
+
+                            # Initialize fresh database
+                            conn = init_database()
+                            cursor = conn.cursor()
+
+                            # Scan all video chunks
+                            video_files = list(chunks_dir.glob('**/*.mp4'))
+                            total_files = len(video_files)
+
+                            if total_files == 0:
+                                print(json.dumps({'success': True, 'count': 0, 'message': 'No video chunks found to process.'}))
+                                sys.exit(0)
+
+                            processed = 0
+                            for video_file in video_files:
+                                # Extract metadata from path: chunks/YYYYMM/DD/id.mp4
+                                parts = video_file.parts
+                                if len(parts) < 3:
+                                    continue
+
+                                date = parts[-3] + parts[-2]  # YYYYMMDD
+                                video_id = video_file.stem
+
+                                # Get video info using ffprobe
+                                import subprocess
+                                try:
+                                    result = subprocess.run(
+                                        ['ffprobe', '-v', 'error', '-select_streams', 'v:0',
+                                         '-show_entries', 'stream=width,height,duration,nb_frames',
+                                         '-show_entries', 'format=size',
+                                         '-of', 'json', str(video_file)],
+                                        capture_output=True, text=True, timeout=5
+                                    )
+
+                                    if result.returncode == 0:
+                                        data = json.loads(result.stdout)
+                                        stream = data.get('streams', [{}])[0]
+                                        format_info = data.get('format', {})
+
+                                        width = stream.get('width', 1920)
+                                        height = stream.get('height', 1080)
+                                        duration = float(stream.get('duration', format_info.get('duration', 5.0)))
+                                        frame_count = int(stream.get('nb_frames', 0))
+                                        file_size = int(format_info.get('size', video_file.stat().st_size))
+
+                                        # Calculate timestamps (approximate from video ID if parseable)
+                                        # Video IDs are typically timestamps or sequential
+                                        start_ts = video_file.stat().st_mtime - duration
+                                        end_ts = video_file.stat().st_mtime
+
+                                        # Insert into database
+                                        cursor.execute('''
+                                            INSERT OR REPLACE INTO segments
+                                            (id, date, start_ts, end_ts, frame_count, fps, width, height, file_size_bytes, video_path)
+                                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                        ''', (
+                                            video_id, date, start_ts, end_ts, frame_count,
+                                            5.0 if frame_count > 0 else 5.0,  # Default FPS
+                                            width, height, file_size, str(video_file)
+                                        ))
+
+                                        processed += 1
+
+                                        # Report progress every 10 files
+                                        if processed % 10 == 0:
+                                            conn.commit()
+                                            progress = processed / total_files
+                                            print(json.dumps({
+                                                'progress': progress,
+                                                'processed': processed,
+                                                'total': total_files
+                                            }), flush=True)
+
+                                except Exception as e:
+                                    # Skip files that can't be processed
+                                    pass
+
+                            conn.commit()
+                            conn.close()
+
+                            print(json.dumps({
+                                'success': True,
+                                'count': processed,
+                                'message': f'Processed {processed} video chunks.'
+                            }))
+
+                        except Exception as e:
+                            print(json.dumps({'success': False, 'error': str(e)}))
+                            sys.exit(1)
+                        """
+                    ]
+                )
+            }.value
+
+            if result.isSuccess {
+                let lines = result.output.components(separatedBy: "\n")
+                var finalCount = 0
+
+                for line in lines where !line.isEmpty {
+                    if let data = line.data(using: .utf8),
+                       let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+
+                        if let progress = json["progress"] as? Double,
+                           let processed = json["processed"] as? Int,
+                           let total = json["total"] as? Int {
+                            await MainActor.run {
+                                rebuildProgress = progress
+                                rebuildStatusMessage = "Processing video \(processed) of \(total)..."
+                            }
+                        } else if let success = json["success"] as? Bool {
+                            if success {
+                                if let count = json["count"] as? Int {
+                                    finalCount = count
+                                }
+                            } else if let error = json["error"] as? String {
+                                throw NSError(domain: "DatabaseRebuild", code: 1,
+                                            userInfo: [NSLocalizedDescriptionKey: error])
+                            }
+                        }
+                    }
+                }
+
+                await MainActor.run {
+                    rebuildProgress = 1.0
+                    if finalCount > 0 {
+                        rebuildStatusMessage = "Database rebuilt successfully. Processed \(finalCount) video chunks."
+                    } else {
+                        rebuildStatusMessage = "No video chunks found to process."
+                    }
+                }
+            } else {
+                throw NSError(domain: "DatabaseRebuild", code: 2,
+                            userInfo: [NSLocalizedDescriptionKey: "Database rebuild failed: \(result.output)"])
+            }
+        } catch {
+            await MainActor.run {
+                rebuildError = "Database rebuild failed: \(error.localizedDescription)"
+            }
+        }
     }
 
     private func exportLogs() {
