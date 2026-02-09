@@ -10,7 +10,10 @@
 #   1 - Build failed or crashes detected
 #   2 - Not on macOS or xcodebuild not available
 
+# Exit immediately if any command returns non-zero
 set -e
+# A pipeline fails if any command in it fails
+set -o pipefail
 
 # Get the project root directory (where this script lives)
 PROJECT_ROOT="$(cd "$(dirname "$0")" && pwd)"
