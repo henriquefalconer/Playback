@@ -516,28 +516,29 @@ Fast tests that run before each commit:
 - Skip this check if running on Linux or if `xcodebuild` is not available
 - Check environment: `uname -s` (Darwin = macOS, Linux = skip validation)
 
-#### Validation Steps
+#### Run the Smoke Test
 
-1. **Build the project:**
 ```bash
-cd src/Playback && xcodebuild -scheme Playback -configuration Debug build
+./smoke-test.sh
 ```
 
-2. **Launch and test the app (5-second smoke test):**
-```bash
-SWIFT_BACKTRACE=crash app=$(find ~/Library/Developer/Xcode/DerivedData -type f -path "*/Build/Products/Debug/Playback.app/Contents/MacOS/Playback" -print0 2>/dev/null | xargs -0 ls -t | head -n1) && [ -x "$app" ] && "$app" & app_pid=$!; ( sleep 5; kill -9 "$app_pid" 2>/dev/null || true ) & wait "$app_pid"; echo ""; echo "5-second execution test finished. If no crash information above, check passed."
-```
+This script:
+- Checks if running on macOS with Xcode
+- Builds the Debug configuration
+- Runs the app for 5 seconds to detect initialization crashes
+- Reports PASS (exit 0) or FAIL (exit 1)
 
-3. **Evaluate results:**
-   - **Empty output (nothing returned):** ✅ Validation PASSED - safe to commit
-   - **Any output (crash logs, SIGABRT, errors):** ❌ Validation FAILED - take action:
-     - **Option A (Preferred):** Fix the bug before committing
-     - **Option B (If fix not immediately possible):** Document the issue in `IMPLEMENTATION_PLAN.md` with:
-       - Clear description of the crash/error
-       - Stack trace or relevant error output
-       - Root cause analysis (if known)
-       - Steps to reproduce
-       - Proposed fix or workaround
+#### Evaluation
+- **Exit 0 + "SMOKE TEST PASSED"** ✅ Validation PASSED - safe to commit
+- **Exit 1 + "SMOKE TEST FAILED"** ❌ Validation FAILED - take action:
+  - **Option A (Preferred):** Fix the bug before committing
+  - **Option B (If fix not immediately possible):** Document the issue in `IMPLEMENTATION_PLAN.md` → "Active Runtime Issues Log" section with:
+    - Clear description of the crash/error
+    - Stack trace or relevant error output
+    - Root cause analysis (if known)
+    - Steps to reproduce
+    - Proposed fix or workaround
+- **Exit 2** ⏭️ Skipped (not on macOS or xcodebuild not available)
 
 #### Example Validation Failures to Document
 
@@ -546,26 +547,6 @@ SWIFT_BACKTRACE=crash app=$(find ~/Library/Developer/Xcode/DerivedData -type f -
 - Missing required resources causing crashes
 - Thread safety violations detected during startup
 - Force unwrap crashes in critical paths
-
-#### Integration with Commit Workflow
-
-```bash
-if [ "$(uname -s)" = "Darwin" ] && command -v xcodebuild >/dev/null 2>&1; then
-    echo "Running Xcode validation..."
-
-    cd ~/Playback/src/Playback && xcodebuild -scheme Playback -configuration Debug build
-    if [ $? -ne 0 ]; then
-        echo "❌ Build failed - cannot commit"
-        exit 1
-    fi
-
-    echo "Build finished."
-    echo "Running 5-second smoke test...\n"
-    SWIFT_BACKTRACE=crash app=$(find ~/Library/Developer/Xcode/DerivedData -type f -path "*/Build/Products/Debug/Playback.app/Contents/MacOS/Playback" -print0 2>/dev/null | xargs -0 ls -t | head -n1) && [ -x "$app" ] && "$app" & app_pid=$!; ( sleep 5; kill -9 "$app_pid" 2>/dev/null || true ) & wait "$app_pid"; echo ""; echo "5-second execution test finished. If no crash information above, check passed."
-else
-    echo "⏭️  Skipping Xcode validation (not on macOS or xcodebuild not found)"
-fi
-```
 
 #### Purpose
 

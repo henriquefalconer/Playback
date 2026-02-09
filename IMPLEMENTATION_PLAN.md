@@ -19,7 +19,7 @@ Based on comprehensive technical specifications in `specs/` and verified against
   1. ✅ Fix SIGABRT crash when `launchctl list` fails (pipe deadlock in LaunchAgentManager.swift:307)
   2. ✅ Fix ConfigWatcher double-close SIGABRT crash
   3. ✅ Fix ShellCommand.swift readabilityHandler race condition SIGABRT crash (discovered 2026-02-08)
-  4. ❌ **Fix MenuBarViewModel initialization SIGABRT crash** (blocking main thread during SwiftUI scene setup) - discovered 2026-02-09
+  4. ❌ **[CRITICAL - BLOCKING] Fix MenuBarViewModel initialization SIGABRT crash** (blocking main thread during SwiftUI scene setup) - discovered 2026-02-09 - **REPRODUCIBLE via `./smoke-test.sh` - App crashes 100% of time on launch**
   5. ✅ Ensure no custom storage location picker exists (confirmed: it doesn't)
   6. ✅ Storage paths: `~/Library/Application Support/Playback/` for production, `dev_data/` for development (already correct in code)
 
@@ -29,49 +29,25 @@ Based on comprehensive technical specifications in `specs/` and verified against
 
 **CRITICAL REQUIREMENT:** Before committing ANY changes to the Xcode project (Swift files, project.pbxproj, entitlements, etc.), you MUST:
 
-### 1. Build the Project
+### Run the Smoke Test
+
 ```bash
-cd ~/Playback/src/Playback && xcodebuild -scheme Playback -configuration Debug build
+./smoke-test.sh
 ```
 
-### 2. Run 5-Second Smoke Test
-```bash
-SWIFT_BACKTRACE=crash app=$(find ~/Library/Developer/Xcode/DerivedData -type f -path "*/Build/Products/Debug/Playback.app/Contents/MacOS/Playback" -print0 2>/dev/null | xargs -0 ls -t | head -n1) && [ -x "$app" ] && "$app" & app_pid=$!; ( sleep 5; kill -9 "$app_pid" 2>/dev/null || true ) & wait "$app_pid"; echo ""; echo "5-second execution test finished. If no crash information above, check passed."
-```
+This script builds the Debug configuration and runs the app for 5 seconds to detect initialization crashes.
 
-### Complete Validation Script
-```bash
-if [ "$(uname -s)" = "Darwin" ] && command -v xcodebuild >/dev/null 2>&1; then
-    echo "Running Xcode validation..."
-
-    cd ~/Playback/src/Playback && xcodebuild -scheme Playback -configuration Debug build
-    if [ $? -ne 0 ]; then
-        echo "❌ Build failed - cannot commit"
-        exit 1
-    fi
-
-    echo "Build finished."
-    echo "Running 5-second smoke test...\n"
-    SWIFT_BACKTRACE=crash app=$(find ~/Library/Developer/Xcode/DerivedData -type f -path "*/Build/Products/Debug/Playback.app/Contents/MacOS/Playback" -print0 2>/dev/null | xargs -0 ls -t | head -n1) && [ -x "$app" ] && "$app" & app_pid=$!; ( sleep 5; kill -9 "$app_pid" 2>/dev/null || true ) & wait "$app_pid"; echo ""; echo "5-second execution test finished. If no crash information above, check passed."
-else
-    echo "⏭️  Skipping Xcode validation (not on macOS or xcodebuild not found)"
-fi
-```
-
-### 3. Evaluate Results
-- **Empty output = PASS** ✅ Safe to commit
-- **Any output = FAIL** ❌ Must take action:
-  - **Option A:** Fix the bug before committing (preferred)
-  - **Option B:** If immediate fix not possible, document below with:
+### Evaluation
+- **Exit 0 + "SMOKE TEST PASSED"** ✅ Safe to commit
+- **Exit 1 + "SMOKE TEST FAILED"** ❌ Must fix before committing:
+  - **Option A (Preferred):** Fix the bug before committing
+  - **Option B (If fix not immediately possible):** Document in the "Active Runtime Issues Log" section below with:
     - Clear description of crash/error
     - Stack trace or error output
     - Root cause analysis
     - Steps to reproduce
     - Proposed fix
-
-### 4. Environment Check
-- **Skip validation if:** Running on Linux OR `xcodebuild` not available
-- **Check with:** `uname -s` (Darwin = macOS, Linux = skip)
+- **Exit 2** ⏭️ Skipped (not on macOS or xcodebuild not available)
 
 ### Active Runtime Issues Log
 
@@ -94,9 +70,9 @@ MenuBarViewModel.init() [line 55]
           → waitUntilExit() [line 49] ← SIGABRT
 ```
 - **Root cause:** `MenuBarViewModel.init()` immediately calls synchronous blocking operations (`ShellCommand.run()` → `readDataToEndOfFile()` → `waitUntilExit()`) on the main thread during SwiftUI's AttributeGraph update phase. SwiftUI forbids blocking the main thread during state initialization/updates and aborts when detected.
-- **Reproduce:** Run 5-second smoke test - crashes 100% of the time on launch
+- **Reproduce:** Run `./smoke-test.sh` - crashes 100% of the time on launch
 - **Proposed fix:** Defer status monitoring to `.task {}` modifier in view layer instead of calling from `init()`. See Priority 1 item 1.9 for three solution options (Option A recommended).
-- **Status:** ❌ Not fixed - blocking Priority 1 work. See section 1.9 for detailed fix plan.
+- **Status:** ❌ Not fixed - **BLOCKING ALL WORK** - See section 1.9 for detailed fix plan.
 
 ---
 
@@ -310,15 +286,16 @@ Add to "Recent Implementation Notes" section:
 - **Root Cause:** `calendar.range(of: .day, in: .month, for: currentMonth)!` and `calendar.date(from: ...)!` can fail with invalid date/calendar configurations.
 - **Fix applied:** Replaced force unwraps with `guard let` statements and safe fallbacks.
 
-### 1.9 SIGABRT Crash: MenuBarViewModel Blocking Main Thread During Initialization ❌ CRITICAL
+### 1.9 SIGABRT Crash: MenuBarViewModel Blocking Main Thread During Initialization ❌ CRITICAL BLOCKER
 
 **Date Identified:** 2026-02-09
-**Status:** ❌ NOT FIXED - Reproducible via 5-second smoke test
+**Status:** ❌ NOT FIXED - **BLOCKING ALL WORK** - App crashes on every launch
+**Reproducibility:** 100% - Run `./smoke-test.sh` to reproduce instantly
 
 - [ ] **Fix MenuBarViewModel blocking main thread during SwiftUI scene initialization**
 - **Source:** `src/Playback/Playback/MenuBar/MenuBarViewModel.swift` line 55 (init calls `startStatusMonitoring()`)
 - **Crash Location:** `ShellCommand.run()` at line 49 (`waitUntilExit()`) called during AttributeGraph update phase
-- **Reproducible:** Run 5-second smoke test - crashes 100% of the time
+- **Smoke Test:** `./smoke-test.sh` - crashes 100% of the time with SIGABRT
 
 #### Stack Trace Summary
 ```
@@ -453,8 +430,7 @@ private func startStatusMonitoring() {
 
 #### Testing Checklist
 
-- [ ] Build succeeds: `cd src/Playback && xcodebuild -scheme Playback -configuration Debug build`
-- [ ] 5-second smoke test passes with **zero output** (no crash)
+- [ ] Smoke test passes: `./smoke-test.sh` exits 0 with "SMOKE TEST PASSED"
 - [ ] App launches without crash
 - [ ] Menu bar icon appears
 - [ ] Status monitoring updates every 5 seconds
@@ -464,12 +440,12 @@ private func startStatusMonitoring() {
 #### Acceptance Criteria
 
 **This bug is only considered fixed when:**
-1. ✅ 5-second smoke test produces **zero output** (empty, no crash)
-2. ✅ App launches successfully
-3. ✅ Status monitoring functionality still works
+1. ✅ `./smoke-test.sh` exits 0 with "SMOKE TEST PASSED" message (no crash output)
+2. ✅ App launches successfully and runs for at least 5 seconds
+3. ✅ Status monitoring functionality still works correctly
 4. ✅ No SwiftUI AttributeGraph errors in console
 
-**Do NOT mark as fixed until smoke test passes clean.**
+**Do NOT mark as fixed until `./smoke-test.sh` passes cleanly.**
 
 ---
 
