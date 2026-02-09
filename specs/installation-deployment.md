@@ -99,6 +99,30 @@
   - Show error with installation instructions if not found
   - Reference: See original spec § "Dependency Management → Python"
 
+- [ ] Check Python package dependencies
+  - Source: `src/Playback/Playback/Dependencies/PythonPackageChecker.swift`
+  - Required packages (from `src/scripts/requirements.txt`):
+    - `pyobjc-framework-Quartz>=10.0` - macOS screen capture
+    - `pyobjc-framework-Cocoa>=10.0` - System integration
+    - `pyobjc-framework-Foundation>=10.0` - Foundation framework
+    - `pyobjc-framework-Vision>=10.0` - OCR functionality
+    - `Pillow>=10.0.0` - Image processing
+    - `psutil>=6.1.1` - System monitoring
+  - Check: `python3 -c "import Quartz, Cocoa, Foundation, Vision, PIL, psutil"`
+  - On missing packages, offer two options:
+    - **Automatic:** Install via pip: `python3 -m pip install --user -r requirements.txt`
+    - **Manual:** Show instructions with pip command
+  - **Development:** Run during setup script: `./scripts/setup_dev_env.sh`
+  - **Production:** Check on first run and offer to install
+  - Store installation status in UserDefaults to avoid repeated checks
+
+- [ ] Bundle Python packages in production (Optional)
+  - Consider bundling packages in app bundle for offline installation
+  - Location: `Playback.app/Contents/Resources/python_packages/`
+  - Use: `python3 -m pip install --target Resources/python_packages/`
+  - Set PYTHONPATH in LaunchAgent plists to include bundled packages
+  - Fallback: If bundled packages fail, offer to install from PyPI
+
 - [ ] Implement FFmpeg detection
   - Source: `src/Playback/Playback/Dependencies/FFmpegChecker.swift`
   - Check locations:

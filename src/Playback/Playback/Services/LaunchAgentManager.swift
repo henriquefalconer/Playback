@@ -50,8 +50,8 @@ final class LaunchAgentManager {
     }
 
     func installAgent(_ type: AgentType) throws {
+        // Templates are directly in Resources, not in a launchagents/ subfolder
         let templatePath = Bundle.main.resourceURL?
-            .appendingPathComponent("launchagents")
             .appendingPathComponent(type.templateName)
 
         guard let templatePath = templatePath,
@@ -234,10 +234,15 @@ final class LaunchAgentManager {
         let dataDir: String
 
         if isDev {
-            let projectRoot = Bundle.main.bundleURL
-                .deletingLastPathComponent()
-                .deletingLastPathComponent()
-                .deletingLastPathComponent()
+            // Use SRCROOT environment variable in development mode
+            guard let srcRoot = ProcessInfo.processInfo.environment["SRCROOT"] else {
+                fatalError("SRCROOT environment variable not set - required in development mode")
+            }
+
+            // Expand tilde if present
+            let expandedPath = NSString(string: srcRoot).expandingTildeInPath
+            let projectRoot = URL(fileURLWithPath: expandedPath)
+
             scriptPath = projectRoot.appendingPathComponent("src/scripts").path
             workingDir = projectRoot.path
             logPath = projectRoot.appendingPathComponent("dev_logs").path

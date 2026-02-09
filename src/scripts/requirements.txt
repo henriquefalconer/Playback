@@ -1,13 +1,17 @@
 # Playback Python Dependencies
 # Required for recording, processing, and OCR functionality
 
-# PyObjC framework bindings for macOS integration
+# PyObjC framework bindings for macOS integration (REQUIRED)
+pyobjc-framework-Quartz>=10.0      # Core Graphics, screen capture, image loading
+pyobjc-framework-Cocoa>=10.0       # AppKit, NSWorkspace, system integration
 pyobjc-framework-Vision>=10.0      # Apple Vision framework for OCR
-pyobjc-framework-Quartz>=10.0      # Core Graphics and image loading
 pyobjc-framework-Foundation>=10.0  # Foundation framework (NSURL, etc.)
 
-# System monitoring and metrics
-psutil>=6.1.1                       # Resource usage metrics (CPU, memory, disk)
+# Image processing (REQUIRED)
+Pillow>=10.0.0                     # Image manipulation and format conversion
+
+# System monitoring and metrics (REQUIRED for diagnostics)
+psutil>=6.1.1                      # Resource usage metrics (CPU, memory, disk)
 
 # Testing (if needed)
 # pytest>=7.0.0

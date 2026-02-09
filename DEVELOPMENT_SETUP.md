@@ -48,7 +48,25 @@ If you need to set up manually or on a new machine, follow these steps:
 - Use `dev_logs/` instead of `~/Library/Logs/Playback/`
 - Look for scripts in project directory instead of bundle
 
-### 2. Create Development Files
+### 2. Install Python Dependencies
+
+**REQUIRED:** The Python services need specific packages installed:
+
+```bash
+# Install dependencies from requirements.txt
+python3 -m pip install --user -r src/scripts/requirements.txt
+```
+
+**Required packages:**
+- `pyobjc-framework-Quartz` - macOS screen capture
+- `pyobjc-framework-Cocoa` - System integration
+- `pyobjc-framework-Foundation` - Foundation framework
+- `Pillow` - Image processing
+- `psutil` - System monitoring
+
+The `setup_dev_env.sh` script installs these automatically.
+
+### 3. Create Development Files
 
 Run from the project root:
 
@@ -86,7 +104,7 @@ echo "dev_logs/" >> .gitignore
 echo "dev_config.json" >> .gitignore
 ```
 
-### 3. Verify Setup
+### 4. Verify Setup
 
 After setup, verify everything is correct:
 

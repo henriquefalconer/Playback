@@ -97,7 +97,28 @@ else
 fi
 echo ""
 
-# 6. Final verification
+# 6. Install Python dependencies
+echo "Step 6: Installing Python dependencies..."
+if [ -f "src/scripts/requirements.txt" ]; then
+    echo "  Installing from requirements.txt..."
+    python3 -m pip install --user -r src/scripts/requirements.txt
+    echo ""
+
+    echo "  Verifying installation..."
+    for package in Quartz Cocoa Foundation Pillow PIL psutil; do
+        if python3 -c "import $package" 2>/dev/null; then
+            echo "    ✓ $package"
+        else
+            echo "    ✗ $package - FAILED"
+        fi
+    done
+    echo ""
+else
+    echo "  ✗ requirements.txt not found"
+fi
+echo ""
+
+# 7. Final verification
 echo "=========================================="
 echo "Setup Complete!"
 echo "=========================================="
