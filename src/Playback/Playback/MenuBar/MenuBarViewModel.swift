@@ -52,6 +52,9 @@ final class MenuBarViewModel: ObservableObject {
         self.launchAgentManager = launchAgentManager
 
         setupBindings()
+    }
+
+    func startMonitoring() {
         startStatusMonitoring()
     }
 
