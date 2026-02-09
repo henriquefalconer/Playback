@@ -4,17 +4,35 @@
 
 set -e
 
-APP_PATH="/Users/henriquefalconer/Library/Developer/Xcode/DerivedData/Playback-gykrrqqpinmiobcxgbmgrjrspdkr/Build/Products/Release/Playback.app"
-
+# Find the most recent Release build
 echo "=== Playback Production Build Verification ==="
+echo ""
+echo "Searching for Release build..."
+
+APP_EXECUTABLE=$(find ~/Library/Developer/Xcode/DerivedData -type f -path "*/Build/Products/Release/Playback.app/Contents/MacOS/Playback" -print0 2>/dev/null | xargs -0 ls -t 2>/dev/null | head -n1)
+
+if [ -z "$APP_EXECUTABLE" ]; then
+    echo "❌ No Release build found in DerivedData"
+    echo ""
+    echo "Please build first:"
+    echo "  cd ~/Playback/src/Playback"
+    echo "  xcodebuild -scheme Playback -configuration Release build"
+    exit 1
+fi
+
+# Get the .app bundle path from the executable
+APP_PATH="$(dirname "$(dirname "$(dirname "$APP_EXECUTABLE")")")"
+
+echo "✅ Found Release build at:"
+echo "   $APP_PATH"
 echo ""
 
 # 1. Check app exists
 echo "1. Checking app exists..."
 if [ -d "$APP_PATH" ]; then
-    echo "   ✅ App exists at: $APP_PATH"
+    echo "   ✅ App bundle is valid"
 else
-    echo "   ❌ App not found at: $APP_PATH"
+    echo "   ❌ App bundle is invalid"
     exit 1
 fi
 
@@ -148,6 +166,9 @@ fi
 echo ""
 echo "=== Verification Complete ==="
 echo ""
+echo "App Location:"
+echo "  $APP_PATH"
+echo ""
 echo "To run the app without Xcode:"
 echo "  open \"$APP_PATH\""
 echo ""
@@ -161,3 +182,7 @@ echo ""
 echo "To view logs:"
 echo "  tail -f ~/Library/Logs/Playback/recording.log"
 echo "  tail -f ~/Library/Logs/Playback/processing.log"
+echo ""
+echo "To remove old dev LaunchAgents:"
+echo "  launchctl unload ~/Library/LaunchAgents/com.playback.dev.recording.plist 2>/dev/null"
+echo "  rm ~/Library/LaunchAgents/com.playback.dev.recording.plist 2>/dev/null"
