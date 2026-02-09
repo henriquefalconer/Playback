@@ -35,7 +35,7 @@ cd ~/Playback/src/Playback && xcodebuild -scheme Playback -configuration Debug b
 
 ### 2. Run 5-Second Smoke Test
 ```bash
-SWIFT_BACKTRACE=crash app=$(find ~/Library/Developer/Xcode/DerivedData -type f -path "*/Build/Products/Debug/Playback.app/Contents/MacOS/Playback" -print0 2>/dev/null | xargs -0 ls -t | head -n1) && [ -x "$app" ] && "$app" & pid=$!; sleep 5; kill $pid 2>/dev/null 2>&1
+SWIFT_BACKTRACE=crash app=$(find ~/Library/Developer/Xcode/DerivedData -type f -path "*/Build/Products/Debug/Playback.app/Contents/MacOS/Playback" -print0 2>/dev/null | xargs -0 ls -t | head -n1) && [ -x "$app" ] && "$app" & app_pid=$!; ( sleep 5; kill -9 "$app_pid" 2>/dev/null || true ) & wait "$app_pid"; echo ""; echo "5-second execution test finished. If no crash information above, check passed."
 ```
 
 ### Complete Validation Script
@@ -51,7 +51,7 @@ if [ "$(uname -s)" = "Darwin" ] && command -v xcodebuild >/dev/null 2>&1; then
 
     echo "Build finished."
     echo "Running 5-second smoke test...\n"
-    SWIFT_BACKTRACE=crash app=$(find ~/Library/Developer/Xcode/DerivedData -type f -path "*/Build/Products/Debug/Playback.app/Contents/MacOS/Playback" -print0 2>/dev/null | xargs -0 ls -t | head -n1) && [ -x "$app" ] && "$app" & pid=$!; sleep 5; kill $pid 2>/dev/null 2>&1
+    SWIFT_BACKTRACE=crash app=$(find ~/Library/Developer/Xcode/DerivedData -type f -path "*/Build/Products/Debug/Playback.app/Contents/MacOS/Playback" -print0 2>/dev/null | xargs -0 ls -t | head -n1) && [ -x "$app" ] && "$app" & app_pid=$!; ( sleep 5; kill -9 "$app_pid" 2>/dev/null || true ) & wait "$app_pid"; echo ""; echo "5-second execution test finished. If no crash information above, check passed."
 else
     echo "⏭️  Skipping Xcode validation (not on macOS or xcodebuild not found)"
 fi
