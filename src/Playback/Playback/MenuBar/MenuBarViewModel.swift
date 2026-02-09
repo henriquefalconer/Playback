@@ -46,6 +46,7 @@ final class MenuBarViewModel: ObservableObject {
     private let launchAgentManager: LaunchAgentManager
     private var statusTimer: Timer?
     private var cancellables = Set<AnyCancellable>()
+    private var lastUserToggleTime: Date?
 
     init(configManager: ConfigManager = .shared, launchAgentManager: LaunchAgentManager = .shared) {
         self.configManager = configManager
@@ -91,6 +92,7 @@ final class MenuBarViewModel: ObservableObject {
         }
 
         isRecordingEnabled.toggle()
+        lastUserToggleTime = Date()
 
         Task {
             do {
@@ -115,6 +117,13 @@ final class MenuBarViewModel: ObservableObject {
                 }
                 recordingState = .error
                 isRecordingEnabled.toggle()
+
+                let alert = NSAlert()
+                alert.messageText = "Failed to Toggle Recording"
+                alert.informativeText = "Could not start/stop the recording service. Error: \(error.localizedDescription)\n\nPlease check that the recording agent is properly installed."
+                alert.alertStyle = .warning
+                alert.addButton(withTitle: "OK")
+                alert.runModal()
             }
         }
     }
@@ -156,6 +165,10 @@ final class MenuBarViewModel: ObservableObject {
     }
 
     private func updateRecordingState() {
+        if let lastToggle = lastUserToggleTime, Date().timeIntervalSince(lastToggle) < 10 {
+            return
+        }
+
         let status = launchAgentManager.getAgentStatus(.recording)
 
         if status.isRunning {
