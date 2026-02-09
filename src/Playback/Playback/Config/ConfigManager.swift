@@ -93,6 +93,9 @@ final class ConfigManager: ObservableObject {
     func updateConfig(_ newConfig: Config) {
         self.config = newConfig.validated()
         saveConfiguration()
+
+        // Notify observers (e.g., RecordingService) of config change
+        NotificationCenter.default.post(name: NSNotification.Name("ConfigDidChange"), object: nil)
     }
 
     private func createBackup() {

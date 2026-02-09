@@ -44,15 +44,20 @@ final class MenuBarViewModel: ObservableObject {
 
     private let configManager: ConfigManager
     private let launchAgentManager: LaunchAgentManager
+    private let recordingService: RecordingService
     private var statusTimer: Timer?
     private var cancellables = Set<AnyCancellable>()
     private var lastUserToggleTime: Date?
 
-    init(configManager: ConfigManager = .shared, launchAgentManager: LaunchAgentManager = .shared) {
+    init(configManager: ConfigManager = .shared,
+         launchAgentManager: LaunchAgentManager = .shared,
+         recordingService: RecordingService = .shared) {
         self.configManager = configManager
         self.launchAgentManager = launchAgentManager
+        self.recordingService = recordingService
 
         self.isRecordingEnabled = configManager.config.recordingEnabled
+        print("[MenuBarViewModel] Initialized with recordingEnabled=\(self.isRecordingEnabled)")
 
         setupBindings()
     }
@@ -70,10 +75,17 @@ final class MenuBarViewModel: ObservableObject {
     }
 
     func toggleRecording() {
-        if !isRecordingEnabled {
+        print("[MenuBarViewModel] toggleRecording() called, isRecordingEnabled=\(isRecordingEnabled)")
+
+        // Check permission before enabling
+        if isRecordingEnabled {
             let hasPermission = CGPreflightScreenCaptureAccess()
+            print("[MenuBarViewModel] Permission check: \(hasPermission)")
 
             if !hasPermission {
+                // Permission denied - revert toggle
+                isRecordingEnabled = false
+
                 let alert = NSAlert()
                 alert.messageText = "Screen Recording Permission Required"
                 alert.informativeText = "Playback needs Screen Recording permission to capture your screen. Please grant permission in System Settings → Privacy & Security → Screen Recording."
@@ -91,40 +103,25 @@ final class MenuBarViewModel: ObservableObject {
             }
         }
 
-        isRecordingEnabled.toggle()
         lastUserToggleTime = Date()
 
-        Task {
-            do {
-                if isRecordingEnabled {
-                    try launchAgentManager.startAgent(.recording)
-                    recordingState = .recording
+        // Use Swift RecordingService (no LaunchAgent needed)
+        if isRecordingEnabled {
+            print("[MenuBarViewModel] Enabling recording")
+            recordingService.start()
+            recordingState = .recording
 
-                    var config = configManager.config
-                    config.recordingEnabled = true
-                    configManager.updateConfig(config)
-                } else {
-                    try launchAgentManager.stopAgent(.recording)
-                    recordingState = .paused
+            var config = configManager.config
+            config.recordingEnabled = true
+            configManager.updateConfig(config)
+        } else {
+            print("[MenuBarViewModel] Disabling recording")
+            recordingService.stop()
+            recordingState = .paused
 
-                    var config = configManager.config
-                    config.recordingEnabled = false
-                    configManager.updateConfig(config)
-                }
-            } catch {
-                if Paths.isDevelopment {
-                    print("[MenuBar] Error toggling recording: \(error)")
-                }
-                recordingState = .error
-                isRecordingEnabled.toggle()
-
-                let alert = NSAlert()
-                alert.messageText = "Failed to Toggle Recording"
-                alert.informativeText = "Could not start/stop the recording service. Error: \(error.localizedDescription)\n\nPlease check that the recording agent is properly installed."
-                alert.alertStyle = .warning
-                alert.addButton(withTitle: "OK")
-                alert.runModal()
-            }
+            var config = configManager.config
+            config.recordingEnabled = false
+            configManager.updateConfig(config)
         }
     }
 
@@ -143,18 +140,17 @@ final class MenuBarViewModel: ObservableObject {
     }
 
     private func performQuit() {
-        Task {
-            do {
-                try? launchAgentManager.stopAgent(.recording)
-                try? launchAgentManager.stopAgent(.processing)
+        // Stop Swift RecordingService
+        recordingService.stop()
 
-                NSWorkspace.shared.runningApplications
-                    .filter { $0.bundleIdentifier == "com.falconer.Playback" }
-                    .forEach { $0.terminate() }
+        // Stop Python processing service
+        try? launchAgentManager.stopAgent(.processing)
 
-                NSApp.terminate(nil)
-            }
-        }
+        NSWorkspace.shared.runningApplications
+            .filter { $0.bundleIdentifier == "com.falconer.Playback" }
+            .forEach { $0.terminate() }
+
+        NSApp.terminate(nil)
     }
 
     private func startStatusMonitoring() {
@@ -166,17 +162,15 @@ final class MenuBarViewModel: ObservableObject {
 
     private func updateRecordingState() {
         if let lastToggle = lastUserToggleTime, Date().timeIntervalSince(lastToggle) < 10 {
+            print("[MenuBarViewModel] Skipping update - recent user toggle")
             return
         }
 
-        let status = launchAgentManager.getAgentStatus(.recording)
-
-        if status.isRunning {
+        // Check Swift RecordingService status
+        print("[MenuBarViewModel] Updating state - recordingService.isRecording=\(recordingService.isRecording)")
+        if recordingService.isRecording {
             recordingState = .recording
             isRecordingEnabled = true
-        } else if let exitStatus = status.lastExitStatus, exitStatus != 0 {
-            recordingState = .error
-            isRecordingEnabled = false
         } else {
             recordingState = .paused
             isRecordingEnabled = false

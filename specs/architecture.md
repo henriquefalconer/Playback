@@ -1,49 +1,59 @@
 # Architecture Implementation Plan
 
 **Component:** System Architecture
-**Version:** 1.0
-**Last Updated:** 2026-02-07
+**Version:** 2.0
+**Last Updated:** 2026-02-09
+
+## Architecture Decision: Single Permission Model
+
+**Problem:** Original architecture required two Screen Recording permission grants:
+1. Playback.app (Swift) - for UI and controls
+2. /usr/bin/python3 (Python scripts via LaunchAgent) - for screenshot capture
+
+**Solution:** Move screenshot capture to Swift to consolidate under single permission grant.
+
+**New Architecture:**
+- **Swift (Playback.app)**: Screenshot capture using app's Screen Recording permission
+- **Python (LaunchAgent)**: Video processing only (no Screen Recording permission needed)
+- **Python (LaunchAgent)**: Cleanup service
 
 ## Implementation Checklist
 
 ### Project Structure Setup
-- [ ] Create Xcode project structure
+- [x] Create Xcode project structure
   - Location: `src/Playback/Playback.xcodeproj`
-  - Targets:
-    - **PlaybackMenuBar** (menu bar agent, LaunchAgent, always running)
-    - **Playback** (timeline viewer app, in Applications folder, launched on demand)
+  - Single unified app: **Playback.app**
   - Minimum deployment: macOS 26.0 (Tahoe)
   - Architecture: Apple Silicon only (arm64)
-  - Bundle IDs:
-    - Menu Bar Agent: `com.playback.MenuBarAgent`
-    - Timeline Viewer: `com.playback.Playback`
+  - Bundle ID: `com.falconer.Playback`
   - SwiftUI lifecycle with App protocol
+  - Scenes: MenuBarExtra + WindowGroup for timeline
 
-- [ ] Set up Swift source directory structure
-  - `src/Playback/PlaybackMenuBar/` - Menu bar agent target
-    - `MenuBarAgent/` - Menu bar UI and controls
-    - `Settings/` - Settings window component
-    - `Diagnostics/` - Diagnostics window component
-    - `Services/` - LaunchAgent management
-    - `Config/` - Configuration management
-    - `Notifications/` - Notification system
-  - `src/Playback/Playback/` - Timeline viewer target
+- [x] Set up Swift source directory structure
+  - `src/Playback/Playback/` - Single unified app
+    - `PlaybackApp.swift` - App entry with MenuBarExtra + WindowGroup
+    - `MenuBar/` - Menu bar UI and controls
     - `Timeline/` - Timeline viewer component
-    - `Database/` - SQLite database access (read-only)
-    - `Models/` - Shared data models
-  - `src/Playback/Shared/` - Shared utilities
-    - `Config/` - Configuration file I/O
-    - `Database/` - Database schema and access
+    - `Settings/` - Settings window (all 6 tabs in SettingsView.swift)
+    - `Diagnostics/` - Diagnostics window component
+    - `Services/` - LaunchAgent management, recording service
+    - `Config/` - Configuration management (ConfigManager.swift)
+    - `Database/` - SQLite database access (TimelineStore.swift)
+    - `Search/` - Search controller and OCR
+    - `Models/` - Data models
+    - `Utilities/` - Shared utilities (ShellCommand.swift)
+    - `Resources/` - Assets, LaunchAgent templates
 
-- [ ] Set up Python scripts directory
-  - `src/scripts/record_screen.py` - Recording service (captures screenshots)
-  - `src/scripts/build_chunks_from_temp.py` - Processing service (creates videos)
+- [x] Set up Python scripts directory
+  - **DEPRECATED:** `src/scripts/record_screen.py` - **Being replaced by Swift RecordingService**
+  - `src/scripts/build_chunks_from_temp.py` - Processing service (creates videos from screenshots)
   - `src/scripts/cleanup_old_chunks.py` - Retention cleanup service
-  - `src/scripts/requirements.txt` - Python dependencies (Pillow, ffmpeg-python)
-  - `src/scripts/tests/` - Python test files
+  - `src/scripts/requirements.txt` - Python dependencies (Pillow, psutil, PyObjC for FFmpeg)
+  - Migration: Recording logic moving to Swift to use app's Screen Recording permission
 
-- [ ] Create shared Python library directory (planned)
-  - `src/lib/` - Shared utilities (paths, database, video, macos, timestamps)
+- [x] Create shared Python library directory (IMPLEMENTED)
+  - `src/lib/` - 9 modules, 280 passing tests
+  - Modules: paths.py, database.py, video.py, macos.py, timestamps.py, config.py, logging_config.py, security.py, network.py
 
 - [ ] Create development data directory (gitignored)
   - `dev_data/temp/` - Development screenshots
@@ -51,43 +61,125 @@
   - `dev_data/meta.sqlite3` - Development database
 
 ### Application Entry Points
-- [ ] Implement menu bar agent
-  - Source: `src/Playback/PlaybackMenuBar/MenuBarAgentApp.swift`
-  - LaunchAgent: Always running background agent
-  - Components: MenuBarExtra, Settings Window, Diagnostics Window
-  - MenuBarExtra: Always visible system tray icon
-  - Responsibilities:
-    - Display menu bar icon with status
-    - Control recording/processing services
-    - Launch timeline viewer on demand
-    - Provide settings and diagnostics UI
-    - Handle "Quit Playback" (stops all services including itself)
-
-- [ ] Implement timeline viewer app
+- [x] Implement unified Playback.app
   - Source: `src/Playback/Playback/PlaybackApp.swift`
-  - Regular app: Lives in Applications folder
-  - Components: Fullscreen Timeline Window
+  - Single app with two scenes:
+    1. **MenuBarExtra** - Always visible system tray icon
+    2. **WindowGroup** - Timeline viewer window (opened on demand)
+  - Lives in: `/Applications/Playback.app`
+  - Runs as: LaunchAgent (login item) OR manually launched
+  - Bundle ID: `com.falconer.Playback`
+
+- [x] MenuBarExtra Scene
+  - Always visible system tray icon
+  - MenuBarView.swift: Recording toggle, timeline shortcut, settings
+  - Responsibilities:
+    - Display menu bar icon with recording status
+    - Control recording service (Swift-based)
+    - Control processing service (Python LaunchAgent)
+    - Launch timeline viewer window
+    - Provide settings and diagnostics UI
+    - Handle "Quit Playback" (stops recording, keeps processing for cleanup)
+
+- [x] Timeline Viewer Window (WindowGroup)
+  - Fullscreen timeline with video playback
   - Launch triggers: Menu bar "Open Timeline", Option+Shift+Space, app icon click
-  - Lifecycle: Can be quit independently without stopping recording
-  - On open: Signals recording service to pause
-  - On quit: Signals recording service to resume
+  - Lifecycle: Window can be closed without stopping app
+  - On open: Creates .timeline_open signal file → pauses recording
+  - On close: Removes signal file → resumes recording
+
+### Recording Service Architecture (Swift-Based)
+
+**NEW: Swift Recording Service** (replaces Python record_screen.py)
+
+**Why Swift?**
+- Uses Playback.app's Screen Recording permission (single permission grant)
+- No separate permission needed for Python/LaunchAgent
+- Better integration with app lifecycle
+- Simpler permission story for users
+
+**Implementation:**
+- Source: `src/Playback/Playback/Services/RecordingService.swift`
+- Runs as: Part of Playback.app process (not separate LaunchAgent)
+- Uses: Timer or DispatchSourceTimer for 2-second interval
+- Captures screenshots using: CGDisplayCreateImage() or similar
+- Saves to: `dev_data/temp/YYYYMM/DD/` (same format as Python version)
+- Filename format: `YYYYMMDD-HHMMSS-uuid-app_id.png`
+
+**Lifecycle:**
+1. App launches → RecordingService starts if recording_enabled
+2. Timeline opens → RecordingService pauses (detects .timeline_open)
+3. Timeline closes → RecordingService resumes
+4. App quits → RecordingService stops
+
+**Integration Points:**
+- MenuBarView toggle → RecordingService.start() / .stop()
+- Config changes → RecordingService reloads settings
+- Permission check → Uses app's existing Screen Recording permission
+
+**Migration Plan:**
+- Phase 1: Implement Swift RecordingService alongside Python version
+- Phase 2: Test Swift version in development
+- Phase 3: Switch to Swift version by default
+- Phase 4: Deprecate Python record_screen.py
+
+### Service Comparison: Old vs New Architecture
+
+| Service | Old Architecture | New Architecture | Permission Needed |
+|---------|------------------|------------------|-------------------|
+| **Recording** | Python LaunchAgent<br>`record_screen.py`<br>Runs as `/usr/bin/python3` | Swift Service<br>`RecordingService.swift`<br>Runs in Playback.app | OLD: python3 ❌<br>NEW: Playback.app ✅ |
+| **Processing** | Python LaunchAgent<br>`build_chunks_from_temp.py` | Python LaunchAgent<br>`build_chunks_from_temp.py`<br>(unchanged) | None (just FFmpeg) |
+| **Cleanup** | Python LaunchAgent<br>`cleanup_old_chunks.py` | Python LaunchAgent<br>`cleanup_old_chunks.py`<br>(unchanged) | None |
+
+**Key Improvement:**
+- Old: User must grant Screen Recording to **TWO** executables (Playback.app + python3)
+- New: User grants Screen Recording to **ONE** executable (Playback.app only)
+
+### Permission Model
+
+**Single Permission Grant: Playback.app**
+
+macOS grants Screen Recording permission per executable. By moving screenshot capture to Swift, we consolidate all permissions under Playback.app.
+
+**Required Permissions:**
+1. **Screen Recording** (Playback.app)
+   - Granted once during first launch
+   - Used for: Screenshot capture (Swift RecordingService)
+   - Shows in: System Settings → Privacy & Security → Screen Recording
+
+2. **Accessibility** (Playback.app)
+   - Granted once during first launch
+   - Used for: Frontmost app detection, global hotkeys
+   - Shows in: System Settings → Privacy & Security → Accessibility
+
+**No Longer Required:**
+- ❌ Screen Recording permission for /usr/bin/python3 (old architecture)
+- ❌ Separate LaunchAgent for recording (now in-app)
+
+**Permission Flow:**
+1. User launches Playback.app
+2. App requests Screen Recording permission (standard macOS dialog)
+3. User grants permission → Recording immediately available
+4. Processing service starts (no permission needed - just FFmpeg)
 
 ### Component Communication
-- [ ] Implement shared state management
-  - Source: `src/Playback/Shared/Config/ConfigManager.swift`
+- [x] Implement shared state management
+  - Source: `src/Playback/Playback/Config/ConfigManager.swift`
   - Uses: File-based configuration (no IPC between processes)
   - Config persists to: `~/Library/Application Support/Playback/config.json`
   - Shared state includes: recording enabled, interval, retention days
   - Menu bar agent writes, timeline viewer reads
 
-- [ ] Set up LaunchAgent control (Menu Bar Agent)
-  - Source: `src/Playback/PlaybackMenuBar/Services/LaunchAgentManager.swift`
-  - Methods: load/unload recording and processing agents
+- [x] Set up LaunchAgent control
+  - Source: `src/Playback/Playback/Services/LaunchAgentManager.swift`
+  - Methods: load/unload processing and cleanup agents
   - Controls:
-    - `com.playback.recording` (Python recording service)
+    - **REMOVED:** `com.playback.recording` (now Swift-based, in-app)
     - `com.playback.processing` (Python processing service)
+    - `com.playback.cleanup` (Python cleanup service)
   - Uses `launchctl` commands: load, unload, start, stop
   - Verifies agent status before state changes
+  - Templates in: `Resources/` (recording.plist.template, processing.plist.template, cleanup.plist.template)
 
 - [ ] Implement timeline viewer launcher (Menu Bar Agent)
   - Source: `src/Playback/PlaybackMenuBar/Services/TimelineLauncher.swift`

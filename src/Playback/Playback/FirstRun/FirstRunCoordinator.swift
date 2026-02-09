@@ -117,29 +117,50 @@ final class FirstRunCoordinator: ObservableObject {
     }
 
     func completeSetup() async throws {
+        print("[FirstRunCoordinator] Starting setup")
         try Paths.ensureDirectoriesExist()
 
         var config = Config.defaultConfig
         config.processingIntervalMinutes = processingInterval
         config.tempRetentionPolicy = tempRetentionPolicy
         config.recordingRetentionPolicy = recordingRetentionPolicy
+        config.recordingEnabled = startRecordingNow  // Set based on user's choice
+
+        print("[FirstRunCoordinator] Config: recordingEnabled=\(config.recordingEnabled)")
 
         let configManager = ConfigManager.shared
         configManager.updateConfig(config)
 
         let agentManager = LaunchAgentManager.shared
-        try agentManager.installAgent(.recording)
+
+        // Install Python processing service (LaunchAgent)
         try agentManager.installAgent(.processing)
-        try agentManager.installAgent(.cleanup)
-        try agentManager.loadAgent(.recording)
         try agentManager.loadAgent(.processing)
+
+        // Install cleanup service (LaunchAgent)
+        try agentManager.installAgent(.cleanup)
         try agentManager.loadAgent(.cleanup)
 
+        print("[FirstRunCoordinator] LaunchAgents installed")
+
+        // Start services based on user's choice
         if startRecordingNow {
-            try agentManager.startAgent(.recording)
+            print("[FirstRunCoordinator] Starting services")
+
+            // Start Swift recording service (in-app)
+            let recordingService = RecordingService.shared
+            recordingService.start()
+
+            // Start processing service
             try agentManager.startAgent(.processing)
+
+            print("[FirstRunCoordinator] Services started")
         }
 
         FirstRunCoordinator.markFirstRunComplete()
+        print("[FirstRunCoordinator] Setup complete")
+
+        // Notify AppDelegate to start services (for cases where first-run happens during this session)
+        NotificationCenter.default.post(name: NSNotification.Name("FirstRunComplete"), object: nil)
     }
 }

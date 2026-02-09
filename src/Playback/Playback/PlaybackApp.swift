@@ -77,12 +77,36 @@ struct PlaybackApp: App {
 class AppDelegate: NSObject, NSApplicationDelegate {
     private var firstRunWindow: NSWindow?
 
+    override init() {
+        super.init()
+
+        // Listen for first-run completion to start services
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleFirstRunComplete),
+            name: NSNotification.Name("FirstRunComplete"),
+            object: nil
+        )
+    }
+
+    @objc private func handleFirstRunComplete() {
+        print("[AppDelegate] First-run completed, starting services")
+        Task {
+            await self.ensureServicesRunning()
+        }
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
+        print("[AppDelegate] applicationDidFinishLaunching called")
+        print("[AppDelegate] hasCompletedFirstRun=\(FirstRunCoordinator.hasCompletedFirstRun)")
+
         if !FirstRunCoordinator.hasCompletedFirstRun {
+            print("[AppDelegate] Showing first run window")
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 self.showFirstRunWindow()
             }
         } else {
+            print("[AppDelegate] First run already completed, ensuring services running")
             Task {
                 await self.ensureServicesRunning()
             }
@@ -90,32 +114,40 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func ensureServicesRunning() async {
+        print("[ServiceLifecycle] ensureServicesRunning() called")
         let agentManager = LaunchAgentManager.shared
         let configManager = ConfigManager.shared
+        let recordingService = RecordingService.shared
+
+        print("[ServiceLifecycle] Config loaded: recordingEnabled=\(configManager.config.recordingEnabled)")
 
         do {
+            // Start Python processing service (LaunchAgent)
             try agentManager.installAgent(.processing)
             try agentManager.loadAgent(.processing)
             try agentManager.startAgent(.processing)
 
+            // Install cleanup service (LaunchAgent)
             try agentManager.installAgent(.cleanup)
             try agentManager.loadAgent(.cleanup)
 
+            // Start Swift recording service (in-app, uses app's Screen Recording permission)
             if configManager.config.recordingEnabled {
-                try agentManager.installAgent(.recording)
-                try agentManager.loadAgent(.recording)
-                try agentManager.startAgent(.recording)
+                print("[ServiceLifecycle] Recording is enabled, starting RecordingService")
+                await MainActor.run {
+                    recordingService.start()
+                }
             } else {
-                try? agentManager.stopAgent(.recording)
+                print("[ServiceLifecycle] Recording is disabled, stopping RecordingService")
+                await MainActor.run {
+                    recordingService.stop()
+                }
             }
 
-            if Paths.isDevelopment {
-                print("[ServiceLifecycle] All services ensured running")
-            }
+            print("[ServiceLifecycle] All services ensured running")
+            print("[ServiceLifecycle] Recording service: \(recordingService.isRecording ? "started" : "stopped")")
         } catch {
-            if Paths.isDevelopment {
-                print("[ServiceLifecycle] Error ensuring services: \(error)")
-            }
+            print("[ServiceLifecycle] Error ensuring services: \(error)")
         }
     }
 
