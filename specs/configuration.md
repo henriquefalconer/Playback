@@ -355,6 +355,194 @@ Environment variables are set in LaunchAgent plist files:
 
 Note: `$HOME` must be expanded to actual home directory path in LaunchAgent plists.
 
+### Force Run Services
+
+The configuration system includes a diagnostic feature in Advanced Settings that allows users to manually trigger service execution. This is useful for testing, debugging, and troubleshooting service issues.
+
+#### Purpose
+
+- **Manual Triggering**: Execute recording and processing services on-demand without waiting for scheduled runs
+- **Diagnostics**: Test service functionality after configuration changes or permission grants
+- **Error Reporting**: Capture detailed error information when services fail
+- **Troubleshooting**: Export comprehensive error reports for support and debugging
+
+#### User Interface
+
+**Location**: Settings → Advanced Tab → Maintenance Section
+
+**Button States**:
+- **Idle**: "Force Run Services" (enabled, clickable)
+- **Running**: "Running Services..." (disabled, with progress indicator)
+- **Completed**: Returns to idle state
+
+**Button Properties**:
+- Accessibility identifier: `settings.advanced.forceRunServicesButton`
+- Style: Borderless button
+- Shows inline progress indicator during execution
+
+#### Execution Flow
+
+```
+User clicks "Force Run Services"
+         ↓
+Button shows progress indicator
+         ↓
+Recording service executes (record_screen.py)
+         ↓
+Processing service executes (build_chunks_from_temp.py --auto)
+         ↓
+Services complete or fail
+         ↓
+Button returns to idle state
+         ↓
+If errors: Show error alert
+```
+
+#### Service Execution Details
+
+**Recording Service**:
+- Script: `record_screen.py`
+- Execution: Single run (not continuous loop)
+- Environment: `PLAYBACK_DEV_MODE=1` in development
+- Captures one iteration of screenshots
+
+**Processing Service**:
+- Script: `build_chunks_from_temp.py`
+- Argument: `--auto` (process pending days)
+- Environment: `PLAYBACK_DEV_MODE=1` in development
+- Processes all pending screenshots into video segments
+
+**Script Path Resolution**:
+- **Development**: `<project_root>/src/scripts/` (resolved via `findProjectRoot()`)
+- **Production**: `~/Library/Application Support/Playback/` or bundle Resources
+- Uses same path resolution as other settings tabs for consistency
+
+**Environment Variables**:
+- Sets `PLAYBACK_DEV_MODE=1` when `Paths.isDevelopment` is true
+- Scripts inherit config and data paths from environment
+
+#### Error Handling
+
+**Error Detection**:
+- Monitors command output for "Error" or "Traceback" keywords
+- Checks exit codes (non-zero indicates failure)
+- Collects stderr and stdout from both services
+
+**Error Aggregation**:
+- Combines errors from recording and processing services
+- Separates errors with double newlines for readability
+- Preserves full error output including tracebacks
+
+**Error Alert**:
+- **Title**: "Service Execution Error"
+- **Message**: Combined error details from both services
+- **Actions**:
+  - "Export Error": Saves error report to file
+  - "OK": Dismisses alert
+
+**Alert Example**:
+```
+Recording service failed:
+Traceback (most recent call last):
+  File "record_screen.py", line 45, in <module>
+    ...error details...
+
+Processing service failed:
+Traceback (most recent call last):
+  File "build_chunks_from_temp.py", line 123, in <module>
+    ...error details...
+```
+
+#### Error Export Feature
+
+**File Export Dialog**:
+- **Filename Format**: `playback-service-error-YYYYMMDD-HHMMSS.txt`
+- **File Type**: Plain text (`.txt`)
+- **Dialog Type**: `NSSavePanel`
+- **Can Create Directories**: Yes
+- **Default Location**: User's Documents folder
+
+**Error Report Format**:
+```
+Playback Service Error Report
+Generated: <ISO 8601 timestamp>
+macOS Version: <version from sw_vers>
+Python Version: <version from python3 --version>
+FFmpeg Version: <version from ffmpeg -version>
+
+--- Error Details ---
+
+<Full error output from services>
+
+--- Service Status ---
+Recording Service: <status from LaunchAgentManager>
+Processing Service: <status from LaunchAgentManager>
+```
+
+**Post-Export Action**:
+- Opens Finder with exported file selected
+- Uses `NSWorkspace.shared.activateFileViewerSelecting([url])`
+- Allows user to immediately view or share error report
+
+**Export Failure Handling**:
+- Shows alert if file write fails
+- Alert includes failure reason (permissions, disk space, etc.)
+- Original error alert remains accessible
+
+#### Success Behavior
+
+When both services execute successfully:
+- No alert is shown
+- Button returns to idle state
+- User can check logs or diagnostics for confirmation
+- Silent success (follows principle of "no news is good news")
+
+#### Implementation Notes
+
+**Async Execution**:
+- Uses `async/await` for non-blocking UI
+- Runs on background queue via `runShellCommand()`
+- Updates UI state on main actor
+
+**Concurrency Prevention**:
+- Button disabled while services running
+- State variable `isForceRunning` prevents concurrent runs
+- Single execution at a time enforced
+
+**Consistency with Other Features**:
+- Uses same `findProjectRoot()` helper as Processing, Storage, and Privacy tabs
+- Uses same `runShellCommand()` wrapper for shell execution
+- Follows same error handling patterns as other maintenance operations
+
+#### Use Cases
+
+**1. Testing After Configuration Changes**
+- User changes FFmpeg settings
+- Clicks "Force Run Services" to test new encoding parameters
+- Verifies services work with new configuration
+
+**2. Debugging Permission Issues**
+- Screen Recording permission denied
+- User grants permission in System Settings
+- Clicks "Force Run Services" to test recording
+- Exports error if still failing for support request
+
+**3. Manual Processing Trigger**
+- User has pending screenshots from earlier recording
+- Doesn't want to wait for scheduled processing interval
+- Clicks "Force Run Services" to process immediately
+
+**4. Support and Troubleshooting**
+- Service failing with unclear error in logs
+- User clicks "Force Run Services" to reproduce issue
+- Exports comprehensive error report with system diagnostics
+- Shares report with support team
+
+**5. Development and Testing**
+- Developer testing service changes
+- Uses force run to quickly test without LaunchAgent reload
+- Verifies script changes work correctly
+
 ## Implementation Checklist
 
 ### JSON Configuration File Structure

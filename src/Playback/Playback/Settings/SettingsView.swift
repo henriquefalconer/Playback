@@ -2004,31 +2004,21 @@ struct AdvancedSettingsTab: View {
 
         var errors: [String] = []
 
-        // Get scripts directory path
-        let scriptsDir: String
-        if Paths.isDevelopment {
-            let projectRoot = Bundle.main.bundleURL
-                .deletingLastPathComponent()
-                .deletingLastPathComponent()
-                .deletingLastPathComponent()
-            scriptsDir = projectRoot.appendingPathComponent("src/scripts").path
-        } else {
-            // In production, scripts are bundled in Resources
-            scriptsDir = Bundle.main.resourcePath ?? ""
-        }
-
         // Force run recording service
         do {
-            let recordScriptPath = "\(scriptsDir)/record_screen.py"
+            let recordScriptPath = findProjectRoot().appendingPathComponent("src/scripts/record_screen.py").path
             if Paths.isDevelopment {
-                print("[ForceRun] Running recording service: python3 \(recordScriptPath)")
+                print("[ForceRun] Running recording service: PLAYBACK_DEV_MODE=1 python3 \(recordScriptPath)")
             }
-            let recordResult = try await ShellCommand.runAsync(
-                "/usr/bin/python3",
-                arguments: [recordScriptPath]
-            )
-            if !recordResult.isSuccess {
-                errors.append("Recording service failed (exit code \(recordResult.exitCode)):\n\(recordResult.output)")
+
+            // Set environment variable for development mode
+            let command = Paths.isDevelopment
+                ? "PLAYBACK_DEV_MODE=1 python3 '\(recordScriptPath)' 2>&1"
+                : "python3 '\(recordScriptPath)' 2>&1"
+
+            let recordOutput = await runShellCommand(command)
+            if recordOutput.contains("Error") || recordOutput.contains("Traceback") {
+                errors.append("Recording service failed:\n\(recordOutput)")
             }
         } catch {
             errors.append("Recording service error: \(error.localizedDescription)")
@@ -2036,16 +2026,19 @@ struct AdvancedSettingsTab: View {
 
         // Force run processing service
         do {
-            let processScriptPath = "\(scriptsDir)/build_chunks_from_temp.py"
+            let processScriptPath = findProjectRoot().appendingPathComponent("src/scripts/build_chunks_from_temp.py").path
             if Paths.isDevelopment {
-                print("[ForceRun] Running processing service: python3 \(processScriptPath) --auto")
+                print("[ForceRun] Running processing service: PLAYBACK_DEV_MODE=1 python3 \(processScriptPath) --auto")
             }
-            let processResult = try await ShellCommand.runAsync(
-                "/usr/bin/python3",
-                arguments: [processScriptPath, "--auto"]
-            )
-            if !processResult.isSuccess {
-                errors.append("Processing service failed (exit code \(processResult.exitCode)):\n\(processResult.output)")
+
+            // Set environment variable for development mode
+            let command = Paths.isDevelopment
+                ? "PLAYBACK_DEV_MODE=1 python3 '\(processScriptPath)' --auto 2>&1"
+                : "python3 '\(processScriptPath)' --auto 2>&1"
+
+            let processOutput = await runShellCommand(command)
+            if processOutput.contains("Error") || processOutput.contains("Traceback") {
+                errors.append("Processing service failed:\n\(processOutput)")
             }
         } catch {
             errors.append("Processing service error: \(error.localizedDescription)")
@@ -2057,6 +2050,20 @@ struct AdvancedSettingsTab: View {
                 forceRunError = errors.joined(separator: "\n\n")
                 showForceRunError = true
             }
+        }
+    }
+
+    private func findProjectRoot() -> URL {
+        if Paths.isDevelopment {
+            return Bundle.main.bundleURL
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+        } else {
+            guard let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
+                fatalError("Application Support directory not available")
+            }
+            return appSupport.appendingPathComponent("Playback")
         }
     }
 
