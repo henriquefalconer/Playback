@@ -1360,6 +1360,8 @@ struct AdvancedSettingsTab: View {
     @State private var rebuildError: String? = nil
     @State private var showDiagnosticsResults = false
     @State private var diagnosticsMessage = ""
+    @State private var showExportSuccess = false
+    @State private var exportedFilePath: URL? = nil
 
     var body: some View {
         Form {
@@ -1583,6 +1585,20 @@ struct AdvancedSettingsTab: View {
             Button("OK") { }
         } message: {
             Text(diagnosticsMessage)
+        }
+        .alert("Logs Exported", isPresented: $showExportSuccess) {
+            Button("Show in Finder") {
+                if let url = exportedFilePath {
+                    NSWorkspace.shared.activateFileViewerSelecting([url])
+                }
+            }
+            Button("OK") { }
+        } message: {
+            if let url = exportedFilePath {
+                Text("Logs exported successfully to \(url.lastPathComponent)")
+            } else {
+                Text("Logs exported successfully")
+            }
         }
     }
 
@@ -1839,10 +1855,87 @@ struct AdvancedSettingsTab: View {
     }
 
     private func exportLogsToFile(_ destination: URL) async {
-        let logDir = Paths.isDevelopment ? "dev_logs" : "~/Library/Logs/Playback"
-        let expandedPath = (logDir as NSString).expandingTildeInPath
-        let command = "cd '\(expandedPath)' && zip -r '\(destination.path)' . 2>&1"
-        let _ = await runShellCommand(command)
+        do {
+            let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent("playback-logs-\(UUID().uuidString)")
+            try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+
+            let logsDir = Paths.isDevelopment ? URL(fileURLWithPath: "dev_logs") : FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Logs/Playback")
+            let configPath = Paths.configPath()
+
+            if FileManager.default.fileExists(atPath: logsDir.path) {
+                let logFiles = try FileManager.default.contentsOfDirectory(at: logsDir, includingPropertiesForKeys: nil)
+                for logFile in logFiles where logFile.pathExtension == "log" {
+                    let destFile = tempDir.appendingPathComponent(logFile.lastPathComponent)
+                    try FileManager.default.copyItem(at: logFile, to: destFile)
+                }
+            }
+
+            if FileManager.default.fileExists(atPath: configPath.path) {
+                let destConfig = tempDir.appendingPathComponent("config.json")
+                try FileManager.default.copyItem(at: configPath, to: destConfig)
+            }
+
+            var systemInfo = """
+            Playback System Information
+            Generated: \(ISO8601DateFormatter().string(from: Date()))
+
+            System:
+            """
+
+            systemInfo += "\n  macOS Version: \(await runShellCommand("sw_vers -productVersion"))"
+            systemInfo += "\n  Build: \(await runShellCommand("sw_vers -buildVersion"))"
+            systemInfo += "\n  Architecture: \(await runShellCommand("uname -m"))"
+
+            systemInfo += "\n\nDependencies:"
+            systemInfo += "\n  Python: \(await runShellCommand("python3 --version 2>&1"))"
+            systemInfo += "\n  FFmpeg: \(await runShellCommand("ffmpeg -version 2>&1 | head -n 1"))"
+
+            systemInfo += "\n\nPaths:"
+            systemInfo += "\n  Data Directory: \(Paths.baseDataDirectory.path)"
+            systemInfo += "\n  Config Path: \(configPath.path)"
+            systemInfo += "\n  Database Path: \(Paths.databasePath.path)"
+            systemInfo += "\n  Logs Directory: \(logsDir.path)"
+
+            systemInfo += "\n\nServices:"
+            systemInfo += "\n  Recording: \(statusText(recordingStatus))"
+            systemInfo += "\n  Processing: \(statusText(processingStatus))"
+
+            let dbSize = try? FileManager.default.attributesOfItem(atPath: Paths.databasePath.path)[.size] as? Int64
+            if let size = dbSize {
+                let formatter = ByteCountFormatter()
+                formatter.allowedUnits = [.useMB, .useGB]
+                formatter.countStyle = .file
+                systemInfo += "\n\nDatabase Size: \(formatter.string(fromByteCount: size))"
+            }
+
+            try systemInfo.write(to: tempDir.appendingPathComponent("system-info.txt"), atomically: true, encoding: .utf8)
+
+            if FileManager.default.fileExists(atPath: destination.path) {
+                try FileManager.default.removeItem(at: destination)
+            }
+
+            let result = try await Task.detached {
+                try await MainActor.run {
+                    try ShellCommand.run("/usr/bin/ditto", arguments: ["-c", "-k", "--keepParent", tempDir.path, destination.path])
+                }
+            }.value
+
+            try FileManager.default.removeItem(at: tempDir)
+
+            if result.isSuccess {
+                await MainActor.run {
+                    exportedFilePath = destination
+                    showExportSuccess = true
+                }
+            } else {
+                throw NSError(domain: "ExportLogs", code: 1, userInfo: [NSLocalizedDescriptionKey: "Failed to create zip archive"])
+            }
+        } catch {
+            await MainActor.run {
+                diagnosticsMessage = "Export failed: \(error.localizedDescription)"
+                showDiagnosticsResults = true
+            }
+        }
     }
 
     private func runDiagnostics() {

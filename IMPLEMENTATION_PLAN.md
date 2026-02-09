@@ -586,11 +586,31 @@ Note: Mission Control gestures are system-level and cannot be disabled programma
 - **Source:** `src/Playback/Playback/Settings/SettingsView.swift:1446-1448`
 - **Fix applied:** Added automatic app restart after resetAllSettings(). Uses Process with /usr/bin/open to relaunch the app, then terminates current instance with 0.5s delay to ensure config is written. Provides clean state after reset.
 
-### 3.8 Settings: Export Logs Is Minimal
+### 3.8 Settings: Export Logs Is Minimal ✅ COMPLETE
 
-- [ ] **Improve log export with system info and structured archive**
+- [x] **Improve log export with system info and structured archive**
 - **Spec:** `specs/menu-bar.md` lines 405-418
-- **Source:** `src/Playback/Playback/Settings/SettingsView.swift:1454-1474`
+- **Source:** `src/Playback/Playback/Settings/SettingsView.swift:1852-1932`
+
+**Implementation complete (2026-02-09):**
+- Replaced minimal export with comprehensive structured archive
+- Creates temporary directory with organized log export
+- Collects all log files from logs directory (recording.log, processing.log, etc.)
+- Includes config.json for configuration reference
+- Generates detailed system-info.txt file containing:
+  * macOS version and build number
+  * System architecture
+  * Python and FFmpeg versions
+  * All relevant paths (data directory, config, database, logs)
+  * Service status (recording, processing)
+  * Database file size (formatted with ByteCountFormatter)
+- Uses `ditto` to create compressed zip archive
+- Success dialog with "Show in Finder" button that reveals exported file
+- Error handling with descriptive error messages
+- Automatic cleanup of temporary files after export
+- Location: `src/Playback/Playback/Settings/SettingsView.swift:1852-1932` (exportLogsToFile function)
+
+This provides complete log export functionality as specified in specs/menu-bar.md lines 405-418.
 
 ### 3.9 Config: Migration Logic Is a Stub ✅ COMPLETE
 
