@@ -101,6 +101,7 @@ Key operational learnings from Phase 2 development (2026-02-07):
 - **Cursor-anchored zoom formula:** When implementing cursor-anchored zoom, use `centerTime = anchorTimestamp + (centerTime - anchorTimestamp) * (newWindow / oldWindow)` to maintain timestamp position during pinch gestures. Store anchor at gesture start, adjust center proportionally during zoom
 - **Comment translation:** When translating comments, preserve technical terminology (segment, timeline, scrubbing, frozen frame) and maintain original formatting. Use concise professional tone appropriate for code documentation
 - **Segment preloading pattern:** For seamless video transitions, use separate AVPlayer for background preloading. Monitor playback progress in timeObserver, trigger preload at 80% threshold. Load AVPlayerItem asynchronously on background queue, swap to main player when ready. Requires weak reference to data source (TimelineStore) for finding next segment chronologically. Pattern eliminates 100-500ms pause during segment transitions
+- **Config migration framework:** Use array of (from_version, to_version, migrate_function) tuples for sequential version upgrades. System automatically chains migrations (e.g., 1.0.0 → 1.1.0 → 1.2.0). Each migration receives mutable Config for transformation. Log progress in dev mode
 
 ## Specifications
 
