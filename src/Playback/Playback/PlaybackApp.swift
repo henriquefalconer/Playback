@@ -12,6 +12,7 @@ struct PlaybackApp: App {
     @StateObject private var menuBarViewModel = MenuBarViewModel()
     @StateObject private var hotkeyManager = GlobalHotkeyManagerWrapper()
     @StateObject private var processMonitor = ProcessMonitor.shared
+    @StateObject private var fullscreenManager = FullscreenManagerWrapper()
 
     var body: some Scene {
         MenuBarExtra {
@@ -31,6 +32,9 @@ struct PlaybackApp: App {
                     // Connect playback controller to timeline store for segment preloading
                     playbackController.timelineStore = timelineStore
 
+                    // Configure fullscreen presentation options before entering fullscreen
+                    fullscreenManager.configureFullscreenPresentation()
+
                     NSApp.windows.first?.toggleFullScreen(nil)
                     signalManager.createSignal()
                     processMonitor.startMonitoring()
@@ -43,6 +47,7 @@ struct PlaybackApp: App {
                 }
                 .onDisappear {
                     processMonitor.stopMonitoring()
+                    fullscreenManager.restoreNormalPresentation()
                 }
         }
         .windowStyle(.hiddenTitleBar)
@@ -154,5 +159,38 @@ final class SignalFileManagerWrapper: ObservableObject {
 
     deinit {
         manager.removeSignalFile()
+    }
+}
+
+/// Manages fullscreen presentation options for timeline window
+final class FullscreenManagerWrapper: ObservableObject {
+    let objectWillChange = PassthroughSubject<Void, Never>()
+    private var previousPresentationOptions: NSApplication.PresentationOptions = []
+
+    func configureFullscreenPresentation() {
+        previousPresentationOptions = NSApp.presentationOptions
+
+        let fullscreenOptions: NSApplication.PresentationOptions = [
+            .autoHideMenuBar,
+            .autoHideDock,
+            .disableProcessSwitching,
+            .disableForceQuit,
+            .disableSessionTermination,
+            .disableHideApplication
+        ]
+
+        NSApp.presentationOptions = fullscreenOptions
+
+        if Paths.isDevelopment {
+            print("[Playback] Configured fullscreen presentation options")
+        }
+    }
+
+    func restoreNormalPresentation() {
+        NSApp.presentationOptions = previousPresentationOptions
+
+        if Paths.isDevelopment {
+            print("[Playback] Restored normal presentation options")
+        }
     }
 }

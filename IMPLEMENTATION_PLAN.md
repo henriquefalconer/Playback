@@ -522,11 +522,29 @@ These items improve the overall experience but are not blocking core functionali
   - Connected `playbackController.timelineStore` in `PlaybackApp.swift` onAppear
 - **Result:** Eliminates 100-500ms pause on segment transitions by preloading next segment in background
 
-### 3.3 Timeline: Fullscreen Configuration Incomplete
+### 3.3 Timeline: Fullscreen Configuration Incomplete ✅ COMPLETE
 
-- [ ] **Add letterboxing, gesture disabling, presentation options**
+- [x] **Add letterboxing, gesture disabling, presentation options**
 - **Spec:** `specs/timeline-graphical-interface.md` lines 69-88
 - **Source:** `PlaybackApp.swift`
+
+**Implementation complete (2026-02-09):**
+- Created `FullscreenManagerWrapper` class to manage presentation options
+- Stores previous presentation options to restore on exit
+- Configures fullscreen with:
+  * `.autoHideMenuBar` - menu bar auto-hides in fullscreen
+  * `.autoHideDock` - Dock auto-hides in fullscreen
+  * `.disableProcessSwitching` - disables Cmd+Tab
+  * `.disableForceQuit` - disables Cmd+Option+Esc
+  * `.disableSessionTermination` - prevents accidental logout
+  * `.disableHideApplication` - prevents Cmd+H
+- Options applied in timeline window's `.onAppear` before entering fullscreen
+- Options restored to previous state in `.onDisappear`
+- Letterboxing already implemented via `AVPlayerLayer.videoGravity = .resizeAspect` with black background
+- Three-finger swipe gestures automatically disabled by fullscreen mode
+- Location: `src/Playback/Playback/PlaybackApp.swift:168-195` (FullscreenManagerWrapper class)
+
+Note: Mission Control gestures are system-level and cannot be disabled programmatically. Users can disable them manually in System Settings if desired.
 
 ### 3.4 Timeline: No Momentum Scrolling / Deceleration
 
