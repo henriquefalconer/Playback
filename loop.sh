@@ -107,7 +107,7 @@ if [ "$MODE" = "plan" ] && [ -z "$GOAL_TEXT" ]; then
         fi
 
         printf "\n\n${YELLOW_BOLD}Examples:${RESET}\n"
-        printf "  • a beautiful dark mode to this application\n"
+        printf "  • repo with full spec implementation\n"
         printf "  • a detailed analytics system based on specs/analytics.md\n"
         printf "  • a great working ui and ux\n"
         printf "  • an AI-powered data import system based on specs/data-import.md\n\n"
