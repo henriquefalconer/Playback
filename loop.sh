@@ -288,6 +288,12 @@ while true; do
 
     echo -e "${GREEN_BOLD}Iteration ${CURRENT_ITER} completed in ${DURATION_MIN}m ${DURATION_SEC}s${RESET}"
 
+    # Push changes after each iteration (non-fatal if it fails)
+    git push origin "$CURRENT_BRANCH" 2>/dev/null || {
+        echo -e "${GREEN_BOLD}Failed to push. Attempting to create remote branch...${RESET}"
+        git push -u origin "$CURRENT_BRANCH" 2>/dev/null || echo -e "${YELLOW_BOLD}Git push failed, continuing...${RESET}"
+    }
+
     # Completion check
     if [ -f .agent_complete ]; then
         echo -e "${GREEN_BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
@@ -296,12 +302,6 @@ while true; do
         rm -f .agent_complete
         break
     fi
-
-    # Push changes after each iteration (non-fatal if it fails)
-    git push origin "$CURRENT_BRANCH" 2>/dev/null || {
-        echo -e "${GREEN_BOLD}Failed to push. Attempting to create remote branch...${RESET}"
-        git push -u origin "$CURRENT_BRANCH" 2>/dev/null || echo -e "${YELLOW_BOLD}Git push failed, continuing...${RESET}"
-    }
 
     ITERATION=$((ITERATION + 1))
     echo -e "${GREEN_BOLD}\n\n======================== LOOP $ITERATION ========================${RESET}\n"
