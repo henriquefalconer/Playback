@@ -42,5 +42,6 @@ dist/
 dev_config.json
 backups/
 
-# Other
+# Agent
 claude_logs/
+.agent_complete
