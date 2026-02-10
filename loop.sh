@@ -3,9 +3,9 @@ set -euo pipefail   # Exit on error, undefined vars, and pipe failures
 
 # Usage: ./loop.sh [plan] [max_iterations] [--goal <text> | -g <text> | ...]
 # Examples:
-#   ./loop.sh plan --goal "a beautiful dark-mode todo app with offline sync"
-#   ./loop.sh plan 8 -g "a minimal blog engine with RSS and markdown editor"
-#   ./loop.sh --goal "a CLI password manager in Rust" 10
+#   ./loop.sh plan --goal "repo with full spec implementation"
+#   ./loop.sh plan 8 -g "repo with full spec implementation"
+#   ./loop.sh --goal "repo with full spec implementation" 10
 #   ./loop.sh plan                                      # ← will ask you interactively
 
 # Color and style definitions
@@ -297,10 +297,10 @@ while true; do
         break
     fi
 
-    # Push changes after each iteration
-    git push origin "$CURRENT_BRANCH" || {
-        echo -e "${GREEN_BOLD}Failed to push. Creating remote branch...${RESET}"
-        git push -u origin "$CURRENT_BRANCH"
+    # Push changes after each iteration (non-fatal if it fails)
+    git push origin "$CURRENT_BRANCH" 2>/dev/null || {
+        echo -e "${GREEN_BOLD}Failed to push. Attempting to create remote branch...${RESET}"
+        git push -u origin "$CURRENT_BRANCH" 2>/dev/null || echo -e "${YELLOW_BOLD}Git push failed, continuing...${RESET}"
     }
 
     ITERATION=$((ITERATION + 1))
