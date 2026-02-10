@@ -1,5 +1,5 @@
 <!--
- Copyright (c) 2025 Henrique Falconer. All rights reserved.
+ Copyright (c) 2026 Henrique Falconer. All rights reserved.
  SPDX-License-Identifier: Proprietary
 -->
 
@@ -214,4 +214,4 @@ See [AGENTS.md](./AGENTS.md) for comprehensive development guidelines including:
 
 ## License
 
-Proprietary. Copyright (c) 2025 Henrique Falconer. All rights reserved.
+Proprietary. Copyright (c) 2026 Henrique Falconer. All rights reserved.

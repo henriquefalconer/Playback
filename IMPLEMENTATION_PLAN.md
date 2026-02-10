@@ -1,5 +1,5 @@
 <!--
- Copyright (c) 2025 Henrique Falconer. All rights reserved.
+ Copyright (c) 2026 Henrique Falconer. All rights reserved.
  SPDX-License-Identifier: Proprietary
 -->
 
