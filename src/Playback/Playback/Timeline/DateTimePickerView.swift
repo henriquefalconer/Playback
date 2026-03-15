@@ -43,6 +43,7 @@ struct DateTimePickerView: View {
         }
         .onAppear {
             loadAvailableDates()
+            loadAvailableTimesForSelectedDate()
         }
     }
 

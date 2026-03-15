@@ -117,26 +117,6 @@ final class MenuBarUITests: XCTestCase {
         XCTAssertTrue(settingsButton.exists, "Button should still exist after click")
     }
 
-    func testDiagnosticsButtonExists() throws {
-        let diagnosticsButton = app.buttons["menubar.diagnosticsButton"]
-        XCTAssertTrue(diagnosticsButton.waitForExistence(timeout: 5.0), "Diagnostics button should exist")
-        XCTAssertTrue(diagnosticsButton.isEnabled, "Diagnostics button should be enabled")
-    }
-
-    func testDiagnosticsButtonClick() throws {
-        let diagnosticsButton = app.buttons["menubar.diagnosticsButton"]
-        XCTAssertTrue(diagnosticsButton.waitForExistence(timeout: 5.0), "Diagnostics button should exist")
-
-        // Click the button
-        diagnosticsButton.click()
-
-        // Wait for diagnostics window to appear
-        sleep(1)
-
-        // Verify click was registered
-        XCTAssertTrue(diagnosticsButton.exists, "Button should still exist after click")
-    }
-
     // MARK: - Error Badge Tests
 
     func testErrorBadgeVisibilityWhenNoErrors() throws {
@@ -184,13 +164,11 @@ final class MenuBarUITests: XCTestCase {
         let recordToggle = app.switches["menubar.recordToggle"]
         let openTimelineButton = app.buttons["menubar.openTimelineButton"]
         let settingsButton = app.buttons["menubar.settingsButton"]
-        let diagnosticsButton = app.buttons["menubar.diagnosticsButton"]
 
         // Verify all elements exist
         XCTAssertTrue(recordToggle.waitForExistence(timeout: 5.0), "Recording toggle should exist")
         XCTAssertTrue(openTimelineButton.exists, "Open Timeline button should exist")
         XCTAssertTrue(settingsButton.exists, "Settings button should exist")
-        XCTAssertTrue(diagnosticsButton.exists, "Diagnostics button should exist")
 
         // Toggle recording state
         recordToggle.click()
@@ -199,6 +177,5 @@ final class MenuBarUITests: XCTestCase {
         // All buttons should still be accessible after state change
         XCTAssertTrue(openTimelineButton.isEnabled, "Open Timeline button should remain enabled")
         XCTAssertTrue(settingsButton.isEnabled, "Settings button should remain enabled")
-        XCTAssertTrue(diagnosticsButton.isEnabled, "Diagnostics button should remain enabled")
     }
 }

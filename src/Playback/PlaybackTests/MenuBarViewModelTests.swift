@@ -121,13 +121,6 @@ final class MenuBarViewModelTests: XCTestCase {
         XCTAssertTrue(true, "showSettings should be published via @Published")
     }
 
-    func testShowDiagnosticsPublishedProperty() {
-        XCTAssertTrue(true, "showDiagnostics should be published via @Published")
-    }
-
-    func testErrorCountPublishedProperty() {
-        XCTAssertTrue(true, "errorCount should be published via @Published")
-    }
 
     // MARK: - ObservableObject Conformance Tests
 
@@ -161,11 +154,6 @@ final class MenuBarViewModelTests: XCTestCase {
     func testOpenSettingsMethodExists() {
         XCTAssertTrue(true,
                       "openSettings() method should exist on MenuBarViewModel")
-    }
-
-    func testOpenDiagnosticsMethodExists() {
-        XCTAssertTrue(true,
-                      "openDiagnostics() method should exist on MenuBarViewModel")
     }
 
     func testQuitPlaybackMethodExists() {

@@ -27,65 +27,91 @@ final class RecordingService: ObservableObject {
     private var excludedApps: [String] = []
 
     private init() {
-        print("[RecordingService] Initializing singleton")
+        if Paths.isDevelopment {
+            print("[RecordingService] Initializing singleton")
+        }
         loadConfig()
         setupConfigObserver()
-        print("[RecordingService] Initialization complete")
+        if Paths.isDevelopment {
+            print("[RecordingService] Initialization complete")
+        }
     }
 
     // MARK: - Public API
 
     /// Start recording (captures screenshots every 2 seconds)
     func start() {
-        print("[RecordingService] start() called, isRecording=\(isRecording)")
+        if Paths.isDevelopment {
+            print("[RecordingService] start() called, isRecording=\(isRecording)")
+        }
         guard !isRecording else {
-            print("[RecordingService] Already recording, ignoring start()")
+            if Paths.isDevelopment {
+                print("[RecordingService] Already recording, ignoring start()")
+            }
             return
         }
 
         // Check Screen Recording permission
         let hasPermission = CGPreflightScreenCaptureAccess()
-        print("[RecordingService] Screen Recording permission check: \(hasPermission)")
+        if Paths.isDevelopment {
+            print("[RecordingService] Screen Recording permission check: \(hasPermission)")
+        }
         guard hasPermission else {
             logError("Screen Recording permission not granted")
             return
         }
 
-        print("[RecordingService] Permission granted, starting recording")
+        if Paths.isDevelopment {
+            print("[RecordingService] Permission granted, starting recording")
+        }
         isRecording = true
         captureCount = 0
 
         // Start timer
         timer = Timer.scheduledTimer(withTimeInterval: captureInterval, repeats: true) { [weak self] _ in
-            print("[RecordingService] Timer fired")
+            if Paths.isDevelopment {
+                print("[RecordingService] Timer fired")
+            }
             Task { @MainActor in
                 await self?.captureScreenshot()
             }
         }
-        print("[RecordingService] Timer created with interval \(captureInterval)s")
+        if Paths.isDevelopment {
+            print("[RecordingService] Timer created with interval \(captureInterval)s")
+        }
 
         // Fire immediately
-        print("[RecordingService] Firing initial capture")
+        if Paths.isDevelopment {
+            print("[RecordingService] Firing initial capture")
+        }
         Task {
             await captureScreenshot()
         }
 
         log("Recording service started", metadata: ["interval_seconds": captureInterval])
-        print("[RecordingService] start() complete, isRecording=\(isRecording)")
+        if Paths.isDevelopment {
+            print("[RecordingService] start() complete, isRecording=\(isRecording)")
+        }
     }
 
     /// Stop recording
     func stop() {
-        print("[RecordingService] stop() called, isRecording=\(isRecording)")
+        if Paths.isDevelopment {
+            print("[RecordingService] stop() called, isRecording=\(isRecording)")
+        }
         guard isRecording else {
-            print("[RecordingService] Already stopped, ignoring")
+            if Paths.isDevelopment {
+                print("[RecordingService] Already stopped, ignoring")
+            }
             return
         }
 
         timer?.invalidate()
         timer = nil
         isRecording = false
-        print("[RecordingService] Recording stopped")
+        if Paths.isDevelopment {
+            print("[RecordingService] Recording stopped")
+        }
 
         log("Recording service stopped", metadata: ["total_captures": captureCount])
     }
@@ -107,22 +133,30 @@ final class RecordingService: ObservableObject {
     // MARK: - Screenshot Capture
 
     private func captureScreenshot() async {
-        print("[RecordingService] captureScreenshot() called")
+        if Paths.isDevelopment {
+            print("[RecordingService] captureScreenshot() called")
+        }
 
         // Check if timeline is open (pause recording)
         if fileManager.fileExists(atPath: Paths.timelineOpenSignalPath.path) {
-            print("[RecordingService] Timeline open - pausing capture")
+            if Paths.isDevelopment {
+                print("[RecordingService] Timeline open - pausing capture")
+            }
             return
         }
 
         // Get frontmost app
         guard let frontmostApp = getFrontmostApp() else {
-            print("[RecordingService] ERROR: Could not determine frontmost app")
+            if Paths.isDevelopment {
+                print("[RecordingService] ERROR: Could not determine frontmost app")
+            }
             logError("Could not determine frontmost app")
             return
         }
 
-        print("[RecordingService] Frontmost app: \(frontmostApp)")
+        if Paths.isDevelopment {
+            print("[RecordingService] Frontmost app: \(frontmostApp)")
+        }
 
         // Check if app is excluded
         if excludedApps.contains(frontmostApp) {
@@ -280,16 +314,18 @@ final class RecordingService: ObservableObject {
         }
         lastLoggedError = message
 
-        let logDict: [String: Any] = [
-            "timestamp": ISO8601DateFormatter().string(from: Date()),
-            "level": "ERROR",
-            "component": "recording",
-            "message": message
-        ]
+        if Paths.isDevelopment {
+            let logDict: [String: Any] = [
+                "timestamp": ISO8601DateFormatter().string(from: Date()),
+                "level": "ERROR",
+                "component": "recording",
+                "message": message
+            ]
 
-        if let jsonData = try? JSONSerialization.data(withJSONObject: logDict, options: []),
-           let jsonString = String(data: jsonData, encoding: .utf8) {
-            print(jsonString)
+            if let jsonData = try? JSONSerialization.data(withJSONObject: logDict, options: []),
+               let jsonString = String(data: jsonData, encoding: .utf8) {
+                print(jsonString)
+            }
         }
     }
 

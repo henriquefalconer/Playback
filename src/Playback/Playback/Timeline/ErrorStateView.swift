@@ -106,7 +106,7 @@ struct ErrorStateView: View {
             }
             .buttonStyle(.plain)
 
-        case .databaseError:
+        case .databaseError, .videoFileMissing, .segmentLoadingFailure, .multipleConsecutiveFailures:
             Button(action: retryLoading) {
                 HStack(spacing: 8) {
                     Image(systemName: "arrow.clockwise")
@@ -119,9 +119,6 @@ struct ErrorStateView: View {
                 .cornerRadius(8)
             }
             .buttonStyle(.plain)
-
-        default:
-            EmptyView()
         }
     }
 

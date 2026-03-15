@@ -8,27 +8,15 @@ struct MenuBarView: View {
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
-        let _ = print("[MenuBarView] body evaluated, isRecordingEnabled=\(viewModel.isRecordingEnabled)")
-
         VStack(spacing: 0) {
             Toggle("Record Screen", isOn: $viewModel.isRecordingEnabled)
                 .toggleStyle(.switch)
                 .onChange(of: viewModel.isRecordingEnabled) { oldValue, newValue in
-                    print("[MenuBarView] Toggle changed: \(oldValue) → \(newValue)")
                     viewModel.toggleRecording()
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
                 .accessibilityIdentifier("menubar.recordToggle")
-
-            // DEBUG: Manual toggle button
-            Button("DEBUG: Toggle Recording") {
-                print("[MenuBarView] DEBUG button clicked, current value: \(viewModel.isRecordingEnabled)")
-                viewModel.isRecordingEnabled.toggle()
-                print("[MenuBarView] DEBUG button toggled to: \(viewModel.isRecordingEnabled)")
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 4)
 
             Divider()
 
@@ -69,32 +57,6 @@ struct MenuBarView: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
             .accessibilityIdentifier("menubar.settingsButton")
-
-            Button(action: {
-                NSApp.activate(ignoringOtherApps: true)
-                openWindow(id: "diagnostics")
-            }) {
-                HStack {
-                    Image(systemName: "stethoscope")
-                    Text("Diagnostics")
-                    Spacer()
-                    if viewModel.errorCount > 0 {
-                        ZStack {
-                            Circle()
-                                .fill(Color.red)
-                                .frame(width: 16, height: 16)
-                            Text("\(viewModel.errorCount)")
-                                .font(.caption2)
-                                .foregroundColor(.white)
-                        }
-                        .accessibilityIdentifier("menubar.errorBadge")
-                    }
-                }
-            }
-            .buttonStyle(.plain)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .accessibilityIdentifier("menubar.diagnosticsButton")
 
             Divider()
 

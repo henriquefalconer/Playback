@@ -144,22 +144,6 @@ final class TimelineUITests: XCTestCase {
 
     // MARK: - Keyboard Shortcut Tests
 
-    func testCommandFOpensSearch() throws {
-        // Open timeline first
-        let openTimelineButton = app.buttons["menubar.openTimelineButton"]
-        XCTAssertTrue(openTimelineButton.waitForExistence(timeout: 5.0), "Open Timeline button should exist")
-        openTimelineButton.click()
-        sleep(2)
-
-        // Press Command+F to open search
-        app.typeKey("f", modifierFlags: .command)
-        sleep(1)
-
-        // Verify search opened (tested in SearchUITests)
-        let searchTextField = app.textFields["search.textField"]
-        XCTAssertTrue(searchTextField.waitForExistence(timeout: 3.0), "Search should open with Command+F")
-    }
-
     func testEscapeClosesTimeline() throws {
         // Open timeline first
         let openTimelineButton = app.buttons["menubar.openTimelineButton"]

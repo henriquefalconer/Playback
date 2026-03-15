@@ -418,7 +418,7 @@ final class PlaybackController: ObservableObject {
                                 self.playbackError = .segmentLoadingFailure(errorDesc)
                             }
                             if !self.isScrubbing {
-                                self.showFrozenFrame = false
+                                self.showFrozenFrame = true
                             }
                         }
                     case .unknown:
@@ -513,7 +513,7 @@ final class PlaybackController: ObservableObject {
                                 self.playbackError = .segmentLoadingFailure(errorDesc)
                             }
                             if !self.isScrubbing {
-                                self.showFrozenFrame = false
+                                self.showFrozenFrame = true
                             }
                         }
                     case .unknown:

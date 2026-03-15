@@ -29,7 +29,7 @@ enum RecordingState {
         case .paused:
             return "Playback: Paused"
         case .error:
-            return "Playback: Error (click for details)"
+            return "Playback: Error"
         }
     }
 }
@@ -37,34 +37,21 @@ enum RecordingState {
 @MainActor
 final class MenuBarViewModel: ObservableObject {
     @Published var recordingState: RecordingState = .paused
-    @Published var isRecordingEnabled: Bool = false {
-        willSet {
-            print("[MenuBarViewModel] isRecordingEnabled will change: \(isRecordingEnabled) → \(newValue)")
-        }
-        didSet {
-            print("[MenuBarViewModel] isRecordingEnabled did change to: \(isRecordingEnabled)")
-        }
-    }
+    @Published var isRecordingEnabled: Bool = false
     @Published var showSettings = false
-    @Published var showDiagnostics = false
-    @Published var errorCount: Int = 0
 
     private let configManager: ConfigManager
-    private let launchAgentManager: LaunchAgentManager
     private let recordingService: RecordingService
     private var statusTimer: Timer?
     private var cancellables = Set<AnyCancellable>()
     private var lastUserToggleTime: Date?
 
     init(configManager: ConfigManager = .shared,
-         launchAgentManager: LaunchAgentManager = .shared,
          recordingService: RecordingService = .shared) {
         self.configManager = configManager
-        self.launchAgentManager = launchAgentManager
         self.recordingService = recordingService
 
         self.isRecordingEnabled = configManager.config.recordingEnabled
-        print("[MenuBarViewModel] Initialized with recordingEnabled=\(self.isRecordingEnabled)")
 
         setupBindings()
     }
@@ -82,12 +69,13 @@ final class MenuBarViewModel: ObservableObject {
     }
 
     func toggleRecording() {
-        print("[MenuBarViewModel] toggleRecording() called, isRecordingEnabled=\(isRecordingEnabled)")
+        if Paths.isDevelopment {
+            print("[MenuBarViewModel] toggleRecording() called, isRecordingEnabled=\(isRecordingEnabled)")
+        }
 
         // Check permission before enabling
         if isRecordingEnabled {
             let hasPermission = CGPreflightScreenCaptureAccess()
-            print("[MenuBarViewModel] Permission check: \(hasPermission)")
 
             if !hasPermission {
                 // Permission denied - revert toggle
@@ -112,9 +100,7 @@ final class MenuBarViewModel: ObservableObject {
 
         lastUserToggleTime = Date()
 
-        // Use Swift RecordingService (no LaunchAgent needed)
         if isRecordingEnabled {
-            print("[MenuBarViewModel] Enabling recording")
             recordingService.start()
             recordingState = .recording
 
@@ -122,7 +108,6 @@ final class MenuBarViewModel: ObservableObject {
             config.recordingEnabled = true
             configManager.updateConfig(config)
         } else {
-            print("[MenuBarViewModel] Disabling recording")
             recordingService.stop()
             recordingState = .paused
 
@@ -147,16 +132,8 @@ final class MenuBarViewModel: ObservableObject {
     }
 
     private func performQuit() {
-        // Stop Swift RecordingService
         recordingService.stop()
-
-        // Stop Python processing service
-        try? launchAgentManager.stopAgent(.processing)
-
-        NSWorkspace.shared.runningApplications
-            .filter { $0.bundleIdentifier == "com.falconer.Playback" }
-            .forEach { $0.terminate() }
-
+        ProcessingService.shared.stop()
         NSApp.terminate(nil)
     }
 
@@ -169,12 +146,15 @@ final class MenuBarViewModel: ObservableObject {
 
     private func updateRecordingState() {
         if let lastToggle = lastUserToggleTime, Date().timeIntervalSince(lastToggle) < 10 {
-            print("[MenuBarViewModel] Skipping update - recent user toggle")
+            if Paths.isDevelopment {
+                print("[MenuBarViewModel] Skipping update - recent user toggle")
+            }
             return
         }
 
-        // Check Swift RecordingService status
-        print("[MenuBarViewModel] Updating state - recordingService.isRecording=\(recordingService.isRecording)")
+        if Paths.isDevelopment {
+            print("[MenuBarViewModel] Updating state - recordingService.isRecording=\(recordingService.isRecording)")
+        }
         if recordingService.isRecording {
             recordingState = .recording
             isRecordingEnabled = true

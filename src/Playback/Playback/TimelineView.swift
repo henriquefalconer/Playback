@@ -73,8 +73,6 @@ struct TimelineView: View {
     @Binding var visibleWindowSeconds: TimeInterval
     @Binding var showDatePicker: Bool
 
-    var searchResults: [SearchController.SearchResult] = []
-
     @GestureState private var dragTranslation: CGFloat = 0
     @State private var dragStartCenterTime: TimeInterval?
 
@@ -93,8 +91,6 @@ struct TimelineView: View {
     }
 
     private func formattedTimestamp(_ time: TimeInterval) -> String {
-        // Use the current machine time as reference for "time ago",
-        // instead of the last timeline timestamp.
         let now = Date().timeIntervalSince1970
         let delta = max(0, now - time)
 
@@ -124,7 +120,6 @@ struct TimelineView: View {
         if let cached = Self.appNameCache[appId] {
             return cached
         }
-        // Try to resolve the actual app name via NSWorkspace
         var name: String
         if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: appId) {
             name = url.deletingPathExtension().lastPathComponent
@@ -165,9 +160,6 @@ struct TimelineView: View {
 
         let color: Color
         if let avg = icon.averageColor {
-            // We want something as vibrant as Color.blue, but with the app's "tone".
-            //  - keep the icon's hue;
-            //  - force high saturation and high brightness.
             let targetBrightness: CGFloat = 0.70
             let minSaturation: CGFloat = 0.80
 
@@ -177,7 +169,6 @@ struct TimelineView: View {
             let b = rgbColor.brightnessComponent
             let a = rgbColor.alphaComponent
 
-            // If the icon is too desaturated (almost gray), use maximum saturation.
             let boostedSaturation: CGFloat = s < 0.25 ? 1.0 : max(s, minSaturation)
             let boostedBrightness: CGFloat = max(b, targetBrightness)
 
@@ -189,7 +180,6 @@ struct TimelineView: View {
             )
             color = Color(nsColor: vibrant)
         } else {
-            // If we can't extract color from the icon, fall back to default blue.
             color = .blue
         }
 
@@ -201,13 +191,7 @@ struct TimelineView: View {
         GeometryReader { geo in
             let width = geo.size.width * 0.8
             let height: CGFloat = 8
-            // The base position used for the playhead and the bubble.
-            // We keep an 8pt margin to avoid visual clipping.
             let barY = geo.size.height - height / 2 - 8
-            // Position the segments even lower relative to the
-            // playhead, without moving the playhead/bubble position itself.
-            // We use a maximum displacement of 8pt to keep the bar base
-            // aligned with the bottom edge of the view, without clipping.
             let segmentsY = barY + 22
             let span = windowSpan
             let windowStart = span.start
@@ -224,13 +208,8 @@ struct TimelineView: View {
                     barY: barY
                 )
 
-                // Appsegments, with size proportional to absolute duration and
-                // time "window" (clipping) applied by the bar.
+                // Appsegments with size proportional to absolute duration
                 ZStack {
-                    // Visible appsegments along the bar.
-                    // Each appsegment has width proportional to its absolute duration
-                    // (defined by pixelsPerSecond). When only part falls in the window,
-                    // the container clips (overflow effect).
                     ForEach(visibleAppSegments, id: \.id) { (segment: AppSegment) in
                         let segStartX = CGFloat(segment.startTS - windowStart) * pixelsPerSecond
                         let segWidth = max(6, CGFloat(segment.endTS - segment.startTS) * pixelsPerSecond)
@@ -259,25 +238,6 @@ struct TimelineView: View {
                 .frame(width: width, height: height)
                 .position(x: geo.size.width / 2, y: segmentsY)
 
-                // Phase 4.1: Search match markers (yellow vertical lines)
-                if !searchResults.isEmpty {
-                    ZStack {
-                        ForEach(searchResults, id: \.id) { result in
-                            let matchTime = result.timestamp
-                            // Only show markers for results within the visible window
-                            if matchTime >= windowStart && matchTime <= span.end {
-                                let markerX = CGFloat(matchTime - windowStart) * pixelsPerSecond
-                                Rectangle()
-                                    .fill(Color.yellow.opacity(0.8))
-                                    .frame(width: 2, height: 30)
-                                    .position(x: markerX, y: height / 2)
-                            }
-                        }
-                    }
-                    .frame(width: width, height: height)
-                    .position(x: geo.size.width / 2, y: segmentsY)
-                }
-
                 // Playhead central
                 RoundedRectangle(cornerRadius: 999)
                     .fill(Color.white)
@@ -304,8 +264,6 @@ struct TimelineView: View {
                 .position(x: geo.size.width / 2, y: barY - 32)
                 .accessibilityIdentifier("timeline.timeBubbleButton")
             }
-            // Shift only the hit-test area a few points down, keeping the
-            // segments in the same visual position.
             .contentShape(ExpandedVerticalHitShape(extra: 20))
             .gesture(
                 DragGesture(minimumDistance: 0)
@@ -317,19 +275,16 @@ struct TimelineView: View {
                             print("[TimelineView] Click/drag ended. rawLocation=\(rawLocation), geoWidth=\(geoWidth), width=\(width), leftEdgeX=\(leftEdgeX)")
                         }
 
-                        // Click X coordinate **relative to the bar** (0 ... width)
                         let localX = max(0, min(rawLocation.x - leftEdgeX, width))
                         if Paths.isDevelopment {
                             print("[TimelineView]   localX (adjusted)=\(localX)")
                         }
 
-                        // Convert position to absolute time within the visible window
                         var newTime = windowStart + TimeInterval(localX / width) * visibleWindowSeconds
                         if Paths.isDevelopment {
                             print("[TimelineView]   newTime (before clamp)=\(newTime), windowStart=\(windowStart), visibleWindowSeconds=\(visibleWindowSeconds)")
                         }
 
-                        // Ensure we don't exceed the global timeline limits
                         if let start = timelineStore.timelineStart {
                             newTime = max(start, newTime)
                         }
@@ -341,7 +296,6 @@ struct TimelineView: View {
                             print("[TimelineView]   newTime (after clamp)=\(newTime)")
                         }
 
-                        // Update the video and window center to the new time
                         playbackController.scrub(to: newTime, store: timelineStore)
                         if Paths.isDevelopment {
                             print("[TimelineView]   playbackController.currentTime after scrub=\(playbackController.currentTime)")
@@ -427,5 +381,3 @@ struct TimeTicksView: View {
         return formatter.string(from: date)
     }
 }
-
-

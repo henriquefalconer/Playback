@@ -11,7 +11,6 @@ struct PlaybackApp: App {
     @StateObject private var configManager = ConfigManager.shared
     @StateObject private var menuBarViewModel = MenuBarViewModel()
     @StateObject private var hotkeyManager = GlobalHotkeyManagerWrapper()
-    @StateObject private var processMonitor = ProcessMonitor.shared
     @StateObject private var fullscreenManager = FullscreenManagerWrapper()
 
     var body: some Scene {
@@ -27,7 +26,6 @@ struct PlaybackApp: App {
             ContentView()
                 .environmentObject(timelineStore)
                 .environmentObject(playbackController)
-                .environmentObject(processMonitor)
                 .onAppear {
                     // Connect playback controller to timeline store for segment preloading
                     playbackController.timelineStore = timelineStore
@@ -35,22 +33,15 @@ struct PlaybackApp: App {
                     // Activate app and bring window to front BEFORE toggling fullscreen
                     NSApp.activate(ignoringOtherApps: true)
 
-                    // Find the timeline window
                     if let window = NSApp.windows.first(where: { $0.title.contains("ContentView") || $0.level == .normal }) {
-                        print("[Playback] Found timeline window, activating and entering fullscreen")
                         window.makeKeyAndOrderFront(nil)
-
-                        // Configure fullscreen presentation options before entering fullscreen
                         fullscreenManager.configureFullscreenPresentation()
-
-                        // Enter fullscreen
                         window.toggleFullScreen(nil)
-                    } else {
+                    } else if Paths.isDevelopment {
                         print("[Playback] ERROR: Could not find timeline window")
                     }
 
                     signalManager.createSignal()
-                    processMonitor.startMonitoring()
                     hotkeyManager.registerHotkey {
                         NSApp.activate(ignoringOtherApps: true)
                         if let window = NSApp.windows.first(where: { $0.level == .normal }) {
@@ -62,7 +53,6 @@ struct PlaybackApp: App {
                     }
                 }
                 .onDisappear {
-                    processMonitor.stopMonitoring()
                     fullscreenManager.restoreNormalPresentation()
                     signalManager.removeSignal()
                 }
@@ -75,122 +65,41 @@ struct PlaybackApp: App {
         }
         .windowResizability(.contentSize)
         .defaultPosition(.center)
-
-        Window("Welcome to Playback", id: "firstrun") {
-            FirstRunWindowView()
-        }
-        .windowStyle(.hiddenTitleBar)
-        .windowResizability(.contentSize)
-        .defaultPosition(.center)
-
-        Window("Diagnostics", id: "diagnostics") {
-            DiagnosticsView()
-        }
-        .windowResizability(.contentSize)
-        .defaultPosition(.center)
     }
 }
 
 class AppDelegate: NSObject, NSApplicationDelegate {
-    private var firstRunWindow: NSWindow?
-
-    override init() {
-        super.init()
-
-        // Listen for first-run completion to start services
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(handleFirstRunComplete),
-            name: NSNotification.Name("FirstRunComplete"),
-            object: nil
-        )
-    }
-
-    @objc private func handleFirstRunComplete() {
-        print("[AppDelegate] First-run completed, starting services")
-        Task {
-            await self.ensureServicesRunning()
-        }
-    }
-
     func applicationDidFinishLaunching(_ notification: Notification) {
-        print("[AppDelegate] applicationDidFinishLaunching called")
-        print("[AppDelegate] hasCompletedFirstRun=\(FirstRunCoordinator.hasCompletedFirstRun)")
-
         // Clean up stale signal file from previous run (if app crashed or was force-quit)
         let signalPath = Paths.timelineOpenSignalPath
         if FileManager.default.fileExists(atPath: signalPath.path) {
-            print("[AppDelegate] Removing stale signal file from previous run")
             try? FileManager.default.removeItem(at: signalPath)
         }
 
-        if !FirstRunCoordinator.hasCompletedFirstRun {
-            print("[AppDelegate] Showing first run window")
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                self.showFirstRunWindow()
-            }
-        } else {
-            print("[AppDelegate] First run already completed, ensuring services running")
-            Task {
-                await self.ensureServicesRunning()
-            }
+        try? Paths.ensureDirectoriesExist()
+
+        if !CGPreflightScreenCaptureAccess() {
+            CGRequestScreenCaptureAccess()
+        }
+
+        Task {
+            await ensureServicesRunning()
         }
     }
 
     private func ensureServicesRunning() async {
-        print("[ServiceLifecycle] ensureServicesRunning() called")
-        let agentManager = LaunchAgentManager.shared
         let configManager = ConfigManager.shared
         let recordingService = RecordingService.shared
+        let processingService = ProcessingService.shared
 
-        print("[ServiceLifecycle] Config loaded: recordingEnabled=\(configManager.config.recordingEnabled)")
-
-        do {
-            // Start Python processing service (LaunchAgent)
-            try agentManager.installAgent(.processing)
-            try agentManager.loadAgent(.processing)
-            try agentManager.startAgent(.processing)
-
-            // Install cleanup service (LaunchAgent)
-            try agentManager.installAgent(.cleanup)
-            try agentManager.loadAgent(.cleanup)
-
-            // Start Swift recording service (in-app, uses app's Screen Recording permission)
+        await MainActor.run {
             if configManager.config.recordingEnabled {
-                print("[ServiceLifecycle] Recording is enabled, starting RecordingService")
-                await MainActor.run {
-                    recordingService.start()
-                }
+                recordingService.start()
             } else {
-                print("[ServiceLifecycle] Recording is disabled, stopping RecordingService")
-                await MainActor.run {
-                    recordingService.stop()
-                }
+                recordingService.stop()
             }
-
-            print("[ServiceLifecycle] All services ensured running")
-            print("[ServiceLifecycle] Recording service: \(recordingService.isRecording ? "started" : "stopped")")
-        } catch {
-            print("[ServiceLifecycle] Error ensuring services: \(error)")
+            processingService.start()
         }
-    }
-
-    private func showFirstRunWindow() {
-        let contentView = FirstRunWindowView()
-        let hostingController = NSHostingController(rootView: contentView)
-
-        let window = NSWindow(contentViewController: hostingController)
-        window.title = "Welcome to Playback"
-        window.styleMask = [.titled, .closable]
-        window.isReleasedWhenClosed = false
-        window.center()
-        window.setFrame(NSRect(x: 0, y: 0, width: 600, height: 500), display: true)
-        window.center()
-
-        NSApp.activate(ignoringOtherApps: true)
-        window.makeKeyAndOrderFront(nil)
-
-        self.firstRunWindow = window
     }
 }
 

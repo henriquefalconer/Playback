@@ -50,6 +50,11 @@ enum Paths {
         baseDataDirectory.appendingPathComponent("chunks")
     }
 
+    /// Temp screenshots directory path
+    static var tempDirectory: URL {
+        baseDataDirectory.appendingPathComponent("temp")
+    }
+
     /// Config file path
     static func configPath() -> URL {
         // Check for PLAYBACK_CONFIG environment variable override
