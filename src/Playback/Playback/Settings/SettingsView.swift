@@ -3,6 +3,7 @@
 
 import SwiftUI
 import AppKit
+import UniformTypeIdentifiers
 
 struct SettingsView: View {
     @EnvironmentObject var configManager: ConfigManager
@@ -22,6 +23,7 @@ private struct SettingsPanel: View {
     @State private var screenRecordingGranted = false
     @State private var accessibilityGranted = false
     @State private var newAppId = ""
+    @State private var isDragTargeted = false
 
     private let recommendedExclusions: [(bundleId: String, name: String)] = [
         ("com.apple.keychainaccess", "Keychain Access"),
@@ -170,6 +172,32 @@ private struct SettingsPanel: View {
                         .frame(height: 120)
                     }
 
+                    // Drop zone: drag an app from Finder/Applications to add it.
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 8)
+                            .strokeBorder(
+                                isDragTargeted ? Color.accentColor : Color.secondary.opacity(0.4),
+                                style: StrokeStyle(lineWidth: 1.5, dash: [6, 4])
+                            )
+                            .background(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .fill(isDragTargeted ? Color.accentColor.opacity(0.08) : Color.clear)
+                            )
+
+                        HStack(spacing: 6) {
+                            Image(systemName: "arrow.down.app")
+                                .foregroundColor(.secondary)
+                            Text("Drop app here")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                        .padding(.vertical, 8)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .onDrop(of: [UTType.fileURL], isTargeted: $isDragTargeted) { providers in
+                        handleAppDrop(providers: providers)
+                    }
+
                     HStack {
                         TextField("com.example.app", text: $newAppId)
                             .accessibilityIdentifier("settings.privacy.appIdTextField")
@@ -251,6 +279,31 @@ private struct SettingsPanel: View {
         var config = configManager.config
         config.excludedApps.remove(atOffsets: offsets)
         configManager.updateConfig(config)
+    }
+
+    /// Handle dropping an .app bundle from Finder onto the excluded apps drop zone.
+    /// Extracts the bundle identifier and adds it to the exclusion list.
+    @discardableResult
+    private func handleAppDrop(providers: [NSItemProvider]) -> Bool {
+        var handled = false
+        for provider in providers {
+            if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
+                provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier) { item, _ in
+                    guard let data = item as? Data,
+                          let url = URL(dataRepresentation: data, relativeTo: nil),
+                          url.pathExtension == "app",
+                          let bundle = Bundle(url: url),
+                          let bundleId = bundle.bundleIdentifier else {
+                        return
+                    }
+                    DispatchQueue.main.async {
+                        addRecommendedApp(bundleId)
+                    }
+                }
+                handled = true
+            }
+        }
+        return handled
     }
 }
 
