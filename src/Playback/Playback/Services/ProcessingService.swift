@@ -51,7 +51,11 @@ final class ProcessingService {
         let tempDir = Paths.tempDirectory
         let fm = FileManager.default
 
-        guard let monthDirs = try? fm.contentsOfDirectory(at: tempDir, includingPropertiesForKeys: nil, options: .skipsHiddenFiles) else {
+        let monthDirs: [URL]
+        do {
+            monthDirs = try fm.contentsOfDirectory(at: tempDir, includingPropertiesForKeys: nil, options: .skipsHiddenFiles)
+        } catch {
+            Log.processing.error("Failed to list temp directory \(tempDir.path): \(error.localizedDescription)")
             return
         }
 
@@ -59,7 +63,11 @@ final class ProcessingService {
             var isDir: ObjCBool = false
             guard fm.fileExists(atPath: monthDir.path, isDirectory: &isDir), isDir.boolValue else { continue }
 
-            guard let dayDirs = try? fm.contentsOfDirectory(at: monthDir, includingPropertiesForKeys: nil, options: .skipsHiddenFiles) else {
+            let dayDirs: [URL]
+            do {
+                dayDirs = try fm.contentsOfDirectory(at: monthDir, includingPropertiesForKeys: nil, options: .skipsHiddenFiles)
+            } catch {
+                Log.processing.error("Failed to list month directory \(monthDir.path): \(error.localizedDescription)")
                 continue
             }
 
@@ -73,7 +81,11 @@ final class ProcessingService {
     private func processDayDirectory(_ dayDir: URL) {
         let fm = FileManager.default
 
-        guard let files = try? fm.contentsOfDirectory(at: dayDir, includingPropertiesForKeys: nil, options: .skipsHiddenFiles) else {
+        let files: [URL]
+        do {
+            files = try fm.contentsOfDirectory(at: dayDir, includingPropertiesForKeys: nil, options: .skipsHiddenFiles)
+        } catch {
+            Log.processing.error("Failed to list day directory \(dayDir.path): \(error.localizedDescription)")
             return
         }
 
@@ -145,7 +157,11 @@ final class ProcessingService {
         do {
             try FileManager.default.createDirectory(at: chunksDir, withIntermediateDirectories: true)
             // 0700 — user-accessible only
-            try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: chunksDir.path)
+            do {
+                try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: chunksDir.path)
+            } catch {
+                Log.processing.debug("Could not set permissions on chunks dir: \(error.localizedDescription)")
+            }
         } catch {
             Log.processing.error("Failed to create chunks dir: \(error.localizedDescription)")
             return
@@ -156,7 +172,11 @@ final class ProcessingService {
         do {
             try encodeVideo(frames: frames, outputURL: videoURL, width: width, height: height)
             // 0600 — user-readable only (sensitive screen content)
-            try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: videoURL.path)
+            do {
+                try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: videoURL.path)
+            } catch {
+                Log.processing.debug("Could not set permissions on video file: \(error.localizedDescription)")
+            }
         } catch {
             Log.processing.error("Encoding failed for \(segmentId): \(error.localizedDescription)")
             // Preserve temp files for retry on encoding failure
@@ -177,7 +197,11 @@ final class ProcessingService {
 
         guard let db = openDatabase(Paths.databasePath.path) else {
             Log.processing.fault("Failed to open database, preserving temp files")
-            try? FileManager.default.removeItem(at: videoURL)
+            do {
+                try FileManager.default.removeItem(at: videoURL)
+            } catch {
+                Log.processing.error("Failed to clean up video file after DB error: \(error.localizedDescription)")
+            }
             return
         }
         defer { sqlite3_close(db) }
@@ -231,7 +255,11 @@ final class ProcessingService {
 
         // Delete processed temp files after successful DB write
         for frame in frames {
-            try? FileManager.default.removeItem(at: frame.url)
+            do {
+                try FileManager.default.removeItem(at: frame.url)
+            } catch {
+                Log.processing.debug("Failed to delete processed temp file \(frame.url.lastPathComponent): \(error.localizedDescription)")
+            }
         }
 
         Log.processing.info("Processed \(frames.count) frames → segment \(segmentId)")
@@ -240,7 +268,13 @@ final class ProcessingService {
     // MARK: - Video Encoding
 
     private func encodeVideo(frames: [FrameInfo], outputURL: URL, width: Int, height: Int) throws {
-        try? FileManager.default.removeItem(at: outputURL)
+        do {
+            try FileManager.default.removeItem(at: outputURL)
+        } catch let error as NSError where error.domain == NSCocoaErrorDomain && error.code == NSFileNoSuchFileError {
+            // File doesn't exist yet, that's fine
+        } catch {
+            Log.processing.debug("Could not remove pre-existing video file: \(error.localizedDescription)")
+        }
 
         let writer = try AVAssetWriter(outputURL: outputURL, fileType: .mp4)
 
@@ -353,7 +387,11 @@ final class ProcessingService {
         }
 
         // 0600 — user-readable only (contains sensitive metadata)
-        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: path)
+        do {
+            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: path)
+        } catch {
+            Log.processing.debug("Could not set permissions on database file: \(error.localizedDescription)")
+        }
 
         // Initialize schema
         let initSQL = """
@@ -390,7 +428,12 @@ final class ProcessingService {
             CREATE INDEX IF NOT EXISTS idx_appsegments_start_ts ON appsegments(start_ts);
             CREATE INDEX IF NOT EXISTS idx_appsegments_end_ts ON appsegments(end_ts);
             """
-        sqlite3_exec(db, initSQL, nil, nil, nil)
+        var errMsg: UnsafeMutablePointer<CChar>?
+        if sqlite3_exec(db, initSQL, nil, nil, &errMsg) != SQLITE_OK {
+            let msg = errMsg.map { String(cString: $0) } ?? "unknown"
+            sqlite3_free(errMsg)
+            Log.processing.fault("Schema initialization failed: \(msg)")
+        }
 
         return db
     }

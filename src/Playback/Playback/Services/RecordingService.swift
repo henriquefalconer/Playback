@@ -160,7 +160,11 @@ final class RecordingService: ObservableObject {
         // Create directory if needed (0700 — user-accessible only)
         do {
             try fileManager.createDirectory(at: tempDir, withIntermediateDirectories: true)
-            try? fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: tempDir.path)
+            do {
+                try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: tempDir.path)
+            } catch {
+                Log.recording.debug("Could not set permissions on temp dir: \(error.localizedDescription)")
+            }
         } catch {
             Log.recording.error("Failed to create temp directory: \(error.localizedDescription)")
             return
@@ -171,7 +175,11 @@ final class RecordingService: ObservableObject {
         do {
             try pngData.write(to: filePath)
             // 0600 — user-readable only (sensitive screen content)
-            try? fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: filePath.path)
+            do {
+                try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: filePath.path)
+            } catch {
+                Log.recording.debug("Could not set permissions on screenshot: \(error.localizedDescription)")
+            }
 
             let sizeKB = Double(pngData.count) / 1024.0
             captureCount += 1

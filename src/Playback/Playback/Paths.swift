@@ -63,9 +63,17 @@ enum Paths {
         let fileManager = FileManager.default
         let dirAttrs: [FileAttributeKey: Any] = [.posixPermissions: 0o700]
         try fileManager.createDirectory(at: baseDataDirectory, withIntermediateDirectories: true)
-        try? fileManager.setAttributes(dirAttrs, ofItemAtPath: baseDataDirectory.path)
+        do {
+            try fileManager.setAttributes(dirAttrs, ofItemAtPath: baseDataDirectory.path)
+        } catch {
+            Log.system.debug("Could not set permissions on data directory: \(error.localizedDescription)")
+        }
         try fileManager.createDirectory(at: chunksDirectory, withIntermediateDirectories: true)
-        try? fileManager.setAttributes(dirAttrs, ofItemAtPath: chunksDirectory.path)
+        do {
+            try fileManager.setAttributes(dirAttrs, ofItemAtPath: chunksDirectory.path)
+        } catch {
+            Log.system.debug("Could not set permissions on chunks directory: \(error.localizedDescription)")
+        }
     }
 }
 

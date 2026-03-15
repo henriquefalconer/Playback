@@ -74,10 +74,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Clean up stale signal file from previous run (if app crashed or was force-quit)
         let signalPath = Paths.timelineOpenSignalPath
         if FileManager.default.fileExists(atPath: signalPath.path) {
-            try? FileManager.default.removeItem(at: signalPath)
+            do {
+                try FileManager.default.removeItem(at: signalPath)
+            } catch {
+                Log.system.notice("Failed to remove stale signal file: \(error.localizedDescription)")
+            }
         }
 
-        try? Paths.ensureDirectoriesExist()
+        do {
+            try Paths.ensureDirectoriesExist()
+        } catch {
+            Log.system.fault("Failed to create data directories: \(error.localizedDescription)")
+        }
 
         if !CGPreflightScreenCaptureAccess() {
             CGRequestScreenCaptureAccess()

@@ -56,8 +56,12 @@ final class ConfigManager: ObservableObject {
             try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: configPath.path)
 
             if let fileHandle = try? FileHandle(forUpdating: configPath) {
-                try? fileHandle.synchronize()
-                try? fileHandle.close()
+                do {
+                    try fileHandle.synchronize()
+                    try fileHandle.close()
+                } catch {
+                    Log.config.debug("Config file sync/close issue: \(error.localizedDescription)")
+                }
             }
         } catch {
             Log.config.error("Failed to save config to \(self.configPath.path): \(error.localizedDescription)")
