@@ -15,8 +15,8 @@ struct Config: Codable {
             version: "1.0.0",
             excludedApps: [],
             timelineShortcut: "Option+Shift+Space",
-            recordingEnabled: false,
-            launchAtLogin: true
+            recordingEnabled: true,
+            launchAtLogin: false
         )
     }
 
