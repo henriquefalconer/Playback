@@ -81,17 +81,6 @@ TimelineStore (5s refresh)
 └── config.json                   # User configuration
 ```
 
-**Development (PLAYBACK_DEV_MODE=1):**
-```
-<project>/
-├── dev_data/
-│   ├── temp/
-│   ├── chunks/
-│   ├── meta.sqlite3
-│   └── .timeline_open
-└── dev_config.json
-```
-
 ### Error Handling
 
 - Recording failures: Log, skip frame, continue

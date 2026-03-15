@@ -109,14 +109,14 @@ final class PlaybackController: ObservableObject {
                         self.showFrozenFrame = true
                     }
                 } else if let error = error {
-                    if Paths.isDevelopment {
-                        let message = error.localizedDescription
-                        print("[Playback] Failed to generate async frozen frame for \(url.path) at offset=\(offset): \(message)")
-                    }
+                    #if DEBUG
+                    let message = error.localizedDescription
+                    print("[Playback] Failed to generate async frozen frame for \(url.path) at offset=\(offset): \(message)")
+                    #endif
                 } else {
-                    if Paths.isDevelopment {
-                        print("[Playback] Async frozen frame generation returned no image or error for \(url.path) at offset=\(offset)")
-                    }
+                    #if DEBUG
+                    print("[Playback] Async frozen frame generation returned no image or error for \(url.path) at offset=\(offset)")
+                    #endif
                 }
             }
         }
@@ -145,15 +145,15 @@ final class PlaybackController: ObservableObject {
 
         // Find next segment in timeline
         guard let nextSegment = findNextSegment(after: segment) else {
-            if Paths.isDevelopment {
-                print("[Playback] No next segment to preload after \(segment.id)")
-            }
+            #if DEBUG
+            print("[Playback] No next segment to preload after \(segment.id)")
+            #endif
             return
         }
 
-        if Paths.isDevelopment {
-            print("[Playback] Preloading next segment at \(Int(progress * 100))% progress: \(nextSegment.id)")
-        }
+        #if DEBUG
+        print("[Playback] Preloading next segment at \(Int(progress * 100))% progress: \(nextSegment.id)")
+        #endif
 
         preloadSegmentInBackground(nextSegment)
     }
@@ -203,13 +203,13 @@ final class PlaybackController: ObservableObject {
                 if item.status == .readyToPlay {
                     self.preloadPlayer = player
                     self.preloadedSegment = segment
-                    if Paths.isDevelopment {
-                        print("[Playback] Successfully preloaded segment \(segment.id)")
-                    }
+                    #if DEBUG
+                    print("[Playback] Successfully preloaded segment \(segment.id)")
+                    #endif
                 } else {
-                    if Paths.isDevelopment {
-                        print("[Playback] Failed to preload segment \(segment.id): \(item.error?.localizedDescription ?? "unknown")")
-                    }
+                    #if DEBUG
+                    print("[Playback] Failed to preload segment \(segment.id): \(item.error?.localizedDescription ?? "unknown")")
+                    #endif
                     self.preloadPlayer = nil
                     self.preloadedSegment = nil
                 }
@@ -222,9 +222,9 @@ final class PlaybackController: ObservableObject {
         if let preloadedSeg = preloadedSegment,
            preloadedSeg.id == segment.id,
            let preloadedPlayer = preloadPlayer {
-            if Paths.isDevelopment {
-                print("[Playback] Using preloaded segment \(segment.id) - seamless transition")
-            }
+            #if DEBUG
+            print("[Playback] Using preloaded segment \(segment.id) - seamless transition")
+            #endif
             // Transfer the player item to main player
             if let item = preloadedPlayer.currentItem {
                 player.replaceCurrentItem(with: item)
@@ -250,9 +250,9 @@ final class PlaybackController: ObservableObject {
 
         let segments = store.segments
         guard let first = segments.first, let last = segments.last else {
-            if Paths.isDevelopment {
-                print("[Playback] (scrub) No segments available (empty list)")
-            }
+            #if DEBUG
+            print("[Playback] (scrub) No segments available (empty list)")
+            #endif
             isScrubbing = false
             return
         }
@@ -306,29 +306,29 @@ final class PlaybackController: ObservableObject {
         //  - gaps between segments (considering direction)
         //  - before the first / after the last segment
         guard let (seg, offset) = store.segment(for: clampedTime, direction: direction) else {
-            if Paths.isDevelopment {
-                print("[Playback] (scrub) segment(for: \(clampedTime), dir=\(direction)) returned nil")
-            }
+            #if DEBUG
+            print("[Playback] (scrub) segment(for: \(clampedTime), dir=\(direction)) returned nil")
+            #endif
             return
         }
 
         // Update the current absolute time on the timeline (continuous coordinate).
         currentTime = clampedTime
 
-        if Paths.isDevelopment {
-            print("[Playback] (scrub) time=\(time), clamped=\(clampedTime), effectiveTime=\(clampedTime), direction=\(direction)")
-        }
+        #if DEBUG
+        print("[Playback] (scrub) time=\(time), clamped=\(clampedTime), effectiveTime=\(clampedTime), direction=\(direction)")
+        #endif
 
         let distToStart = clampedTime - seg.startTS
         let distToEnd = seg.endTS - clampedTime
 
-        if Paths.isDevelopment {
-            print(
-                "[Playback] (scrub) using segment(for:): id=\(seg.id), " +
-                "videoOffset=\(offset), " +
-                "distToStart=\(distToStart), distToEnd=\(distToEnd)"
-            )
-        }
+        #if DEBUG
+        print(
+            "[Playback] (scrub) using segment(for:): id=\(seg.id), " +
+            "videoOffset=\(offset), " +
+            "distToStart=\(distToStart), distToEnd=\(distToEnd)"
+        )
+        #endif
         seek(to: seg, offset: offset, isScrub: true)
 
         // Schedule the end of scrubbing 500ms after the last scroll event (per spec).
@@ -403,9 +403,9 @@ final class PlaybackController: ObservableObject {
                     guard let self else { return }
                     switch item.status {
                     case .readyToPlay:
-                        if Paths.isDevelopment {
-                            print("[Playback] \(isScrub ? "(scrub) " : "")READY to play \(url.path)")
-                        }
+                        #if DEBUG
+                        print("[Playback] \(isScrub ? "(scrub) " : "")READY to play \(url.path)")
+                        #endif
                         DispatchQueue.main.async {
                             self.consecutiveFailures = 0
                             self.playbackError = nil
@@ -418,9 +418,9 @@ final class PlaybackController: ObservableObject {
                             }
                         }
                     case .failed:
-                        if Paths.isDevelopment {
-                            print("[Playback] \(isScrub ? "(scrub) " : "")FAILED for \(url.path): \(item.error?.localizedDescription ?? "(no error)")")
-                        }
+                        #if DEBUG
+                        print("[Playback] \(isScrub ? "(scrub) " : "")FAILED for \(url.path): \(item.error?.localizedDescription ?? "(no error)")")
+                        #endif
                         DispatchQueue.main.async {
                             self.consecutiveFailures += 1
                             let errorDesc = item.error?.localizedDescription ?? "Unknown error"
@@ -436,13 +436,13 @@ final class PlaybackController: ObservableObject {
                             }
                         }
                     case .unknown:
-                        if Paths.isDevelopment {
-                            print("[Playback] \(isScrub ? "(scrub) " : "")status UNKNOWN for \(url.path)")
-                        }
+                        #if DEBUG
+                        print("[Playback] \(isScrub ? "(scrub) " : "")status UNKNOWN for \(url.path)")
+                        #endif
                     @unknown default:
-                        if Paths.isDevelopment {
-                            print("[Playback] \(isScrub ? "(scrub) " : "")unknown status for \(url.path)")
-                        }
+                        #if DEBUG
+                        print("[Playback] \(isScrub ? "(scrub) " : "")unknown status for \(url.path)")
+                        #endif
                     }
                 }
 
@@ -462,16 +462,16 @@ final class PlaybackController: ObservableObject {
 
     func update(for time: TimeInterval, store: TimelineStore) {
         guard let (segment, offset) = store.segment(for: time) else {
-            if Paths.isDevelopment {
-                print("[Playback] No segment found for time=\(time)")
-            }
+            #if DEBUG
+            print("[Playback] No segment found for time=\(time)")
+            #endif
             return
         }
-        if Paths.isDevelopment {
-            print("[Playback] Updating to segment \(segment.id) (videoOffset=\(offset))")
-            print("          URL: \(segment.videoURL.path)")
-            print("          exists: \(FileManager.default.fileExists(atPath: segment.videoURL.path))")
-        }
+        #if DEBUG
+        print("[Playback] Updating to segment \(segment.id) (videoOffset=\(offset))")
+        print("          URL: \(segment.videoURL.path)")
+        print("          exists: \(FileManager.default.fileExists(atPath: segment.videoURL.path))")
+        #endif
         currentTime = time
 
         if currentSegment?.id != segment.id {
@@ -502,9 +502,9 @@ final class PlaybackController: ObservableObject {
                     guard let self else { return }
                     switch item.status {
                     case .readyToPlay:
-                        if Paths.isDevelopment {
-                            print("[Playback] READY to play \(url.path)")
-                        }
+                        #if DEBUG
+                        print("[Playback] READY to play \(url.path)")
+                        #endif
                         DispatchQueue.main.async {
                             self.consecutiveFailures = 0
                             self.playbackError = nil
@@ -513,9 +513,9 @@ final class PlaybackController: ObservableObject {
                             }
                         }
                     case .failed:
-                        if Paths.isDevelopment {
-                            print("[Playback] FAILED for \(url.path): \(item.error?.localizedDescription ?? "(no error)")")
-                        }
+                        #if DEBUG
+                        print("[Playback] FAILED for \(url.path): \(item.error?.localizedDescription ?? "(no error)")")
+                        #endif
                         DispatchQueue.main.async {
                             self.consecutiveFailures += 1
                             let errorDesc = item.error?.localizedDescription ?? "Unknown error"
@@ -531,13 +531,13 @@ final class PlaybackController: ObservableObject {
                             }
                         }
                     case .unknown:
-                        if Paths.isDevelopment {
-                            print("[Playback] status UNKNOWN for \(url.path)")
-                        }
+                        #if DEBUG
+                        print("[Playback] status UNKNOWN for \(url.path)")
+                        #endif
                     @unknown default:
-                        if Paths.isDevelopment {
-                            print("[Playback] unknown status for \(url.path)")
-                        }
+                        #if DEBUG
+                        print("[Playback] unknown status for \(url.path)")
+                        #endif
                     }
                 }
 

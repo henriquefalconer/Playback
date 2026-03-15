@@ -30,10 +30,10 @@ final class ConfigManager: ObservableObject {
             let loadedConfig = try JSONDecoder().decode(Config.self, from: data)
             self.config = loadedConfig.validated()
         } catch {
-            if Paths.isDevelopment {
-                print("Failed to load config from \(configPath.path): \(error)")
-                print("Using default configuration")
-            }
+            #if DEBUG
+            print("Failed to load config from \(configPath.path): \(error)")
+            print("Using default configuration")
+            #endif
 
             if !FileManager.default.fileExists(atPath: configPath.path) {
                 saveConfiguration()
@@ -62,9 +62,9 @@ final class ConfigManager: ObservableObject {
                 try? fileHandle.close()
             }
         } catch {
-            if Paths.isDevelopment {
-                print("Failed to save config to \(configPath.path): \(error)")
-            }
+            #if DEBUG
+            print("Failed to save config to \(configPath.path): \(error)")
+            #endif
         }
     }
 

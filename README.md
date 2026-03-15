@@ -81,23 +81,18 @@ All data stays local on your Mac. No cloud services, no network access.
 - **Python 3.12+** (`python3 --version`)
 - **FFmpeg 7.0+** with libx264 (`brew install ffmpeg`)
 
-### Development Build
+### Debug Build
 
 ```bash
-# Setup development environment (first time only)
-./scripts/setup_dev_env.sh
-
-# Build the app
-xcodebuild -scheme Playback-Development -configuration Debug
+# Build debug
+cd src/Playback && xcodebuild -scheme Playback -configuration Debug build
 
 # Run tests
-xcodebuild test -scheme Playback-Development -destination 'platform=macOS'
+cd src/Playback && xcodebuild test -scheme Playback -configuration Debug -destination 'platform=macOS'
 
 # Run from Xcode
-open Playback/Playback.xcodeproj
+open src/Playback/Playback.xcodeproj
 ```
-
-Development builds use `dev_data/` and `dev_config.json` for complete isolation from production data.
 
 ### Release Build
 
@@ -173,35 +168,12 @@ Each spec includes:
 
 ## Development
 
-### Quick Start
-
-First-time setup or cloning on a new machine:
-
-```bash
-# Run the setup script
-./scripts/setup_dev_env.sh
-
-# Then set environment variables in Xcode (see below)
-# Build and run (Cmd+R)
-```
-
-**Required:** Set two environment variables in Xcode scheme (Edit Scheme → Run → Arguments → Environment Variables):
-1. `PLAYBACK_DEV_MODE` = `1`
-2. `SRCROOT` = `~/Playback` (or your actual project path)
-
-See [DEVELOPMENT_SETUP.md](./DEVELOPMENT_SETUP.md) for detailed setup instructions including:
-- Xcode environment variable configuration
-- Development vs production mode
-- Setting up on new machines
-- Troubleshooting common issues
-
 See [AGENTS.md](./AGENTS.md) for comprehensive development guidelines including:
 - Building and testing procedures
 - LaunchAgent management
-- Database migrations
-- SwiftUI patterns and state management
+- Database inspection
 - Code style and best practices
-- Advanced troubleshooting
+- Troubleshooting
 
 ## Technical Stack
 

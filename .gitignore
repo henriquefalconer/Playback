@@ -35,11 +35,8 @@ DerivedData
 __pycache__/
 .pytest_cache/
 
-# Dev data dirs
-dev_data/
-dev_logs/
+# Build output
 dist/
-dev_config.json
 backups/
 
 # Agent

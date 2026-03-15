@@ -37,7 +37,7 @@
 - **GUI environment requirement:** UI tests require WindowServer running (check with `ps aux | grep WindowServer`). Tests will fail in headless environments
 - **Performance test async issues:** XCTest performance tests cannot reliably measure async operations. SearchController and other async patterns that depend on RunLoop may timeout (110+ seconds). Solution: Use direct SQLite C API queries for synchronous performance measurement instead of async Swift wrappers
 - **FTS5 rank function:** FTS5 rank is accessed via `rank` function in WHERE/ORDER BY clauses, not as a column (e.g., `ORDER BY o.timestamp DESC` not `ORDER BY s.rank`)
-- **Gating debug output:** Wrap all print() statements with `if Paths.isDevelopment { ... }` to prevent console spam in production builds while preserving debugging information during development
+- **Gating debug output:** Wrap debug print() statements with `#if DEBUG` to prevent console spam in production builds
 - **Xcode scheme names:** Project only has "Playback" scheme (not "Playback-Development" or "Playback-Release"). Use `-configuration Debug` or `-configuration Release` flags instead
 - **Correct build commands:** `cd /Users/vm/Playback/src/Playback && xcodebuild -scheme Playback -configuration Debug build` for development builds
 - **Consecutive failure tracking:** Track failure counts in controller, trigger error state after threshold (e.g., 3 consecutive failures) to avoid silent failures and blank screens
@@ -74,21 +74,12 @@ Run tests early and often to catch regressions.
 - **Python linting:** `flake8 src/scripts/ --max-line-length=120`
 - **Swift linting:** `swiftlint --strict`
 
-### Development Environment Setup
-Set up the development environment for first-time setup or after clean checkout.
-
-- **Setup script:** `./src/scripts/setup_dev_env.sh`
-- **Install dependencies:** `./src/scripts/install_deps.sh` (installs FFmpeg, Python packages via Homebrew)
-- **Create dev directories:** Creates `dev_data/`, `dev_logs/`, generates `dev_config.json`
-- **Install dev LaunchAgents:** `./src/scripts/install_dev_launchagents.sh`
-
 ### LaunchAgents Management
-LaunchAgents run background services. Development agents use separate labels from production.
 
-- **Load recording agent:** `launchctl load ~/Library/LaunchAgents/com.playback.dev.recording.plist`
-- **Unload recording agent:** `launchctl unload ~/Library/LaunchAgents/com.playback.dev.recording.plist`
+- **Load recording agent:** `launchctl load ~/Library/LaunchAgents/com.playback.recording.plist`
+- **Unload recording agent:** `launchctl unload ~/Library/LaunchAgents/com.playback.recording.plist`
 - **Check status:** `launchctl list | grep playback`
-- **View logs:** `tail -f dev_logs/recording.log` (development) or `tail -f ~/Library/Logs/Playback/recording.log` (production)
+- **View logs:** `tail -f ~/Library/Logs/Playback/recording.log`
 - **Restart agent:** `launchctl unload <plist> && launchctl load <plist>`
 - **Validate plist:** `plutil -lint <plist-file>`
 
@@ -105,19 +96,12 @@ Use the build script for production-ready builds with code signing and notarizat
 ## Local Testing
 Before releasing or deploying changes, test locally to verify behavior:
 
-### Development Mode Testing
-- **Run app in dev mode:** Launch from Xcode with Debug scheme, automatically uses `dev_data/` and `dev_config.json`
-- **Environment variable:** `PLAYBACK_DEV_MODE=1` is set automatically in Debug builds
-- **Data isolation:** Development data is completely separate from production (`~/Library/Application Support/Playback/`)
-- **Test config changes:** Edit `dev_config.json`, app should hot-reload changes (if implemented)
-
 ### Testing Recording Pipeline
 1. **Start recording:** Launch app, enable recording from menu bar
-2. **Verify screenshots:** Check `dev_data/temp/YYYYMM/DD/` for new screenshot files
-3. **Trigger processing:** Run `PLAYBACK_DEV_MODE=1 python3 src/scripts/build_chunks_from_temp.py`
-4. **Verify segments:** Check `dev_data/chunks/YYYYMM/DD/` for new video files
-5. **Check database:** `sqlite3 dev_data/meta.sqlite3 "SELECT * FROM segments ORDER BY start_ts DESC LIMIT 5;"`
-6. **Test playback:** Open timeline viewer, verify video segments play correctly
+2. **Verify screenshots:** Check `~/Library/Application Support/Playback/data/temp/YYYYMM/DD/` for new screenshot files
+3. **Verify segments:** Check `~/Library/Application Support/Playback/data/chunks/YYYYMM/DD/` for new video files
+4. **Check database:** `sqlite3 ~/Library/Application\ Support/Playback/data/meta.sqlite3 "SELECT * FROM segments ORDER BY start_ts DESC LIMIT 5;"`
+5. **Test playback:** Open timeline viewer, verify video segments play correctly
 
 ### Testing UI
 - **Menu bar:** Click menu bar icon, verify all menu items appear and function
@@ -170,7 +154,6 @@ PRAGMA integrity_check;
 ### Integration Tests
 - **Location:** `src/Playback/PlaybackTests/IntegrationTests.swift`
 - **Purpose:** Test end-to-end workflows (recording → processing → playback)
-- **Use dev mode:** Tests should use development data directories
 - **Cleanup:** Clean up test data after each test
 
 ### UI Tests
@@ -225,7 +208,7 @@ This script:
 - **Singleton:** Access via `LaunchAgentManager.shared`
 - **Agent types:** `.recording` and `.processing` (enum `AgentType`)
 - **Plist templates:** Located in `Resources/launchagents/` with `{{VARIABLE}}` substitution
-- **Environment-aware:** Automatically uses dev or prod labels and paths
+- **Environment-aware:** Uses production labels and paths
 
 ### Commands
 ```swift
@@ -259,5 +242,4 @@ Templates support these variables:
 - `{{LOG_PATH}}` - Log file directory
 - `{{CONFIG_PATH}}` - Path to config.json
 - `{{DATA_DIR}}` - Data directory path
-- `{{DEV_MODE}}` - "1" for development, "0" for production
 - `{{INTERVAL_SECONDS}}` - Processing interval (processing agent only)

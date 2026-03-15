@@ -271,19 +271,19 @@ struct TimelineView: View {
                         let rawLocation = value.location
                         let geoWidth = geo.size.width
                         let leftEdgeX = (geoWidth - width) / 2
-                        if Paths.isDevelopment {
-                            print("[TimelineView] Click/drag ended. rawLocation=\(rawLocation), geoWidth=\(geoWidth), width=\(width), leftEdgeX=\(leftEdgeX)")
-                        }
+                        #if DEBUG
+                        print("[TimelineView] Click/drag ended. rawLocation=\(rawLocation), geoWidth=\(geoWidth), width=\(width), leftEdgeX=\(leftEdgeX)")
+                        #endif
 
                         let localX = max(0, min(rawLocation.x - leftEdgeX, width))
-                        if Paths.isDevelopment {
-                            print("[TimelineView]   localX (adjusted)=\(localX)")
-                        }
+                        #if DEBUG
+                        print("[TimelineView]   localX (adjusted)=\(localX)")
+                        #endif
 
                         var newTime = windowStart + TimeInterval(localX / width) * visibleWindowSeconds
-                        if Paths.isDevelopment {
-                            print("[TimelineView]   newTime (before clamp)=\(newTime), windowStart=\(windowStart), visibleWindowSeconds=\(visibleWindowSeconds)")
-                        }
+                        #if DEBUG
+                        print("[TimelineView]   newTime (before clamp)=\(newTime), windowStart=\(windowStart), visibleWindowSeconds=\(visibleWindowSeconds)")
+                        #endif
 
                         if let start = timelineStore.timelineStart {
                             newTime = max(start, newTime)
@@ -292,18 +292,18 @@ struct TimelineView: View {
                             newTime = min(end, newTime)
                         }
 
-                        if Paths.isDevelopment {
-                            print("[TimelineView]   newTime (after clamp)=\(newTime)")
-                        }
+                        #if DEBUG
+                        print("[TimelineView]   newTime (after clamp)=\(newTime)")
+                        #endif
 
                         playbackController.scrub(to: newTime, store: timelineStore)
-                        if Paths.isDevelopment {
-                            print("[TimelineView]   playbackController.currentTime after scrub=\(playbackController.currentTime)")
-                        }
+                        #if DEBUG
+                        print("[TimelineView]   playbackController.currentTime after scrub=\(playbackController.currentTime)")
+                        #endif
                         centerTime = playbackController.currentTime
-                        if Paths.isDevelopment {
-                            print("[TimelineView]   centerTime updated=\(centerTime)")
-                        }
+                        #if DEBUG
+                        print("[TimelineView]   centerTime updated=\(centerTime)")
+                        #endif
                     }
             )
         }

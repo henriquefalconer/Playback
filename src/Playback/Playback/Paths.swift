@@ -1,38 +1,22 @@
 import Foundation
 
 enum Paths {
-    /// Checks if the app is running in development mode
-    static var isDevelopment: Bool {
-        ProcessInfo.processInfo.environment["PLAYBACK_DEV_MODE"] == "1"
-    }
-
-    /// Base data directory (dev or production)
+    /// Base data directory
     static var baseDataDirectory: URL {
         // Check for PLAYBACK_DATA_DIR environment variable override
         if let dataDir = ProcessInfo.processInfo.environment["PLAYBACK_DATA_DIR"] {
             return URL(fileURLWithPath: dataDir)
         }
 
-        if isDevelopment {
-            // Development: use SRCROOT environment variable
-            guard let srcRoot = ProcessInfo.processInfo.environment["SRCROOT"] else {
-                fatalError("SRCROOT environment variable not set - required in development mode")
-            }
-            let expandedPath = NSString(string: srcRoot).expandingTildeInPath
-            let projectRoot = URL(fileURLWithPath: expandedPath)
-            return projectRoot.appendingPathComponent("dev_data")
-        } else {
-            // Production: use ~/Library/Application Support/Playback/data/
-            guard let appSupport = FileManager.default.urls(
-                for: .applicationSupportDirectory,
-                in: .userDomainMask
-            ).first else {
-                fatalError("Application Support directory not available")
-            }
-            return appSupport
-                .appendingPathComponent("Playback")
-                .appendingPathComponent("data")
+        guard let appSupport = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first else {
+            fatalError("Application Support directory not available")
         }
+        return appSupport
+            .appendingPathComponent("Playback")
+            .appendingPathComponent("data")
     }
 
     /// Database file path
@@ -62,25 +46,15 @@ enum Paths {
             return URL(fileURLWithPath: configPath)
         }
 
-        if isDevelopment {
-            // Development: use SRCROOT environment variable
-            guard let srcRoot = ProcessInfo.processInfo.environment["SRCROOT"] else {
-                fatalError("SRCROOT environment variable not set - required in development mode")
-            }
-            let expandedPath = NSString(string: srcRoot).expandingTildeInPath
-            let projectRoot = URL(fileURLWithPath: expandedPath)
-            return projectRoot.appendingPathComponent("dev_config.json")
-        } else {
-            guard let appSupport = FileManager.default.urls(
-                for: .applicationSupportDirectory,
-                in: .userDomainMask
-            ).first else {
-                fatalError("Application Support directory not available")
-            }
-            return appSupport
-                .appendingPathComponent("Playback")
-                .appendingPathComponent("config.json")
+        guard let appSupport = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first else {
+            fatalError("Application Support directory not available")
         }
+        return appSupport
+            .appendingPathComponent("Playback")
+            .appendingPathComponent("config.json")
     }
 
     /// Ensure all required directories exist with correct permissions (0700).
@@ -116,9 +90,9 @@ final class SignalFileManager {
         let content = "Timeline viewer opened at \(timestamp)\n"
         try content.write(to: signalPath, atomically: true, encoding: .utf8)
 
-        if Paths.isDevelopment {
-            print("[Playback] Signal file created: \(signalPath.path)")
-        }
+        #if DEBUG
+        print("[Playback] Signal file created: \(signalPath.path)")
+        #endif
     }
 
     /// Remove the signal file to indicate timeline viewer is closed
@@ -129,13 +103,13 @@ final class SignalFileManager {
 
         do {
             try fileManager.removeItem(at: signalPath)
-            if Paths.isDevelopment {
-                print("[Playback] Signal file removed: \(signalPath.path)")
-            }
+            #if DEBUG
+            print("[Playback] Signal file removed: \(signalPath.path)")
+            #endif
         } catch {
-            if Paths.isDevelopment {
-                print("[Playback] Warning: Failed to remove signal file: \(error)")
-            }
+            #if DEBUG
+            print("[Playback] Warning: Failed to remove signal file: \(error)")
+            #endif
         }
     }
 

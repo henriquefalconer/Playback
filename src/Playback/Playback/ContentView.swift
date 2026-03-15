@@ -54,9 +54,9 @@ struct ContentView: View {
         // reposition centerTime to the latest available timestamp.
         .onChange(of: timelineStore.segments.count) { _, newCount in
             guard newCount > 0, let latest = timelineStore.latestTS else { return }
-            if Paths.isDevelopment {
-                print("[ContentView] segments.count changed to \(newCount); repositioning centerTime to latestTS=\(latest)")
-            }
+            #if DEBUG
+            print("[ContentView] segments.count changed to \(newCount); repositioning centerTime to latestTS=\(latest)")
+            #endif
             centerTime = latest
             playbackController.update(for: latest, store: timelineStore)
         }
@@ -87,9 +87,9 @@ struct ContentView: View {
                         visibleWindowSeconds = newWindow
                         centerTime = anchorTimestamp + (centerTime - anchorTimestamp) * (newWindow / oldWindow)
 
-                        if Paths.isDevelopment {
-                            print("[ContentView] Pinch zoom -> visibleWindowSeconds=\(visibleWindowSeconds), centerTime=\(centerTime)")
-                        }
+                        #if DEBUG
+                        print("[ContentView] Pinch zoom -> visibleWindowSeconds=\(visibleWindowSeconds), centerTime=\(centerTime)")
+                        #endif
                     }
                 }
                 .onEnded { _ in
@@ -244,9 +244,9 @@ struct ContentView: View {
                 stopMomentum()
             }
 
-            if Paths.isDevelopment {
-                print("[ScrollCapture] event dx=\(rawDx), dy=\(rawDy), phase=\(event.phase.rawValue), momentumPhase=\(event.momentumPhase.rawValue)")
-            }
+            #if DEBUG
+            print("[ScrollCapture] event dx=\(rawDx), dy=\(rawDy), phase=\(event.phase.rawValue), momentumPhase=\(event.momentumPhase.rawValue)")
+            #endif
 
             guard rawDx != 0 || rawDy != 0 else { return nil }
             let primaryRaw: CGFloat = abs(rawDx) >= abs(rawDy) ? rawDx : rawDy

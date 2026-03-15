@@ -18,7 +18,7 @@
 - Compilation conditions: `DEBUG`
 - Optimization: `-Onone`
 - Testability: enabled
-- Signing: ad-hoc (development)
+- Signing: ad-hoc
 
 ### Release
 

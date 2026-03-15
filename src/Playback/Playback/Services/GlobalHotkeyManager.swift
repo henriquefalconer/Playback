@@ -89,9 +89,9 @@ final class GlobalHotkeyManager {
             throw HotkeyError.registrationFailed
         }
 
-        if Paths.isDevelopment {
-            print("[GlobalHotkey] Registered hotkey: keyCode=\(keyCode), modifiers=\(modifiers)")
-        }
+        #if DEBUG
+        print("[GlobalHotkey] Registered hotkey: keyCode=\(keyCode), modifiers=\(modifiers)")
+        #endif
     }
 
     func unregister() {
@@ -106,9 +106,9 @@ final class GlobalHotkeyManager {
         }
 
         callback = nil
-        if Paths.isDevelopment {
-            print("[GlobalHotkey] Unregistered hotkey")
-        }
+        #if DEBUG
+        print("[GlobalHotkey] Unregistered hotkey")
+        #endif
     }
 
     private func checkAccessibilityPermission() -> Bool {

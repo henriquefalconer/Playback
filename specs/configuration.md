@@ -4,9 +4,7 @@
 
 ## Config File
 
-**Location:**
-- Production: `~/Library/Application Support/Playback/config.json`
-- Development: `<project>/dev_config.json`
+**Location:** `~/Library/Application Support/Playback/config.json`
 
 **Schema:**
 

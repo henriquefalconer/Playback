@@ -57,29 +57,18 @@ src/
 └── config.json              # Configuration (0644)
 ```
 
-**Development (PLAYBACK_DEV_MODE=1):**
-```
-<project>/
-├── dev_data/
-│   ├── temp/
-│   ├── chunks/
-│   ├── meta.sqlite3
-│   └── .timeline_open
-└── dev_config.json
-```
-
 ## Path Resolution
 
-`Paths.swift` resolves all paths based on `PLAYBACK_DEV_MODE` environment variable:
+`Paths.swift` resolves all paths. Override with `PLAYBACK_DATA_DIR` or `PLAYBACK_CONFIG` env vars if needed.
 
-| Path | Development | Production |
-|---|---|---|
-| Base data | `SRCROOT/dev_data` | `~/Library/Application Support/Playback/data` |
-| Config | `SRCROOT/dev_config.json` | `~/Library/Application Support/Playback/config.json` |
-| Database | `dev_data/meta.sqlite3` | `data/meta.sqlite3` |
-| Temp | `dev_data/temp/` | `data/temp/` |
-| Chunks | `dev_data/chunks/` | `data/chunks/` |
-| Signal file | `dev_data/.timeline_open` | `data/.timeline_open` |
+| Path | Location |
+|---|---|
+| Base data | `~/Library/Application Support/Playback/data` |
+| Config | `~/Library/Application Support/Playback/config.json` |
+| Database | `data/meta.sqlite3` |
+| Temp | `data/temp/` |
+| Chunks | `data/chunks/` |
+| Signal file | `data/.timeline_open` |
 
 ## File Naming
 

@@ -69,9 +69,9 @@ final class MenuBarViewModel: ObservableObject {
     }
 
     func toggleRecording() {
-        if Paths.isDevelopment {
-            print("[MenuBarViewModel] toggleRecording() called, isRecordingEnabled=\(isRecordingEnabled)")
-        }
+        #if DEBUG
+        print("[MenuBarViewModel] toggleRecording() called, isRecordingEnabled=\(isRecordingEnabled)")
+        #endif
 
         // Check permission before enabling
         if isRecordingEnabled {
@@ -136,15 +136,15 @@ final class MenuBarViewModel: ObservableObject {
 
     private func updateRecordingState() {
         if let lastToggle = lastUserToggleTime, Date().timeIntervalSince(lastToggle) < 10 {
-            if Paths.isDevelopment {
-                print("[MenuBarViewModel] Skipping update - recent user toggle")
-            }
+            #if DEBUG
+            print("[MenuBarViewModel] Skipping update - recent user toggle")
+            #endif
             return
         }
 
-        if Paths.isDevelopment {
-            print("[MenuBarViewModel] Updating state - recordingService.isRecording=\(recordingService.isRecording)")
-        }
+        #if DEBUG
+        print("[MenuBarViewModel] Updating state - recordingService.isRecording=\(recordingService.isRecording)")
+        #endif
         if recordingService.isRecording {
             recordingState = .recording
             isRecordingEnabled = true

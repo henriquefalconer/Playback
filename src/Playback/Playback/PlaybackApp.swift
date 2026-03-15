@@ -37,8 +37,10 @@ struct PlaybackApp: App {
                         window.makeKeyAndOrderFront(nil)
                         fullscreenManager.configureFullscreenPresentation()
                         window.toggleFullScreen(nil)
-                    } else if Paths.isDevelopment {
+                    } else {
+                        #if DEBUG
                         print("[Playback] ERROR: Could not find timeline window")
+                        #endif
                     }
 
                     signalManager.createSignal()
@@ -112,14 +114,14 @@ final class GlobalHotkeyManagerWrapper: ObservableObject {
             let (keyCode, modifiers) = GlobalHotkeyManager.optionShiftSpace
             try manager.register(keyCode: keyCode, modifiers: modifiers, callback: callback)
         } catch HotkeyError.accessibilityPermissionDenied {
-            if Paths.isDevelopment {
-                print("[Playback] Accessibility permission denied. Global hotkey will not work.")
-            }
+            #if DEBUG
+            print("[Playback] Accessibility permission denied. Global hotkey will not work.")
+            #endif
             showPermissionAlert()
         } catch {
-            if Paths.isDevelopment {
-                print("[Playback] Failed to register global hotkey: \(error)")
-            }
+            #if DEBUG
+            print("[Playback] Failed to register global hotkey: \(error)")
+            #endif
         }
     }
 
@@ -150,9 +152,9 @@ final class SignalFileManagerWrapper: ObservableObject {
         do {
             try manager.createSignalFile()
         } catch {
-            if Paths.isDevelopment {
-                print("[Playback] Error creating signal file: \(error)")
-            }
+            #if DEBUG
+            print("[Playback] Error creating signal file: \(error)")
+            #endif
         }
     }
 
@@ -184,16 +186,16 @@ final class FullscreenManagerWrapper: ObservableObject {
 
         NSApp.presentationOptions = fullscreenOptions
 
-        if Paths.isDevelopment {
-            print("[Playback] Configured fullscreen presentation options")
-        }
+        #if DEBUG
+        print("[Playback] Configured fullscreen presentation options")
+        #endif
     }
 
     func restoreNormalPresentation() {
         NSApp.presentationOptions = previousPresentationOptions
 
-        if Paths.isDevelopment {
-            print("[Playback] Restored normal presentation options")
-        }
+        #if DEBUG
+        print("[Playback] Restored normal presentation options")
+        #endif
     }
 }

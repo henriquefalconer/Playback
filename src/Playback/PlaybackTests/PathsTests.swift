@@ -3,32 +3,6 @@ import XCTest
 
 final class PathsTests: XCTestCase {
 
-    // MARK: - Environment Detection Tests
-
-    func testIsDevelopmentReturnsTrueWhenEnvVarSet() {
-        let originalValue = ProcessInfo.processInfo.environment["PLAYBACK_DEV_MODE"]
-        setenv("PLAYBACK_DEV_MODE", "1", 1)
-
-        XCTAssertTrue(Paths.isDevelopment, "Should detect development mode when PLAYBACK_DEV_MODE=1")
-
-        if let original = originalValue {
-            setenv("PLAYBACK_DEV_MODE", original, 1)
-        } else {
-            unsetenv("PLAYBACK_DEV_MODE")
-        }
-    }
-
-    func testIsDevelopmentReturnsFalseWhenEnvVarNotSet() {
-        let originalValue = ProcessInfo.processInfo.environment["PLAYBACK_DEV_MODE"]
-        unsetenv("PLAYBACK_DEV_MODE")
-
-        XCTAssertFalse(Paths.isDevelopment, "Should not detect development mode when env var not set")
-
-        if let original = originalValue {
-            setenv("PLAYBACK_DEV_MODE", original, 1)
-        }
-    }
-
     // MARK: - Path Resolution Tests
 
     func testBaseDataDirectoryReturnsNonEmptyPath() {

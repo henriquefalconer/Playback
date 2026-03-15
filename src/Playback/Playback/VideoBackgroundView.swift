@@ -62,9 +62,9 @@ final class ScrollCaptureNSView: NSView {
     override var acceptsFirstResponder: Bool { true }
 
     override func scrollWheel(with event: NSEvent) {
-        if Paths.isDevelopment {
-            print("[ScrollCapture] scrollWheel dx=\(event.scrollingDeltaX), dy=\(event.scrollingDeltaY), inverted=\(event.isDirectionInvertedFromDevice)")
-        }
+        #if DEBUG
+        print("[ScrollCapture] scrollWheel dx=\(event.scrollingDeltaX), dy=\(event.scrollingDeltaY), inverted=\(event.isDirectionInvertedFromDevice)")
+        #endif
         onScroll?(event)
         // Não chamamos super, para não deixar outros componentes mexerem no tempo.
     }

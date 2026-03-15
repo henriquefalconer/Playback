@@ -8,8 +8,7 @@ Playback uses a single SQLite database (`meta.sqlite3`) to store video segment m
 
 ## Location
 
-- **Production:** `~/Library/Application Support/Playback/data/meta.sqlite3`
-- **Development:** `<project>/dev_data/meta.sqlite3`
+- **Path:** `~/Library/Application Support/Playback/data/meta.sqlite3`
 - **Permissions:** 0600 (user read/write only)
 
 ## Tables

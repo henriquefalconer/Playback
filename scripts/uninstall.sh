@@ -14,19 +14,14 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Data directories
-PRODUCTION_DATA_DIR="$HOME/Library/Application Support/Playback"
-DEV_DATA_DIR="$HOME/dev_data"
-PRODUCTION_LOGS_DIR="$HOME/Library/Logs/Playback"
-DEV_LOGS_DIR="$HOME/dev_logs"
+DATA_DIR="$HOME/Library/Application Support/Playback"
+LOGS_DIR="$HOME/Library/Logs/Playback"
 
-# LaunchAgent labels (both production and development)
+# LaunchAgent labels
 LAUNCH_AGENTS=(
     "com.playback.recording"
     "com.playback.processing"
     "com.playback.cleanup"
-    "com.playback.dev.recording"
-    "com.playback.dev.processing"
-    "com.playback.dev.cleanup"
 )
 
 # Application paths
@@ -113,22 +108,13 @@ show_data_summary() {
     echo -e "${BLUE}Data Summary:${NC}"
     echo -e "${BLUE}----------------------------------------${NC}"
 
-    if [ -d "$PRODUCTION_DATA_DIR" ]; then
-        local prod_size=$(get_dir_size "$PRODUCTION_DATA_DIR")
-        local prod_files=$(count_files "$PRODUCTION_DATA_DIR")
-        echo -e "Production data: ${YELLOW}${prod_size}${NC} (${prod_files} files)"
-        echo -e "  Location: ${PRODUCTION_DATA_DIR}"
+    if [ -d "$DATA_DIR" ]; then
+        local data_size=$(get_dir_size "$DATA_DIR")
+        local data_files=$(count_files "$DATA_DIR")
+        echo -e "Data: ${YELLOW}${data_size}${NC} (${data_files} files)"
+        echo -e "  Location: ${DATA_DIR}"
     else
-        echo -e "Production data: ${GREEN}Not found${NC}"
-    fi
-
-    if [ -d "$DEV_DATA_DIR" ]; then
-        local dev_size=$(get_dir_size "$DEV_DATA_DIR")
-        local dev_files=$(count_files "$DEV_DATA_DIR")
-        echo -e "Development data: ${YELLOW}${dev_size}${NC} (${dev_files} files)"
-        echo -e "  Location: ${DEV_DATA_DIR}"
-    else
-        echo -e "Development data: ${GREEN}Not found${NC}"
+        echo -e "Data: ${GREEN}Not found${NC}"
     fi
 
     echo -e "${BLUE}----------------------------------------${NC}"
@@ -175,7 +161,7 @@ echo ""
 show_data_summary
 
 has_data=false
-if [ -d "$PRODUCTION_DATA_DIR" ] || [ -d "$DEV_DATA_DIR" ]; then
+if [ -d "$DATA_DIR" ]; then
     has_data=true
 fi
 
@@ -194,28 +180,16 @@ if [ "$has_data" = true ]; then
         echo -e "${RED}Deleting all data...${NC}"
         echo ""
 
-        if [ -d "$PRODUCTION_DATA_DIR" ]; then
-            echo -e "${YELLOW}Deleting production data...${NC}"
-            rm -rf "$PRODUCTION_DATA_DIR"
-            echo -e "${GREEN}✓ Deleted ${PRODUCTION_DATA_DIR}${NC}"
+        if [ -d "$DATA_DIR" ]; then
+            echo -e "${YELLOW}Deleting data...${NC}"
+            rm -rf "$DATA_DIR"
+            echo -e "${GREEN}✓ Deleted ${DATA_DIR}${NC}"
         fi
 
-        if [ -d "$DEV_DATA_DIR" ]; then
-            echo -e "${YELLOW}Deleting development data...${NC}"
-            rm -rf "$DEV_DATA_DIR"
-            echo -e "${GREEN}✓ Deleted ${DEV_DATA_DIR}${NC}"
-        fi
-
-        if [ -d "$PRODUCTION_LOGS_DIR" ]; then
-            echo -e "${YELLOW}Deleting production logs...${NC}"
-            rm -rf "$PRODUCTION_LOGS_DIR"
-            echo -e "${GREEN}✓ Deleted ${PRODUCTION_LOGS_DIR}${NC}"
-        fi
-
-        if [ -d "$DEV_LOGS_DIR" ]; then
-            echo -e "${YELLOW}Deleting development logs...${NC}"
-            rm -rf "$DEV_LOGS_DIR"
-            echo -e "${GREEN}✓ Deleted ${DEV_LOGS_DIR}${NC}"
+        if [ -d "$LOGS_DIR" ]; then
+            echo -e "${YELLOW}Deleting logs...${NC}"
+            rm -rf "$LOGS_DIR"
+            echo -e "${GREEN}✓ Deleted ${LOGS_DIR}${NC}"
         fi
 
         echo ""
@@ -224,33 +198,12 @@ if [ "$has_data" = true ]; then
         echo -e "${GREEN}Data preserved.${NC}"
         echo ""
         echo -e "${BLUE}Your recordings are stored at:${NC}"
-
-        if [ -d "$PRODUCTION_DATA_DIR" ]; then
-            echo -e "  • ${PRODUCTION_DATA_DIR}"
-        fi
-
-        if [ -d "$DEV_DATA_DIR" ]; then
-            echo -e "  • ${DEV_DATA_DIR}"
-        fi
+        echo -e "  • ${DATA_DIR}"
 
         echo ""
         echo -e "${BLUE}To delete manually later, run:${NC}"
-
-        if [ -d "$PRODUCTION_DATA_DIR" ]; then
-            echo -e "  rm -rf \"${PRODUCTION_DATA_DIR}\""
-        fi
-
-        if [ -d "$DEV_DATA_DIR" ]; then
-            echo -e "  rm -rf \"${DEV_DATA_DIR}\""
-        fi
-
-        if [ -d "$PRODUCTION_LOGS_DIR" ]; then
-            echo -e "  rm -rf \"${PRODUCTION_LOGS_DIR}\""
-        fi
-
-        if [ -d "$DEV_LOGS_DIR" ]; then
-            echo -e "  rm -rf \"${DEV_LOGS_DIR}\""
-        fi
+        echo -e "  rm -rf \"${DATA_DIR}\""
+        echo -e "  rm -rf \"${LOGS_DIR}\""
     fi
 else
     echo -e "${GREEN}No data directories found${NC}"

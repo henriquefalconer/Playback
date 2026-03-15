@@ -112,9 +112,9 @@ final class TimelineStore: ObservableObject {
         do {
             try Paths.ensureDirectoriesExist()
         } catch {
-            if Paths.isDevelopment {
+            #if DEBUG
                 print("[TimelineStore] Error creating directories: \(error)")
-            }
+            #endif
         }
 
         loadSegments()
@@ -141,9 +141,9 @@ final class TimelineStore: ObservableObject {
         let previousCount = segments.count
         loadSegments()
         if segments.count != previousCount {
-            if Paths.isDevelopment {
+            #if DEBUG
                 print("[TimelineStore] Auto-refreshed: \(segments.count) segments (was \(previousCount))")
-            }
+            #endif
         }
     }
 
@@ -166,9 +166,9 @@ final class TimelineStore: ObservableObject {
             } else {
                 errorMessage = "sqlite3_open returned code \(rc) and db == nil"
             }
-            if Paths.isDevelopment {
+            #if DEBUG
                 print("[TimelineStore] Failed to open meta.sqlite3 at \(dbPath). rc=\(rc), error=\(errorMessage)")
-            }
+            #endif
             DispatchQueue.main.async {
                 self.loadingState = .error(errorMessage)
             }
@@ -184,9 +184,9 @@ final class TimelineStore: ObservableObject {
 
         var stmt: OpaquePointer?
         guard sqlite3_prepare_v2(db, query, -1, &stmt, nil) == SQLITE_OK, let stmt else {
-            if Paths.isDevelopment {
+            #if DEBUG
                 print("[TimelineStore] Error preparing segments query")
-            }
+            #endif
             return
         }
         defer { sqlite3_finalize(stmt) }
@@ -257,9 +257,9 @@ final class TimelineStore: ObservableObject {
                 )
             }
         } else {
-            if Paths.isDevelopment {
+            #if DEBUG
                 print("[TimelineStore] appsegments table not found or error preparing query; only segments will be loaded.")
-            }
+            #endif
         }
 
         DispatchQueue.main.async {
@@ -272,9 +272,9 @@ final class TimelineStore: ObservableObject {
                 self.loadingState = .loaded
             }
 
-            if Paths.isDevelopment {
+            #if DEBUG
                 print("[TimelineStore] Loaded \(loaded.count) segments and \(loadedAppSegments.count) appsegments")
-            }
+            #endif
         }
     }
 
@@ -307,16 +307,16 @@ final class TimelineStore: ObservableObject {
         // 1) Outside the global range (before first or after last)?
         if let first = segments.first, time < first.startTS {
             let offset = first.videoOffset(forAbsoluteTime: first.startTS)
-            if Paths.isDevelopment {
+            #if DEBUG
                 print("[TimelineStore] segment(for:\(time), dir=\(direction)) -> before first, using \(first.id) @ start, videoOffset=\(offset)")
-            }
+            #endif
             return (first, offset)
         }
         if let last = segments.last, time > last.endTS {
             let offset = last.videoOffset(forAbsoluteTime: last.endTS)
-            if Paths.isDevelopment {
+            #if DEBUG
                 print("[TimelineStore] segment(for:\(time), dir=\(direction)) -> after last, using \(last.id) @ end, videoOffset=\(offset)")
-            }
+            #endif
             return (last, offset)
         }
 
@@ -324,9 +324,9 @@ final class TimelineStore: ObservableObject {
         for seg in segments {
             if time >= seg.startTS && time <= seg.endTS {
                 let offset = seg.videoOffset(forAbsoluteTime: time)
-                if Paths.isDevelopment {
+                #if DEBUG
                     print("[TimelineStore] segment(for:\(time), dir=\(direction)) -> inside \(seg.id), videoOffset=\(offset)")
-                }
+                #endif
                 return (seg, offset)
             }
         }
@@ -342,16 +342,16 @@ final class TimelineStore: ObservableObject {
                     if dirSign < 0 {
                         // Going to the PAST: use the END of the previous segment.
                         let offset = a.videoOffset(forAbsoluteTime: a.endTS)
-                        if Paths.isDevelopment {
+                        #if DEBUG
                             print("[TimelineStore] segment(for:\(time), dir=\(direction)) -> gap, BACKWARD: using end of \(a.id), videoOffset=\(offset)")
-                        }
+                        #endif
                         return (a, offset)
                     } else if dirSign > 0 {
                         // Going to the FUTURE: use the START of the next segment.
                         let offset = b.videoOffset(forAbsoluteTime: b.startTS)
-                        if Paths.isDevelopment {
+                        #if DEBUG
                             print("[TimelineStore] segment(for:\(time), dir=\(direction)) -> gap, FORWARD: using start of \(b.id), videoOffset=\(offset)")
-                        }
+                        #endif
                         return (b, offset)
                     } else {
                         // No clear direction (e.g., isolated call): keep the old rule
@@ -361,9 +361,9 @@ final class TimelineStore: ObservableObject {
                         let chosen = distA <= distB ? a : b
                         let clamped = min(max(time, chosen.startTS), chosen.endTS)
                         let offset = chosen.videoOffset(forAbsoluteTime: clamped)
-                        if Paths.isDevelopment {
+                        #if DEBUG
                             print("[TimelineStore] segment(for:\(time), dir=\(direction)) -> gap, NO DIRECTION: using \(chosen.id), videoOffset=\(offset)")
-                        }
+                        #endif
                         return (chosen, offset)
                     }
                 }
@@ -386,14 +386,14 @@ final class TimelineStore: ObservableObject {
         }
 
         if let seg = bestSeg {
-            if Paths.isDevelopment {
+            #if DEBUG
                 print("[TimelineStore] segment(for:\(time), dir=\(direction)) -> fallback, using \(seg.id), videoOffset=\(bestOffset)")
-            }
+            #endif
             return (seg, bestOffset)
         }
-        if Paths.isDevelopment {
+        #if DEBUG
             print("[TimelineStore] segment(for:\(time), dir=\(direction)) -> no segment found (UNEXPECTED CASE)")
-        }
+        #endif
         return nil
     }
 }
