@@ -41,22 +41,18 @@ Implemented:
 
 ---
 
-## 4. Recording Service
+## 4. Recording Service ✅ DONE
 
-**Spec:** `recording-service.md` lines 19-28 (capture loop), lines 41-47 (lifecycle), lines 53-57 (app exclusion)
 **Source:** `RecordingService.swift`
 
-### Existing coverage
-- Heavy debug logging throughout start/stop/capture (24 log calls total)
-
-### New logs needed
-
-- **`TEMPORAL`** Capture cycle summary — every 60 captures (~2 min), log: total count, captures since last summary, skipped-by-exclusion count, skipped-by-timeline-open count, average file size KB — add counter state at class level and log in `captureScreenshot()` (line 185)
-- **`EVENT`** Capture interval changed (via reload) — `reload()` (line 94), log old interval vs new interval
-- **`EVENT`** Excluded apps list changed — `loadConfig()` (line 239), log old count vs new count and diff
-- **`EVENT`** Config observer fired — `setupConfigObserver()` callback (line 248), log notification receipt
-- **`EVENT`** ScreenCaptureKit display enumeration — `captureScreen()` (line 207), log display count and selected display dimensions
-- **`EVENT`** Screenshot file size — already at line 188 but elevate from debug to info for session diagnostics, include cumulative session bytes
+Implemented:
+- Capture cycle summary every 60 captures (total, recent, skipped by exclusion/timeline, avg size, cumulative MB)
+- Capture interval changed on reload
+- Excluded apps list changed on reload (count diff + app list)
+- Config observer fired notification log
+- Display enumeration (count + dimensions) on each capture
+- Screenshot file size elevated to info with cumulative session bytes
+- All logs use `privacy: .public` for diagnostics visibility
 
 ---
 

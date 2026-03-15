@@ -26,6 +26,13 @@ final class RecordingService: ObservableObject {
     private var captureInterval: TimeInterval = 2.0 // seconds
     private var excludedApps: [String] = []
 
+    // Capture cycle summary counters (logged every 60 captures)
+    private var summaryCapturesSinceLastLog: UInt64 = 0
+    private var summarySkippedByExclusion: UInt64 = 0
+    private var summarySkippedByTimeline: UInt64 = 0
+    private var summaryTotalFileBytes: UInt64 = 0
+    private var cumulativeSessionBytes: UInt64 = 0
+
     private init() {
         Log.recording.debug("Initializing singleton")
         loadConfig()
@@ -93,11 +100,20 @@ final class RecordingService: ObservableObject {
     /// Reload configuration
     func reload() {
         let wasRecording = isRecording
+        let oldInterval = captureInterval
+        let oldExcludedCount = excludedApps.count
         if wasRecording {
             stop()
         }
 
         loadConfig()
+
+        if captureInterval != oldInterval {
+            Log.recording.info("Capture interval changed: \(oldInterval, privacy: .public)s -> \(self.captureInterval, privacy: .public)s")
+        }
+        if excludedApps.count != oldExcludedCount {
+            Log.recording.info("Excluded apps changed: count \(oldExcludedCount, privacy: .public) -> \(self.excludedApps.count, privacy: .public), apps=\(self.excludedApps.joined(separator: ","), privacy: .public)")
+        }
 
         if wasRecording && ConfigManager.shared.config.recordingEnabled {
             start()
@@ -111,6 +127,7 @@ final class RecordingService: ObservableObject {
 
         // Check if timeline is open (pause recording)
         if fileManager.fileExists(atPath: Paths.timelineOpenSignalPath.path) {
+            summarySkippedByTimeline += 1
             Log.recording.debug("Timeline open - pausing capture")
             return
         }
@@ -125,6 +142,7 @@ final class RecordingService: ObservableObject {
 
         // Check if app is excluded
         if excludedApps.contains(frontmostApp) {
+            summarySkippedByExclusion += 1
             Log.recording.notice("Skipping excluded app: \(frontmostApp)")
             return
         }
@@ -181,11 +199,27 @@ final class RecordingService: ObservableObject {
                 Log.recording.debug("Could not set permissions on screenshot: \(error.localizedDescription)")
             }
 
-            let sizeKB = Double(pngData.count) / 1024.0
+            let sizeBytes = UInt64(pngData.count)
+            let sizeKB = Double(sizeBytes) / 1024.0
             captureCount += 1
             lastCaptureTime = timestamp
+            cumulativeSessionBytes += sizeBytes
+            summaryTotalFileBytes += sizeBytes
+            summaryCapturesSinceLastLog += 1
 
-            Log.recording.debug("Screenshot captured: \(filePath.path), size=\(String(format: "%.1f", sizeKB))KB, app=\(frontmostApp)")
+            let cumulativeMB = String(format: "%.1f", Double(self.cumulativeSessionBytes) / 1024.0 / 1024.0)
+            Log.recording.info("Screenshot captured: size=\(String(format: "%.1f", sizeKB), privacy: .public)KB, app=\(frontmostApp, privacy: .public), cumulative=\(cumulativeMB, privacy: .public)MB")
+
+            // Capture cycle summary every 60 captures
+            if summaryCapturesSinceLastLog >= 60 {
+                let avgSizeKB = String(format: "%.1f", Double(summaryTotalFileBytes) / Double(summaryCapturesSinceLastLog) / 1024.0)
+                let cumMB = String(format: "%.1f", Double(self.cumulativeSessionBytes) / 1024.0 / 1024.0)
+                Log.recording.info("Capture summary: total=\(self.captureCount, privacy: .public), recent=\(self.summaryCapturesSinceLastLog, privacy: .public), skipped_exclusion=\(self.summarySkippedByExclusion, privacy: .public), skipped_timeline=\(self.summarySkippedByTimeline, privacy: .public), avg_size=\(avgSizeKB, privacy: .public)KB, cumulative=\(cumMB, privacy: .public)MB")
+                summaryCapturesSinceLastLog = 0
+                summarySkippedByExclusion = 0
+                summarySkippedByTimeline = 0
+                summaryTotalFileBytes = 0
+            }
 
         } catch {
             Log.recording.error("Failed to write screenshot: \(error.localizedDescription)")
@@ -207,8 +241,10 @@ final class RecordingService: ObservableObject {
             let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
 
             guard let display = content.displays.first else {
+                Log.recording.error("No displays found for screen capture")
                 return nil
             }
+            Log.recording.debug("Display enumeration: count=\(content.displays.count), selected=\(display.width)x\(display.height)")
 
             // Create screenshot
             let filter = SCContentFilter(display: display, excludingWindows: [])
@@ -248,6 +284,7 @@ final class RecordingService: ObservableObject {
             object: nil,
             queue: .main
         ) { [weak self] _ in
+            Log.recording.info("Config change notification received, reloading")
             Task { @MainActor in
                 self?.reload()
             }
