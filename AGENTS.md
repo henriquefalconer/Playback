@@ -37,7 +37,7 @@
 - **GUI environment requirement:** UI tests require WindowServer running (check with `ps aux | grep WindowServer`). Tests will fail in headless environments
 - **Performance test async issues:** XCTest performance tests cannot reliably measure async operations. SearchController and other async patterns that depend on RunLoop may timeout (110+ seconds). Solution: Use direct SQLite C API queries for synchronous performance measurement instead of async Swift wrappers
 - **FTS5 rank function:** FTS5 rank is accessed via `rank` function in WHERE/ORDER BY clauses, not as a column (e.g., `ORDER BY o.timestamp DESC` not `ORDER BY s.rank`)
-- **Logging:** Use `Log.<category>` from Logging.swift with appropriate AUL levels (debug/info/notice/error/fault). Never use `print()` for logging. Stream live with `log stream --predicate 'subsystem == "com.falconer.Playback"'`
+- **Logging:** Use `Log.<category>` from Logging.swift with appropriate AUL levels (debug/info/notice/error/fault). Never use `print()` for logging. To view logs, use Apple Unified Logging with subsystem `com.falconer.Playback`: `log stream --predicate 'subsystem == "com.falconer.Playback"'`
 - **Xcode scheme names:** Project only has "Playback" scheme (not "Playback-Development" or "Playback-Release"). Use `-configuration Debug` or `-configuration Release` flags instead
 - **Correct build commands:** `cd /Users/vm/Playback/src/Playback && xcodebuild -scheme Playback -configuration Debug build` for development builds
 - **Consecutive failure tracking:** Track failure counts in controller, trigger error state after threshold (e.g., 3 consecutive failures) to avoid silent failures and blank screens
