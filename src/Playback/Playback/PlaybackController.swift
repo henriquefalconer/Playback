@@ -36,6 +36,9 @@ final class PlaybackController: ObservableObject {
     /// While `true`, we ignore periodic updates from `timeObserver`
     /// to avoid overwriting the `currentTime` calculated from the gesture.
     private var isScrubbing: Bool = false
+    /// Tracks whether the player was playing before scrubbing started, so we can
+    /// resume playback automatically when the scrub ends.
+    private var wasPlayingBeforeScrub: Bool = false
     /// Indicates whether the current time is "stuck" at the absolute start of the timeline.
     /// When true, we keep the last displayed frame as a visual
     /// fallback, even after scrubbing ends.
@@ -235,7 +238,10 @@ final class PlaybackController: ObservableObject {
     /// Used for real-time scrubbing (e.g., scroll/drag gesture on the timeline),
     /// keeping the frame always synchronized with the current position, but paused.
     func scrub(to time: TimeInterval, store: TimelineStore) {
-        // Mark that we're in active scrubbing.
+        // Save play state before first scrub event in this gesture, then mark scrubbing.
+        if !isScrubbing {
+            wasPlayingBeforeScrub = isPlaying
+        }
         isScrubbing = true
         scrubEndWorkItem?.cancel()
 
@@ -322,7 +328,7 @@ final class PlaybackController: ObservableObject {
         }
         seek(to: seg, offset: offset, isScrub: true)
 
-        // Schedule the end of scrubbing shortly after the last scroll event.
+        // Schedule the end of scrubbing 500ms after the last scroll event (per spec).
         let work = DispatchWorkItem { [weak self] in
             guard let self else { return }
             self.isScrubbing = false
@@ -332,9 +338,14 @@ final class PlaybackController: ObservableObject {
             if !self.atStartBoundary {
                 self.showFrozenFrame = false
             }
+            // Resume playback if the user was watching before they started scrubbing.
+            if self.wasPlayingBeforeScrub {
+                self.player.play()
+                self.isPlaying = true
+            }
         }
         scrubEndWorkItem = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: work)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: work)
     }
 
     func togglePlayPause() {
