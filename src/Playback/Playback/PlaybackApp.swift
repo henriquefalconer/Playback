@@ -13,6 +13,7 @@ struct PlaybackApp: App {
     @StateObject private var menuBarViewModel = MenuBarViewModel()
     @StateObject private var hotkeyManager = GlobalHotkeyManagerWrapper()
     @StateObject private var fullscreenManager = FullscreenManagerWrapper()
+    @State private var timelineOpenTime: Date?
 
     var body: some Scene {
         MenuBarExtra {
@@ -28,6 +29,7 @@ struct PlaybackApp: App {
                 .environmentObject(timelineStore)
                 .environmentObject(playbackController)
                 .onAppear {
+                    let openTime = Date()
                     // Connect playback controller to timeline store for segment preloading
                     playbackController.timelineStore = timelineStore
 
@@ -35,6 +37,7 @@ struct PlaybackApp: App {
                     NSApp.activate(ignoringOtherApps: true)
 
                     if let window = NSApp.windows.first(where: { $0.title.contains("ContentView") || $0.level == .normal }) {
+                        Log.session.info("Timeline window opened — size=\(window.frame.width, privacy: .public)x\(window.frame.height, privacy: .public)")
                         window.makeKeyAndOrderFront(nil)
                         fullscreenManager.configureFullscreenPresentation()
                         window.toggleFullScreen(nil)
@@ -52,8 +55,14 @@ struct PlaybackApp: App {
                             }
                         }
                     }
+                    timelineOpenTime = openTime
                 }
                 .onDisappear {
+                    if let openTime = timelineOpenTime {
+                        let duration = Date().timeIntervalSince(openTime)
+                        Log.session.info("Timeline window closed — session_duration=\(String(format: "%.1f", duration), privacy: .public)s")
+                        timelineOpenTime = nil
+                    }
                     fullscreenManager.restoreNormalPresentation()
                     signalManager.removeSignal()
                 }
@@ -63,6 +72,12 @@ struct PlaybackApp: App {
         Window("Settings", id: "settings") {
             SettingsView()
                 .environmentObject(configManager)
+                .onAppear {
+                    Log.settings.info("Settings window opened")
+                }
+                .onDisappear {
+                    Log.settings.info("Settings window closed")
+                }
         }
         .windowResizability(.contentSize)
         .defaultPosition(.center)
@@ -87,7 +102,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             Log.system.fault("Failed to create data directories: \(error.localizedDescription)")
         }
 
-        if !CGPreflightScreenCaptureAccess() {
+        let screenCaptureGranted = CGPreflightScreenCaptureAccess()
+        Log.session.info("Screen Recording permission: \(screenCaptureGranted ? "granted" : "denied", privacy: .public)")
+        if !screenCaptureGranted {
             CGRequestScreenCaptureAccess()
         }
 
@@ -108,6 +125,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 recordingService.stop()
             }
             processingService.start()
+
+            let config = configManager.config
+            Log.session.info("App launch complete — recording_enabled=\(config.recordingEnabled, privacy: .public), excluded_apps=\(config.excludedApps.count, privacy: .public), shortcut=\(config.timelineShortcut, privacy: .public), version=\(config.version, privacy: .public)")
         }
     }
 }
@@ -120,7 +140,9 @@ final class GlobalHotkeyManagerWrapper: ObservableObject {
         do {
             let (keyCode, modifiers) = GlobalHotkeyManager.optionShiftSpace
             try manager.register(keyCode: keyCode, modifiers: modifiers, callback: callback)
+            Log.session.info("Accessibility permission: granted")
         } catch HotkeyError.accessibilityPermissionDenied {
+            Log.session.info("Accessibility permission: denied")
             Log.playback.notice("Accessibility permission denied. Global hotkey will not work.")
             showPermissionAlert()
         } catch {
