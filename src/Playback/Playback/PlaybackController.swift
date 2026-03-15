@@ -52,6 +52,9 @@ final class PlaybackController: ObservableObject {
     private var consecutiveFailures: Int = 0
 
     init() {
+        // Disable stalling wait so playback starts immediately without buffering delays.
+        player.automaticallyWaitsToMinimizeStalling = false
+
         // Periodically observe the player's time to keep `currentTime`
         // always in sync with what's being displayed on screen,
         // including when the user scrolls/gestures directly on the video.

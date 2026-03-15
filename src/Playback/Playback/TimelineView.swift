@@ -190,7 +190,7 @@ struct TimelineView: View {
     var body: some View {
         GeometryReader { geo in
             let width = geo.size.width * 0.8
-            let height: CGFloat = 8
+            let height: CGFloat = 20
             let barY = geo.size.height - height / 2 - 8
             let segmentsY = barY + 22
             let span = windowSpan
@@ -318,13 +318,13 @@ struct TimeTicksView: View {
     let barY: CGFloat
 
     private var tickInterval: TimeInterval {
-        if visibleWindowSeconds <= 120 {
+        if visibleWindowSeconds <= 180 {
             return 10
-        } else if visibleWindowSeconds <= 300 {
+        } else if visibleWindowSeconds <= 600 {
             return 30
-        } else if visibleWindowSeconds <= 900 {
+        } else if visibleWindowSeconds <= 1200 {
             return 60
-        } else if visibleWindowSeconds <= 1800 {
+        } else if visibleWindowSeconds <= 2400 {
             return 300
         } else {
             return 600

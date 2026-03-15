@@ -106,7 +106,7 @@ struct ContentView: View {
                 .ignoresSafeArea()
 
             // While a new segment is loading, show the last known frame as fallback
-            // to avoid abrupt black screens.
+            // to avoid abrupt black screens. Crossfades in/out over 200ms.
             if playbackController.showFrozenFrame, let image = playbackController.frozenFrame {
                 ZStack {
                     Color.black
@@ -117,6 +117,7 @@ struct ContentView: View {
                         .scaledToFit()
                         .ignoresSafeArea()
                 }
+                .transition(.opacity.animation(.easeInOut(duration: 0.2)))
             }
 
             // Subtle bottom gradient in gray-blue tones
