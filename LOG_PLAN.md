@@ -28,24 +28,16 @@ Not implemented (low value, signal file already logged in Paths.swift):
 
 ---
 
-## 3. Menu Bar Interactions
+## 3. Menu Bar Interactions ✅ DONE
 
-**Spec:** `menu-bar.md` lines 22-31 (menu layout), lines 34-38 (record toggle), lines 40-42 (open timeline), lines 50-54 (quit)
 **Source:** `MenuBarView.swift`, `MenuBarViewModel.swift`
 
-### Existing coverage
-- Toggle entry (MenuBarViewModel:73), state update skip (line 138), state update sync (line 142)
-
-### New logs needed
-
-- **`EVENT`** "Record Screen" toggled ON — `toggleRecording()` (MenuBarViewModel:103), log permission status and config state
-- **`EVENT`** "Record Screen" toggled OFF — `toggleRecording()` (MenuBarViewModel:110), log total capture count at stop time
-- **`EVENT`** "Open Timeline" clicked — `MenuBarView.swift` button action (line 23), log whether window was already open
-- **`EVENT`** "Settings" clicked — `MenuBarView.swift` button action (line 43)
-- **`EVENT`** "About Playback" clicked — `MenuBarView.swift` button action (line 63)
-- **`EVENT`** "Quit Playback" clicked — `MenuBarViewModel.performQuit()` (line 123), log uptime, total captures, segments processed
-- **`EVENT`** Permission denied alert shown — `toggleRecording()` (MenuBarViewModel:79-97), log which permission was denied
-- **`TEMPORAL`** Menu bar icon state changed — `updateRecordingState()` (MenuBarViewModel:136-150), log old state -> new state on every actual change (not skip)
+Implemented:
+- Recording toggled ON (with excluded app count) / OFF (with total capture count)
+- Open Timeline, Settings, About Playback button clicks
+- Quit with uptime and total captures
+- Permission denied alert shown (Screen Recording)
+- Menu bar icon state change logging (old→new on actual transitions)
 
 ---
 

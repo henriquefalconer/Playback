@@ -7,7 +7,7 @@ import AppKit
 import ApplicationServices
 import os
 
-enum RecordingState {
+enum RecordingState: Equatable {
     case recording
     case paused
     case error
@@ -46,6 +46,7 @@ final class MenuBarViewModel: ObservableObject {
     private var statusTimer: Timer?
     private var cancellables = Set<AnyCancellable>()
     private var lastUserToggleTime: Date?
+    private let launchTime = Date()
 
     init(configManager: ConfigManager = .shared,
          recordingService: RecordingService = .shared) {
@@ -77,6 +78,7 @@ final class MenuBarViewModel: ObservableObject {
             let hasPermission = CGPreflightScreenCaptureAccess()
 
             if !hasPermission {
+                Log.menuBar.notice("Permission denied alert shown: Screen Recording permission not granted")
                 // Permission denied - revert toggle
                 isRecordingEnabled = false
 
@@ -100,6 +102,7 @@ final class MenuBarViewModel: ObservableObject {
         lastUserToggleTime = Date()
 
         if isRecordingEnabled {
+            Log.menuBar.info("Recording toggled ON, excluded_apps=\(self.configManager.config.excludedApps.count, privacy: .public)")
             recordingService.start()
             recordingState = .recording
 
@@ -107,6 +110,7 @@ final class MenuBarViewModel: ObservableObject {
             config.recordingEnabled = true
             configManager.updateConfig(config)
         } else {
+            Log.menuBar.info("Recording toggled OFF, total_captures=\(self.recordingService.captureCount, privacy: .public)")
             recordingService.stop()
             recordingState = .paused
 
@@ -121,6 +125,8 @@ final class MenuBarViewModel: ObservableObject {
     }
 
     private func performQuit() {
+        let uptimeSeconds = Int(Date().timeIntervalSince(launchTime))
+        Log.menuBar.info("Quit requested: uptime=\(uptimeSeconds, privacy: .public)s, total_captures=\(self.recordingService.captureCount, privacy: .public)")
         recordingService.stop()
         ProcessingService.shared.stop()
         NSApp.terminate(nil)
@@ -139,6 +145,7 @@ final class MenuBarViewModel: ObservableObject {
             return
         }
 
+        let oldState = recordingState
         Log.menuBar.debug("Updating state - recordingService.isRecording=\(self.recordingService.isRecording)")
         if recordingService.isRecording {
             recordingState = .recording
@@ -146,6 +153,9 @@ final class MenuBarViewModel: ObservableObject {
         } else {
             recordingState = .paused
             isRecordingEnabled = false
+        }
+        if oldState != recordingState {
+            Log.menuBar.info("Menu bar state changed: \(String(describing: oldState), privacy: .public) -> \(String(describing: self.recordingState), privacy: .public)")
         }
     }
 

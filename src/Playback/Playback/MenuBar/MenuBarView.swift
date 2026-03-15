@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Proprietary
 
 import SwiftUI
+import os
 
 struct MenuBarView: View {
     @ObservedObject var viewModel: MenuBarViewModel
@@ -21,6 +22,7 @@ struct MenuBarView: View {
             Divider()
 
             Button(action: {
+                Log.menuBar.info("Open Timeline clicked")
                 NSApp.activate(ignoringOtherApps: true)
                 openWindow(id: "timeline")
             }) {
@@ -41,6 +43,7 @@ struct MenuBarView: View {
             Divider()
 
             Button(action: {
+                Log.menuBar.info("Settings clicked")
                 NSApp.activate(ignoringOtherApps: true)
                 openWindow(id: "settings")
             }) {
@@ -61,6 +64,7 @@ struct MenuBarView: View {
             Divider()
 
             Button(action: {
+                Log.menuBar.info("About Playback clicked")
                 NSApp.orderFrontStandardAboutPanel()
             }) {
                 HStack {
