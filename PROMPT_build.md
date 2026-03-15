@@ -17,4 +17,4 @@
 999999999999. When @IMPLEMENTATION_PLAN.md becomes large periodically clean out the items that are completed from the file using a subagent.
 9999999999999. If you find inconsistencies in the specs/* then use an Opus 4.5 subagent with 'ultrathink' requested to update the specs.
 99999999999999. IMPORTANT: Keep @AGENTS.md operational only — status updates and progress notes belong in `IMPLEMENTATION_PLAN.md`. A bloated AGENTS.md pollutes every future loop's context.
-999999999999999. DONE: when plan empty + tests pass + tag created + no errors → run `touch .agent_complete` in project root and stop — do not continue.
+999999999999999. DONE: when plan empty + tests pass + no errors → run `touch .agent_complete` in project root and stop — do not continue.
