@@ -16,6 +16,13 @@
 - No migration paths, deprecation notices, or "old vs new" comparisons
 - When refactoring, delete the old approach entirely — do not preserve it alongside the new one
 
+## Implementation Plan
+
+- **Don't let `IMPLEMENTATION_PLAN.md` get bloated** with historical tracking details, verbose root cause analyses, stack traces, or "old vs new" comparisons
+- Specs (`specs/*.md`) are the canonical baseline — the plan should only track what's actionable going forward
+- Remove completed items once they're no longer relevant context for current work
+- Keep the plan focused: what needs to be done, what's blocked, what's in progress
+
 ## Storage Estimates
 
 - **Typical usage produces 10–14 GB/month** of retained video chunks (after processing and compression)
