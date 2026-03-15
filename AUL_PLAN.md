@@ -28,6 +28,11 @@ All logging migrated from `#if DEBUG` / `print()` to Apple Unified Logging (AUL)
 
 4. **Verified**: Build succeeds, smoke test passes, AUL logs visible via `log show --predicate 'subsystem == "com.falconer.Playback"'`
 
+5. **Fixed log quality issue**: TimelineStore was spamming "Error preparing segments query" every 5 seconds when the database had no `segments` table (processing service hasn't run). Fixed to:
+   - Detect "no such table" case and log at `debug` level instead of `error`
+   - Include actual SQLite error message in non-trivial error cases
+   - Set loading state to `.empty` when table doesn't exist
+
 ## Streaming Logs
 
 ```bash

@@ -178,8 +178,20 @@ final class TimelineStore: ObservableObject {
         """
 
         var stmt: OpaquePointer?
-        guard sqlite3_prepare_v2(db, query, -1, &stmt, nil) == SQLITE_OK, let stmt else {
-            Log.timeline.error("Error preparing segments query")
+        let prepareResult = sqlite3_prepare_v2(db, query, -1, &stmt, nil)
+        guard prepareResult == SQLITE_OK, let stmt else {
+            let errMsg = String(cString: sqlite3_errmsg(db))
+            // Don't spam logs when table simply doesn't exist yet (processing hasn't run)
+            if errMsg.contains("no such table") {
+                Log.timeline.debug("segments table not yet created (processing service hasn't run)")
+                DispatchQueue.main.async {
+                    self.segments = []
+                    self.appSegments = []
+                    self.loadingState = .empty
+                }
+            } else {
+                Log.timeline.error("Error preparing segments query: rc=\(prepareResult), \(errMsg)")
+            }
             return
         }
         defer { sqlite3_finalize(stmt) }
