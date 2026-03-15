@@ -118,17 +118,7 @@ final class MenuBarViewModel: ObservableObject {
     }
 
     func quitPlayback() {
-        let alert = NSAlert()
-        alert.messageText = "Stop recording and quit Playback?"
-        alert.informativeText = "This will stop all Playback services:\n• Recording service will stop\n• Processing service will stop\n• Timeline viewer will close\n• Menu bar icon will disappear\n\nUnprocessed screenshots will remain for later processing."
-        alert.alertStyle = .warning
-        alert.addButton(withTitle: "Cancel")
-        alert.addButton(withTitle: "Quit")
-
-        let response = alert.runModal()
-        if response == .alertSecondButtonReturn {
-            performQuit()
-        }
+        performQuit()
     }
 
     private func performQuit() {
