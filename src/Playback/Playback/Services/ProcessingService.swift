@@ -9,6 +9,8 @@ import SQLite3
 import AppKit
 import Security
 
+private let SQLITE_TRANSIENT = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
+
 @MainActor
 final class ProcessingService {
     static let shared = ProcessingService()

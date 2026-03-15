@@ -237,7 +237,7 @@ struct ContentView: View {
             // These are already logarithmically decelerated by macOS.
             // For non-trackpad wheels (momentumPhase == .none, phase == .none),
             // we generate our own momentum after the scroll ends.
-            let isOSMomentum = event.momentumPhase != .none
+            let isOSMomentum = event.momentumPhase != []
 
             // Stop custom momentum when user starts a new scroll gesture.
             if event.phase == .began || event.phase == .changed {
@@ -272,7 +272,7 @@ struct ContentView: View {
                 // Accumulate velocity (seconds per scroll-point * points scrolled this tick)
                 momentumVelocity = secondsDelta
 
-                if event.phase == .ended || (event.phase == .none && event.momentumPhase == .none) {
+                if event.phase == .ended || (event.phase == [] && event.momentumPhase == []) {
                     startMomentum()
                 }
             }
