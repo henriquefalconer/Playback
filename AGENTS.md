@@ -46,9 +46,8 @@
 - **Pipe deadlock fix:** NEVER call process.waitUntilExit() before reading pipe data. Always read pipes asynchronously via readabilityHandler or read data before waiting. Classic deadlock: waitUntilExit blocks → pipe fills → process blocks waiting for pipe drain → circular dependency → SIGABRT
 - **ConfigWatcher file descriptor management:** Only close file descriptors in ONE location. Use dispatch source cancel handler as the sole owner of fd cleanup. Duplicate close() calls cause SIGABRT on reused file descriptors
 - **Bundle identifier consistency:** Actual bundle ID is "com.falconer.Playback", not "com.playback.timeline". Check project.pbxproj PRODUCT_BUNDLE_IDENTIFIER for authoritative value
-- **Verifying permissions:** To check if Playback has been granted Screen Recording and Accessibility permissions, query both TCC databases (no sudo required — Full Disk Access already allows reading both):
-  - User DB: `sqlite3 ~/Library/Application\ Support/com.apple.TCC/TCC.db "SELECT service, client, auth_value FROM access WHERE client='com.falconer.Playback' AND service IN ('kTCCServiceScreenCapture','kTCCServiceAccessibility');"`
-  - System DB: `sqlite3 /Library/Application\ Support/com.apple.TCC/TCC.db "SELECT service, client, auth_value FROM access WHERE client='com.falconer.Playback' AND service IN ('kTCCServiceScreenCapture','kTCCServiceAccessibility');"`
+- **Verifying permissions:** To check if Playback has been granted Screen Recording and Accessibility permissions, query the system TCC database (no sudo required — Full Disk Access already allows reading it):
+  - `sqlite3 /Library/Application\ Support/com.apple.TCC/TCC.db "SELECT service, client, auth_value FROM access WHERE client='com.falconer.Playback' AND service IN ('kTCCServiceScreenCapture','kTCCServiceAccessibility');"`
   - **Full Disk Access required** for the terminal app — to verify, run `ls ~/Library/Safari`; if it returns "Operation not permitted", Full Disk Access hasn't been granted.
 
 ## Commands
