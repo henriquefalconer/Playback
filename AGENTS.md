@@ -46,6 +46,7 @@
 - **Pipe deadlock fix:** NEVER call process.waitUntilExit() before reading pipe data. Always read pipes asynchronously via readabilityHandler or read data before waiting. Classic deadlock: waitUntilExit blocks → pipe fills → process blocks waiting for pipe drain → circular dependency → SIGABRT
 - **ConfigWatcher file descriptor management:** Only close file descriptors in ONE location. Use dispatch source cancel handler as the sole owner of fd cleanup. Duplicate close() calls cause SIGABRT on reused file descriptors
 - **Bundle identifier consistency:** Actual bundle ID is "com.falconer.Playback", not "com.playback.timeline". Check project.pbxproj PRODUCT_BUNDLE_IDENTIFIER for authoritative value
+- **Verifying permissions:** To check if Playback has been granted Screen Recording and Accessibility permissions, query the TCC database: `sqlite3 ~/Library/Application\ Support/com.apple.TCC/TCC.db "SELECT service, client, auth_value FROM access WHERE client='com.falconer.Playback' AND service IN ('kTCCServiceScreenCapture','kTCCServiceAccessibility');"`. An `auth_value` of 2 means granted. If no rows are returned, the permission hasn't been granted. Note: Screen Recording may be in the system TCC database (`/Library/Application Support/com.apple.TCC/TCC.db`, requires root). After rebuilding/reinstalling, permissions may need to be re-granted since the code signature changes.
 
 ## Commands
 
