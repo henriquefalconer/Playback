@@ -34,7 +34,7 @@ echo ""
 echo "=== Verification ==="
 PLAYBACK_PROCS=$(ps aux | grep -i playback | grep -v grep | grep -v stop-prod)
 PYTHON_PROCS=$(ps aux | grep -E "record_screen|build_chunks|cleanup_old" | grep -v grep)
-AGENTS=$(launchctl list | grep "com.playback" | grep -v "com.playback.dev")
+AGENTS=$(launchctl list | grep "com.playback")
 
 if [ -z "$PLAYBACK_PROCS" ] && [ -z "$PYTHON_PROCS" ] && [ -z "$AGENTS" ]; then
     echo "✅ All production processes stopped"
