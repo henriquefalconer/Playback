@@ -48,7 +48,7 @@
 - **Bundle identifier consistency:** Actual bundle ID is "com.falconer.Playback", not "com.playback.timeline". Check project.pbxproj PRODUCT_BUNDLE_IDENTIFIER for authoritative value
 - **Verifying permissions:** To check if Playback has been granted Screen Recording and Accessibility permissions, query the system TCC database (no sudo required — Full Disk Access already allows reading it):
   - `sqlite3 /Library/Application\ Support/com.apple.TCC/TCC.db "SELECT service, client, auth_value FROM access WHERE client='com.falconer.Playback' AND service IN ('kTCCServiceScreenCapture','kTCCServiceAccessibility');"`
-  - **Full Disk Access required** for the terminal app — to verify, run `ls ~/Library/Safari`; if it returns "Operation not permitted", Full Disk Access hasn't been granted.
+  - **Full Disk Access required** for the terminal app — to verify, run `ls ~/Library/Safari`
 
 ## Commands
 
