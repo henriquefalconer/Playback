@@ -22,8 +22,7 @@ xcodebuild \
     -configuration Release \
     clean build \
     -quiet \
-    CODE_SIGN_IDENTITY="-" \
-    CODE_SIGN_ENTITLEMENTS="Playback/Playback.entitlements"
+    CODE_SIGN_IDENTITY="macos-codesigning"
 
 # 3. Find the built app
 echo ""
@@ -40,6 +39,16 @@ if [ ! -d "$BUILT_APP" ]; then
 fi
 
 echo "✅ Found: $BUILT_APP"
+
+# 3b. Re-sign with entitlements and hardened runtime
+echo ""
+echo "3b. Signing with macos-codesigning certificate..."
+codesign --force --sign "macos-codesigning" --entitlements Playback/Playback.entitlements --options runtime "$BUILT_APP"
+
+# 3c. Verify code signature
+echo "3c. Verifying code signature..."
+codesign --verify --deep --strict "$BUILT_APP"
+echo "✅ Code signature valid"
 
 # 4. Copy to /Applications
 echo ""

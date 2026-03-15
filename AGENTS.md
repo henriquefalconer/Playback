@@ -83,16 +83,6 @@ Run tests early and often to catch regressions.
 - **Restart agent:** `launchctl unload <plist> && launchctl load <plist>`
 - **Validate plist:** `plutil -lint <plist-file>`
 
-## Distribution
-
-Playback uses .zip distribution. No automatic deployment - releases are manual.
-
-### Creating a Release Build
-Use the build script for production-ready builds with code signing and notarization.
-
-- **Build release:** `./src/scripts/build_release.sh <version>` (e.g., `./src/scripts/build_release.sh 1.0.0`)
-- **Output:** `dist/Playback-<version>.zip` and `dist/Playback-<version>.zip.sha256`
-
 ## Local Testing
 Before releasing or deploying changes, test locally to verify behavior:
 

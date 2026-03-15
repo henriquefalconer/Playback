@@ -33,7 +33,7 @@ fi
 echo "🔨 Building Debug configuration..."
 cd "$PROJECT_ROOT/src/Playback"
 
-if ! xcodebuild -scheme Playback -configuration Debug CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=NO build 2>&1 | tail -20; then
+if ! xcodebuild -scheme Playback -configuration Debug CODE_SIGN_IDENTITY="macos-codesigning" build 2>&1 | tail -20; then
     echo ""
     echo "❌ Build failed"
     exit 1

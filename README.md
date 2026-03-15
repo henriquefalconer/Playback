@@ -97,10 +97,10 @@ open src/Playback/Playback.xcodeproj
 ### Release Build
 
 ```bash
-# Create production release (requires Developer ID certificate)
-./scripts/build_release.sh 1.0.0
+# Create production release (requires macos-codesigning certificate in keychain)
+cd src/Playback && xcodebuild -scheme Playback -configuration Release build
 
-# Output: dist/Playback-1.0.0.zip (signed and notarized)
+# Output: build/Release/Playback.app (signed)
 ```
 
 ## Features

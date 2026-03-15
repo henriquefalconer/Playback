@@ -18,14 +18,13 @@
 - Compilation conditions: `DEBUG`
 - Optimization: `-Onone`
 - Testability: enabled
-- Signing: ad-hoc
+- Signing: macos-codesigning (self-signed)
 
 ### Release
 
 - Optimization: `-O`
 - Testability: disabled
-- Signing: Developer ID Application
-- Hardened runtime: enabled
+- Signing: macos-codesigning (self-signed)
 
 ## Build Commands
 
@@ -68,16 +67,6 @@ cd src/Playback && xcodebuild test -scheme Playback -configuration Debug -only-t
 ```
 
 Builds Debug configuration and runs the app for 5 seconds to detect initialization crashes.
-
-## Distribution
-
-### .zip Distribution
-
-```bash
-./src/scripts/build_release.sh <version>
-```
-
-Output: `dist/Playback-<version>.zip` and `dist/Playback-<version>.zip.sha256`
 
 ### Entitlements
 
