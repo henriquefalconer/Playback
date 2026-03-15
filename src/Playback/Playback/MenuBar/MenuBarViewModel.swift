@@ -5,6 +5,7 @@ import Foundation
 import Combine
 import AppKit
 import ApplicationServices
+import os
 
 enum RecordingState {
     case recording
@@ -69,9 +70,7 @@ final class MenuBarViewModel: ObservableObject {
     }
 
     func toggleRecording() {
-        #if DEBUG
-        print("[MenuBarViewModel] toggleRecording() called, isRecordingEnabled=\(isRecordingEnabled)")
-        #endif
+        Log.menuBar.debug("toggleRecording() called, isRecordingEnabled=\(self.isRecordingEnabled)")
 
         // Check permission before enabling
         if isRecordingEnabled {
@@ -136,15 +135,11 @@ final class MenuBarViewModel: ObservableObject {
 
     private func updateRecordingState() {
         if let lastToggle = lastUserToggleTime, Date().timeIntervalSince(lastToggle) < 10 {
-            #if DEBUG
-            print("[MenuBarViewModel] Skipping update - recent user toggle")
-            #endif
+            Log.menuBar.debug("Skipping update - recent user toggle")
             return
         }
 
-        #if DEBUG
-        print("[MenuBarViewModel] Updating state - recordingService.isRecording=\(recordingService.isRecording)")
-        #endif
+        Log.menuBar.debug("Updating state - recordingService.isRecording=\(self.recordingService.isRecording)")
         if recordingService.isRecording {
             recordingState = .recording
             isRecordingEnabled = true

@@ -8,6 +8,7 @@ import CoreGraphics
 import SQLite3
 import AppKit
 import Security
+import os
 
 private let SQLITE_TRANSIENT = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
 
@@ -146,9 +147,7 @@ final class ProcessingService {
             // 0700 — user-accessible only
             try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: chunksDir.path)
         } catch {
-            #if DEBUG
-            print("[ProcessingService] Failed to create chunks dir: \(error)")
-            #endif
+            Log.processing.error("Failed to create chunks dir: \(error.localizedDescription)")
             return
         }
 
@@ -159,9 +158,7 @@ final class ProcessingService {
             // 0600 — user-readable only (sensitive screen content)
             try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: videoURL.path)
         } catch {
-            #if DEBUG
-            print("[ProcessingService] Encoding failed for \(segmentId): \(error)")
-            #endif
+            Log.processing.error("Encoding failed for \(segmentId): \(error.localizedDescription)")
             // Preserve temp files for retry on encoding failure
             return
         }
@@ -179,9 +176,7 @@ final class ProcessingService {
         let fps = 30.0
 
         guard let db = openDatabase(Paths.databasePath.path) else {
-            #if DEBUG
-            print("[ProcessingService] Failed to open database, preserving temp files")
-            #endif
+            Log.processing.fault("Failed to open database, preserving temp files")
             try? FileManager.default.removeItem(at: videoURL)
             return
         }
@@ -205,9 +200,7 @@ final class ProcessingService {
             sqlite3_bind_int64(stmt, 9, Int64(fileSize))
             sqlite3_bind_text(stmt, 10, relativePath, -1, SQLITE_TRANSIENT)
             if sqlite3_step(stmt) != SQLITE_DONE {
-                #if DEBUG
-                print("[ProcessingService] Failed to insert segment: \(String(cString: sqlite3_errmsg(db)))")
-                #endif
+                Log.processing.error("Failed to insert segment: \(String(cString: sqlite3_errmsg(db)))")
             }
         }
 
@@ -231,9 +224,7 @@ final class ProcessingService {
                 sqlite3_bind_double(stmt, 4, appSeg.startTS)
                 sqlite3_bind_double(stmt, 5, appSeg.endTS)
                 if sqlite3_step(stmt) != SQLITE_DONE {
-                    #if DEBUG
-                    print("[ProcessingService] Failed to insert appsegment: \(String(cString: sqlite3_errmsg(db)))")
-                    #endif
+                    Log.processing.error("Failed to insert appsegment: \(String(cString: sqlite3_errmsg(db)))")
                 }
             }
         }
@@ -243,9 +234,7 @@ final class ProcessingService {
             try? FileManager.default.removeItem(at: frame.url)
         }
 
-        #if DEBUG
-        print("[ProcessingService] Processed \(frames.count) frames → segment \(segmentId)")
-        #endif
+        Log.processing.info("Processed \(frames.count) frames → segment \(segmentId)")
     }
 
     // MARK: - Video Encoding
@@ -290,9 +279,7 @@ final class ProcessingService {
         for (index, frame) in frames.enumerated() {
             guard let image = NSImage(contentsOf: frame.url),
                   let pixelBuffer = createPixelBuffer(from: image, width: width, height: height) else {
-                #if DEBUG
-                print("[ProcessingService] Skipping unreadable frame: \(frame.url.lastPathComponent)")
-                #endif
+                Log.processing.notice("Skipping unreadable frame: \(frame.url.lastPathComponent)")
                 continue
             }
 
@@ -411,9 +398,7 @@ final class ProcessingService {
     private func prepareStatement(_ db: OpaquePointer, sql: String) -> OpaquePointer? {
         var stmt: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
-            #if DEBUG
-            print("[ProcessingService] Failed to prepare statement: \(String(cString: sqlite3_errmsg(db)))")
-            #endif
+            Log.processing.error("Failed to prepare statement: \(String(cString: sqlite3_errmsg(db)))")
             return nil
         }
         return stmt

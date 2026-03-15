@@ -83,7 +83,7 @@ TimelineStore (5s refresh)
 
 ### Error Handling
 
-- Recording failures: Log, skip frame, continue
+- Recording failures: Log via `Log.recording.error(...)`, skip frame, continue
 - Processing failures: Log, preserve temp files, skip segment
 - Database failures: Show error state in timeline UI with retry button
 - Permission denied: Inline prompt in settings panel with "Open System Settings" button

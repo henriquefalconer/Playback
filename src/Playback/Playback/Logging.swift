@@ -1,0 +1,12 @@
+import os
+
+enum Log {
+    static let recording  = Logger(subsystem: "com.falconer.Playback", category: "Recording")
+    static let processing = Logger(subsystem: "com.falconer.Playback", category: "Processing")
+    static let playback   = Logger(subsystem: "com.falconer.Playback", category: "Playback")
+    static let timeline   = Logger(subsystem: "com.falconer.Playback", category: "Timeline")
+    static let ui         = Logger(subsystem: "com.falconer.Playback", category: "UI")
+    static let menuBar    = Logger(subsystem: "com.falconer.Playback", category: "MenuBar")
+    static let hotkey     = Logger(subsystem: "com.falconer.Playback", category: "Hotkey")
+    static let config     = Logger(subsystem: "com.falconer.Playback", category: "Config")
+}

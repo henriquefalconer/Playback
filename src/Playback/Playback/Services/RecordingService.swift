@@ -7,6 +7,7 @@ import CoreGraphics
 import ApplicationServices
 import Combine
 import ScreenCaptureKit
+import os
 
 /// Recording service that captures screenshots at regular intervals
 /// Runs in-process, uses app's Screen Recording permission
@@ -20,100 +21,73 @@ final class RecordingService: ObservableObject {
 
     private var timer: Timer?
     private let fileManager = FileManager.default
-    private var lastLoggedError: String?
 
     // Config
     private var captureInterval: TimeInterval = 2.0 // seconds
     private var excludedApps: [String] = []
 
     private init() {
-        #if DEBUG
-            print("[RecordingService] Initializing singleton")
-        #endif
+        Log.recording.debug("Initializing singleton")
         loadConfig()
         setupConfigObserver()
-        #if DEBUG
-            print("[RecordingService] Initialization complete")
-        #endif
+        Log.recording.debug("Initialization complete")
     }
 
     // MARK: - Public API
 
     /// Start recording (captures screenshots every 2 seconds)
     func start() {
-        #if DEBUG
-            print("[RecordingService] start() called, isRecording=\(isRecording)")
-        #endif
+        Log.recording.debug("start() called, isRecording=\(self.isRecording)")
         guard !isRecording else {
-            #if DEBUG
-                print("[RecordingService] Already recording, ignoring start()")
-            #endif
+            Log.recording.debug("Already recording, ignoring start()")
             return
         }
 
         // Check Screen Recording permission
         let hasPermission = CGPreflightScreenCaptureAccess()
-        #if DEBUG
-            print("[RecordingService] Screen Recording permission check: \(hasPermission)")
-        #endif
+        Log.recording.info("Screen Recording permission check: \(hasPermission)")
         guard hasPermission else {
-            logError("Screen Recording permission not granted")
+            Log.recording.error("Screen Recording permission not granted")
             return
         }
 
-        #if DEBUG
-            print("[RecordingService] Permission granted, starting recording")
-        #endif
+        Log.recording.info("Permission granted, starting recording")
         isRecording = true
         captureCount = 0
 
         // Start timer
         timer = Timer.scheduledTimer(withTimeInterval: captureInterval, repeats: true) { [weak self] _ in
-            #if DEBUG
-                print("[RecordingService] Timer fired")
-            #endif
+            Log.recording.debug("Timer fired")
             Task { @MainActor in
                 await self?.captureScreenshot()
             }
         }
-        #if DEBUG
-            print("[RecordingService] Timer created with interval \(captureInterval)s")
-        #endif
+        Log.recording.debug("Timer created with interval \(self.captureInterval)s")
 
         // Fire immediately
-        #if DEBUG
-            print("[RecordingService] Firing initial capture")
-        #endif
+        Log.recording.debug("Firing initial capture")
         Task {
             await captureScreenshot()
         }
 
-        log("Recording service started", metadata: ["interval_seconds": captureInterval])
-        #if DEBUG
-            print("[RecordingService] start() complete, isRecording=\(isRecording)")
-        #endif
+        Log.recording.info("Recording service started, interval=\(self.captureInterval)s")
+        Log.recording.debug("start() complete, isRecording=\(self.isRecording)")
     }
 
     /// Stop recording
     func stop() {
-        #if DEBUG
-            print("[RecordingService] stop() called, isRecording=\(isRecording)")
-        #endif
+        Log.recording.debug("stop() called, isRecording=\(self.isRecording)")
         guard isRecording else {
-            #if DEBUG
-                print("[RecordingService] Already stopped, ignoring")
-            #endif
+            Log.recording.debug("Already stopped, ignoring")
             return
         }
 
         timer?.invalidate()
         timer = nil
         isRecording = false
-        #if DEBUG
-            print("[RecordingService] Recording stopped")
-        #endif
+        Log.recording.debug("Recording stopped")
 
-        log("Recording service stopped", metadata: ["total_captures": captureCount])
+        Log.recording.info("Recording service stopped, total_captures=\(self.captureCount)")
     }
 
     /// Reload configuration
@@ -133,42 +107,31 @@ final class RecordingService: ObservableObject {
     // MARK: - Screenshot Capture
 
     private func captureScreenshot() async {
-        #if DEBUG
-            print("[RecordingService] captureScreenshot() called")
-        #endif
+        Log.recording.debug("captureScreenshot() called")
 
         // Check if timeline is open (pause recording)
         if fileManager.fileExists(atPath: Paths.timelineOpenSignalPath.path) {
-            #if DEBUG
-                print("[RecordingService] Timeline open - pausing capture")
-            #endif
+            Log.recording.debug("Timeline open - pausing capture")
             return
         }
 
         // Get frontmost app
         guard let frontmostApp = getFrontmostApp() else {
-            #if DEBUG
-                print("[RecordingService] ERROR: Could not determine frontmost app")
-            #endif
-            logError("Could not determine frontmost app")
+            Log.recording.error("Could not determine frontmost app")
             return
         }
 
-        #if DEBUG
-            print("[RecordingService] Frontmost app: \(frontmostApp)")
-        #endif
+        Log.recording.debug("Frontmost app: \(frontmostApp)")
 
         // Check if app is excluded
         if excludedApps.contains(frontmostApp) {
-            #if DEBUG
-                print("[RecordingService] Skipping excluded app: \(frontmostApp)")
-            #endif
+            Log.recording.notice("Skipping excluded app: \(frontmostApp)")
             return
         }
 
         // Capture display using ScreenCaptureKit (modern API)
         guard let pngData = await captureScreen() else {
-            logError("Failed to capture screen")
+            Log.recording.error("Failed to capture screen")
             return
         }
 
@@ -199,7 +162,7 @@ final class RecordingService: ObservableObject {
             try fileManager.createDirectory(at: tempDir, withIntermediateDirectories: true)
             try? fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: tempDir.path)
         } catch {
-            logError("Failed to create temp directory: \(error.localizedDescription)")
+            Log.recording.error("Failed to create temp directory: \(error.localizedDescription)")
             return
         }
 
@@ -214,14 +177,10 @@ final class RecordingService: ObservableObject {
             captureCount += 1
             lastCaptureTime = timestamp
 
-            log("Screenshot captured", metadata: [
-                "path": filePath.path,
-                "size_kb": String(format: "%.1f", sizeKB),
-                "app_id": frontmostApp
-            ])
+            Log.recording.debug("Screenshot captured: \(filePath.path), size=\(String(format: "%.1f", sizeKB))KB, app=\(frontmostApp)")
 
         } catch {
-            logError("Failed to write screenshot: \(error.localizedDescription)")
+            Log.recording.error("Failed to write screenshot: \(error.localizedDescription)")
         }
     }
 
@@ -264,9 +223,7 @@ final class RecordingService: ObservableObject {
 
             return pngData
         } catch {
-            #if DEBUG
-                print("[RecordingService] Screen capture error: \(error)")
-            #endif
+            Log.recording.error("Screen capture error: \(error.localizedDescription)")
             return nil
         }
     }
@@ -287,49 +244,6 @@ final class RecordingService: ObservableObject {
                 self?.reload()
             }
         }
-    }
-
-    // MARK: - Logging
-
-    private func log(_ message: String, metadata: [String: Any] = [:]) {
-        #if DEBUG
-            var logDict: [String: Any] = [
-                "timestamp": ISO8601DateFormatter().string(from: Date()),
-                "level": "INFO",
-                "component": "recording",
-                "message": message
-            ]
-            if !metadata.isEmpty {
-                logDict["metadata"] = metadata
-            }
-
-            if let jsonData = try? JSONSerialization.data(withJSONObject: logDict, options: []),
-               let jsonString = String(data: jsonData, encoding: .utf8) {
-                print(jsonString)
-            }
-        #endif
-    }
-
-    private func logError(_ message: String) {
-        // Avoid duplicate error logs
-        if lastLoggedError == message {
-            return
-        }
-        lastLoggedError = message
-
-        #if DEBUG
-            let logDict: [String: Any] = [
-                "timestamp": ISO8601DateFormatter().string(from: Date()),
-                "level": "ERROR",
-                "component": "recording",
-                "message": message
-            ]
-
-            if let jsonData = try? JSONSerialization.data(withJSONObject: logDict, options: []),
-               let jsonString = String(data: jsonData, encoding: .utf8) {
-                print(jsonString)
-            }
-        #endif
     }
 
     deinit {

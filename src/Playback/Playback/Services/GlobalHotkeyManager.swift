@@ -3,6 +3,7 @@
 
 import Foundation
 import Carbon
+import os
 
 enum HotkeyError: Error {
     case registrationFailed
@@ -89,9 +90,7 @@ final class GlobalHotkeyManager {
             throw HotkeyError.registrationFailed
         }
 
-        #if DEBUG
-        print("[GlobalHotkey] Registered hotkey: keyCode=\(keyCode), modifiers=\(modifiers)")
-        #endif
+        Log.hotkey.info("Registered hotkey: keyCode=\(keyCode), modifiers=\(modifiers)")
     }
 
     func unregister() {
@@ -106,9 +105,7 @@ final class GlobalHotkeyManager {
         }
 
         callback = nil
-        #if DEBUG
-        print("[GlobalHotkey] Unregistered hotkey")
-        #endif
+        Log.hotkey.info("Unregistered hotkey")
     }
 
     private func checkAccessibilityPermission() -> Bool {

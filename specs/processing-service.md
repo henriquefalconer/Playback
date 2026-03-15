@@ -73,6 +73,6 @@ Example: `chunks/202603/15/a3f8b29c4d5e6f7890ab.mp4`
 ## Error Handling
 
 - Frame loading failure: skip frame, continue with remaining
-- Video encoding failure: log error, preserve temp files for retry
+- Video encoding failure: log via `Log.processing.error(...)`, preserve temp files for retry
 - Database write failure: log error, skip segment
 - Never crash the app on processing errors

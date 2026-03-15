@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 enum Paths {
     /// Base data directory
@@ -90,9 +91,7 @@ final class SignalFileManager {
         let content = "Timeline viewer opened at \(timestamp)\n"
         try content.write(to: signalPath, atomically: true, encoding: .utf8)
 
-        #if DEBUG
-        print("[Playback] Signal file created: \(signalPath.path)")
-        #endif
+        Log.playback.debug("Signal file created: \(self.signalPath.path)")
     }
 
     /// Remove the signal file to indicate timeline viewer is closed
@@ -103,13 +102,9 @@ final class SignalFileManager {
 
         do {
             try fileManager.removeItem(at: signalPath)
-            #if DEBUG
-            print("[Playback] Signal file removed: \(signalPath.path)")
-            #endif
+            Log.playback.debug("Signal file removed: \(self.signalPath.path)")
         } catch {
-            #if DEBUG
-            print("[Playback] Warning: Failed to remove signal file: \(error)")
-            #endif
+            Log.playback.notice("Failed to remove signal file: \(error.localizedDescription)")
         }
     }
 

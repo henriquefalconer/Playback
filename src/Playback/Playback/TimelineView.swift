@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 import CoreImage
+import os
 
 // Extension to obtain an average color from an icon using only native APIs (CoreImage).
 extension NSImage {
@@ -271,19 +272,13 @@ struct TimelineView: View {
                         let rawLocation = value.location
                         let geoWidth = geo.size.width
                         let leftEdgeX = (geoWidth - width) / 2
-                        #if DEBUG
-                        print("[TimelineView] Click/drag ended. rawLocation=\(rawLocation), geoWidth=\(geoWidth), width=\(width), leftEdgeX=\(leftEdgeX)")
-                        #endif
+                        Log.timeline.debug("Click/drag ended. rawLocation=\(rawLocation.debugDescription), geoWidth=\(geoWidth), width=\(width), leftEdgeX=\(leftEdgeX)")
 
                         let localX = max(0, min(rawLocation.x - leftEdgeX, width))
-                        #if DEBUG
-                        print("[TimelineView]   localX (adjusted)=\(localX)")
-                        #endif
+                        Log.timeline.debug("  localX (adjusted)=\(localX)")
 
                         var newTime = windowStart + TimeInterval(localX / width) * visibleWindowSeconds
-                        #if DEBUG
-                        print("[TimelineView]   newTime (before clamp)=\(newTime), windowStart=\(windowStart), visibleWindowSeconds=\(visibleWindowSeconds)")
-                        #endif
+                        Log.timeline.debug("  newTime (before clamp)=\(newTime), windowStart=\(windowStart), visibleWindowSeconds=\(visibleWindowSeconds)")
 
                         if let start = timelineStore.timelineStart {
                             newTime = max(start, newTime)
@@ -292,18 +287,12 @@ struct TimelineView: View {
                             newTime = min(end, newTime)
                         }
 
-                        #if DEBUG
-                        print("[TimelineView]   newTime (after clamp)=\(newTime)")
-                        #endif
+                        Log.timeline.debug("  newTime (after clamp)=\(newTime)")
 
                         playbackController.scrub(to: newTime, store: timelineStore)
-                        #if DEBUG
-                        print("[TimelineView]   playbackController.currentTime after scrub=\(playbackController.currentTime)")
-                        #endif
+                        Log.timeline.debug("  playbackController.currentTime after scrub=\(playbackController.currentTime)")
                         centerTime = playbackController.currentTime
-                        #if DEBUG
-                        print("[TimelineView]   centerTime updated=\(centerTime)")
-                        #endif
+                        Log.timeline.debug("  centerTime updated=\(centerTime)")
                     }
             )
         }

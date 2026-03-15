@@ -1,6 +1,7 @@
 import SwiftUI
 import AVKit
 import AppKit
+import os
 
 struct ContentView: View {
     @EnvironmentObject var timelineStore: TimelineStore
@@ -54,9 +55,7 @@ struct ContentView: View {
         // reposition centerTime to the latest available timestamp.
         .onChange(of: timelineStore.segments.count) { _, newCount in
             guard newCount > 0, let latest = timelineStore.latestTS else { return }
-            #if DEBUG
-            print("[ContentView] segments.count changed to \(newCount); repositioning centerTime to latestTS=\(latest)")
-            #endif
+            Log.ui.debug("segments.count changed to \(newCount); repositioning centerTime to latestTS=\(latest)")
             centerTime = latest
             playbackController.update(for: latest, store: timelineStore)
         }
@@ -87,9 +86,7 @@ struct ContentView: View {
                         visibleWindowSeconds = newWindow
                         centerTime = anchorTimestamp + (centerTime - anchorTimestamp) * (newWindow / oldWindow)
 
-                        #if DEBUG
-                        print("[ContentView] Pinch zoom -> visibleWindowSeconds=\(visibleWindowSeconds), centerTime=\(centerTime)")
-                        #endif
+                        Log.ui.debug("Pinch zoom -> visibleWindowSeconds=\(visibleWindowSeconds), centerTime=\(centerTime)")
                     }
                 }
                 .onEnded { _ in
@@ -244,9 +241,7 @@ struct ContentView: View {
                 stopMomentum()
             }
 
-            #if DEBUG
-            print("[ScrollCapture] event dx=\(rawDx), dy=\(rawDy), phase=\(event.phase.rawValue), momentumPhase=\(event.momentumPhase.rawValue)")
-            #endif
+            Log.ui.debug("ScrollCapture event dx=\(rawDx), dy=\(rawDy), phase=\(event.phase.rawValue), momentumPhase=\(event.momentumPhase.rawValue)")
 
             guard rawDx != 0 || rawDy != 0 else { return nil }
             let primaryRaw: CGFloat = abs(rawDx) >= abs(rawDy) ? rawDx : rawDy

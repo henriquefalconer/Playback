@@ -3,6 +3,7 @@
 
 import Foundation
 import Combine
+import os
 
 @MainActor
 final class ConfigManager: ObservableObject {
@@ -30,10 +31,7 @@ final class ConfigManager: ObservableObject {
             let loadedConfig = try JSONDecoder().decode(Config.self, from: data)
             self.config = loadedConfig.validated()
         } catch {
-            #if DEBUG
-            print("Failed to load config from \(configPath.path): \(error)")
-            print("Using default configuration")
-            #endif
+            Log.config.error("Failed to load config from \(self.configPath.path): \(error.localizedDescription)")
 
             if !FileManager.default.fileExists(atPath: configPath.path) {
                 saveConfiguration()
@@ -62,9 +60,7 @@ final class ConfigManager: ObservableObject {
                 try? fileHandle.close()
             }
         } catch {
-            #if DEBUG
-            print("Failed to save config to \(configPath.path): \(error)")
-            #endif
+            Log.config.error("Failed to save config to \(self.configPath.path): \(error.localizedDescription)")
         }
     }
 
