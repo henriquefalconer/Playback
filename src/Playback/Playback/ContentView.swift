@@ -68,6 +68,7 @@ struct ContentView: View {
                     if pinchBaseVisibleWindowSeconds == nil {
                         pinchBaseVisibleWindowSeconds = visibleWindowSeconds
                         pinchAnchorTimestamp = centerTime
+                        Log.ui.info("Pinch zoom started — visibleWindowSeconds=\(visibleWindowSeconds)")
                     }
                     guard let base = pinchBaseVisibleWindowSeconds else { return }
                     guard let anchorTimestamp = pinchAnchorTimestamp else { return }
@@ -86,10 +87,11 @@ struct ContentView: View {
                         visibleWindowSeconds = newWindow
                         centerTime = anchorTimestamp + (centerTime - anchorTimestamp) * (newWindow / oldWindow)
 
-                        Log.ui.debug("Pinch zoom -> visibleWindowSeconds=\(visibleWindowSeconds), centerTime=\(centerTime)")
+                        Log.ui.info("Pinch zoom -> visibleWindowSeconds=\(visibleWindowSeconds), centerTime=\(centerTime)")
                     }
                 }
                 .onEnded { _ in
+                    Log.ui.info("Pinch zoom ended — visibleWindowSeconds=\(visibleWindowSeconds)")
                     pinchBaseVisibleWindowSeconds = nil
                     pinchAnchorTimestamp = nil
                 }
