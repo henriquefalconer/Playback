@@ -94,28 +94,22 @@ Implemented:
 
 ---
 
-## 7. Playback Controller & AVPlayer
+## 7. Playback Controller & AVPlayer ✅ DONE
 
-**Spec:** `timeline-graphical-interface.md` lines 20-25 (AVPlayer), lines 27-31 (preloading), lines 33-38 (frozen frame), lines 50-52 (consecutive failures)
 **Source:** `PlaybackController.swift`
 
-### Existing coverage
-- Frozen frame errors, preload events, scrub details, seek status, consecutive failures (21 log calls)
-
-### New logs needed
-
-- **`EVENT`** Play started — `play()` (line 333), log current segment ID, current time, video offset
-- **`EVENT`** Pause triggered — `pause()` (line 344), log current segment ID, current time, reason (user vs scrub vs system)
-- **`EVENT`** Play/pause toggled — `togglePlayPause()` (line 328), log resulting state
-- **`EVENT`** Segment transition — `seek()` when segment changes (line 357), log old segment ID -> new segment ID, transition type (preloaded vs fresh load), gap crossed
-- **`EVENT`** Frozen frame shown — when `showFrozenFrame` set to true (line 250-260 in scrub, line 354 in seek), log reason (scrub gap, segment transition, loading)
-- **`EVENT`** Frozen frame hidden — when `showFrozenFrame` set to false (line 386 in seek status observer), log duration shown
-- **`EVENT`** Preload triggered — `checkAndPreloadNextSegment()` (line 138), log current progress %, current segment ID, next segment ID
-- **`EVENT`** Preload used — `usePreloadedSegmentIfAvailable()` (line 213), log latency saved estimate
-- **`EVENT`** Consecutive failure count changed — after increment (line 395-403, 475-484), log count and threshold status
-- **`EVENT`** Error state entered — when `playbackError` set (line 399-401, 476-478), log error type and details
-- **`EVENT`** Error state cleared — when `playbackError` set to nil (line 384, 469), log recovery
-- **`TEMPORAL`** Time observer tick — periodic observer (line 63-87, every 0.2s), log every 5 seconds: current absolute time, video offset, segment ID, buffer state — avoid flooding by sampling
+Implemented:
+- Play started with segment ID and current time
+- Pause triggered with segment ID and current time
+- Play/pause toggled with resulting state
+- Segment transition with old→new segment ID, transition type (preloaded vs fresh_load), isScrub flag
+- Frozen frame shown with reason (segment_transition, start_boundary, loading_failure)
+- Frozen frame hidden with duration shown (in seconds)
+- Preload triggered with progress %, current and next segment IDs
+- Consecutive failure count changed with count and threshold
+- Error state entered with error type details (videoFileMissing, multipleConsecutiveFailures, segmentLoadingFailure)
+- Error state cleared with recovery reason
+- Time observer tick sampled every ~5 seconds: absolute time, video offset, segment ID, playing state, frozen frame state
 
 ---
 

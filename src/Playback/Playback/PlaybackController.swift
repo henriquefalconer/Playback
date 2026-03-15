@@ -52,6 +52,11 @@ final class PlaybackController: ObservableObject {
     private var scrubEndWorkItem: DispatchWorkItem?
     private var consecutiveFailures: Int = 0
 
+    /// Timestamp when frozenFrame was last shown (for duration logging)
+    private var frozenFrameShownAt: TimeInterval = 0
+    /// Counter for time observer ticks to sample logging every ~5s (25 ticks at 0.2s interval)
+    private var timeObserverTickCount: Int = 0
+
     init() {
         // Disable stalling wait so playback starts immediately without buffering delays.
         player.automaticallyWaitsToMinimizeStalling = false
@@ -80,6 +85,13 @@ final class PlaybackController: ObservableObject {
             // "teleportation" to the segment start when we're in
             // the middle of it.
             self.currentTime = segment.absoluteTime(forVideoOffset: seconds)
+
+            // Log time observer tick every ~5 seconds (25 ticks × 0.2s)
+            self.timeObserverTickCount += 1
+            if self.timeObserverTickCount >= 25 {
+                self.timeObserverTickCount = 0
+                Log.playback.info("Time tick: absoluteTime=\(self.currentTime, privacy: .public), videoOffset=\(seconds, privacy: .public), segmentID=\(segment.id, privacy: .public), playing=\(self.isPlaying, privacy: .public), frozenFrame=\(self.showFrozenFrame, privacy: .public)")
+            }
 
             // Segment preloading: When playback reaches 80% of current segment,
             // preload the next segment in background for seamless transition
@@ -145,7 +157,7 @@ final class PlaybackController: ObservableObject {
             return
         }
 
-        Log.playback.debug("Preloading next segment at \(Int(progress * 100))% progress: \(nextSegment.id)")
+        Log.playback.info("Preload triggered: progress=\(Int(progress * 100), privacy: .public)%, currentSegment=\(segment.id, privacy: .public), nextSegment=\(nextSegment.id, privacy: .public)")
 
         preloadSegmentInBackground(nextSegment)
     }
@@ -254,6 +266,10 @@ final class PlaybackController: ObservableObject {
             if frozenFrame == nil || !atStartBoundary, let seg = currentSegment {
                 captureFrozenFrame(from: seg, atAbsoluteTime: currentTime)
             }
+            if !showFrozenFrame {
+                Log.playback.info("Frozen frame shown: reason=start_boundary")
+                frozenFrameShownAt = ProcessInfo.processInfo.systemUptime
+            }
             showFrozenFrame = true
         }
         atStartBoundary = nowAtStartBoundary
@@ -313,6 +329,10 @@ final class PlaybackController: ObservableObject {
             // frame ready (status READY) and we are **not** at
             // the absolute start of the timeline, we can hide the frozen frame.
             if !self.atStartBoundary {
+                if self.showFrozenFrame {
+                    let frozenDuration = ProcessInfo.processInfo.systemUptime - self.frozenFrameShownAt
+                    if self.frozenFrameShownAt > 0 { Log.playback.info("Frozen frame hidden: duration=\(frozenDuration, privacy: .public)s, reason=scrub_end") }
+                }
                 self.showFrozenFrame = false
             }
             // Resume playback if the user was watching before they started scrubbing.
@@ -333,30 +353,38 @@ final class PlaybackController: ObservableObject {
             player.play()
             isPlaying = true
         }
+        Log.playback.info("Play/pause toggled: now \(self.isPlaying ? "playing" : "paused", privacy: .public), segmentID=\(self.currentSegment?.id ?? "none", privacy: .public), time=\(self.currentTime, privacy: .public)")
     }
 
     func play() {
         player.play()
         isPlaying = true
+        Log.playback.info("Play started: segmentID=\(self.currentSegment?.id ?? "none", privacy: .public), time=\(self.currentTime, privacy: .public)")
     }
 
     func pause() {
         player.pause()
         isPlaying = false
+        Log.playback.info("Pause triggered: segmentID=\(self.currentSegment?.id ?? "none", privacy: .public), time=\(self.currentTime, privacy: .public)")
     }
 
     private func seek(to segment: Segment, offset: TimeInterval, isScrub: Bool) {
         // If the segment changed, we swap the player item.
         if currentSegment?.id != segment.id {
+            let oldSegmentID = currentSegment?.id ?? "none"
             if let oldSeg = currentSegment {
                 // Before switching segments, freeze the last frame to
                 // avoid the black "flash" while the new video loads.
                 captureFrozenFrame(from: oldSeg, atAbsoluteTime: currentTime)
+                Log.playback.info("Frozen frame shown: reason=segment_transition, oldSegment=\(oldSegmentID, privacy: .public), newSegment=\(segment.id, privacy: .public)")
+                frozenFrameShownAt = ProcessInfo.processInfo.systemUptime
             }
 
             currentSegment = segment
             // Reset preload flag for new segment
             hasPreloadedNext = false
+            let willUsePreload = preloadedSegment?.id == segment.id && preloadPlayer != nil
+            Log.playback.info("Segment transition: \(oldSegmentID, privacy: .public) → \(segment.id, privacy: .public), type=\(willUsePreload ? "preloaded" : "fresh_load", privacy: .public), isScrub=\(isScrub, privacy: .public)")
 
             // Try to use preloaded segment if available
             if usePreloadedSegmentIfAvailable(segment) {
@@ -364,8 +392,11 @@ final class PlaybackController: ObservableObject {
                 // Status observer not needed since segment is already ready
                 consecutiveFailures = 0
                 playbackError = nil
+                Log.playback.info("Error state cleared: recovery via preloaded segment \(segment.id, privacy: .public)")
                 if !isScrubbing {
                     showFrozenFrame = false
+                    let frozenDuration = ProcessInfo.processInfo.systemUptime - frozenFrameShownAt
+                    if frozenFrameShownAt > 0 { Log.playback.info("Frozen frame hidden: duration=\(frozenDuration, privacy: .public)s") }
                 }
             } else {
                 // No preloaded segment, load normally
@@ -379,30 +410,42 @@ final class PlaybackController: ObservableObject {
                     case .readyToPlay:
                         Log.playback.debug("\(isScrub ? "(scrub) " : "")READY to play \(url.path)")
                         DispatchQueue.main.async {
+                            let hadError = self.playbackError != nil
                             self.consecutiveFailures = 0
                             self.playbackError = nil
+                            if hadError {
+                                Log.playback.info("Error state cleared: recovery after segment ready")
+                            }
                             // Only hide the frozen frame if we're no longer
                             // in scrubbing. During scrubbing, we keep the
                             // last displayed frame to avoid black flashes
                             // even if the new segment is already ready.
                             if !self.isScrubbing {
                                 self.showFrozenFrame = false
+                                let frozenDuration = ProcessInfo.processInfo.systemUptime - self.frozenFrameShownAt
+                                if self.frozenFrameShownAt > 0 { Log.playback.info("Frozen frame hidden: duration=\(frozenDuration, privacy: .public)s") }
                             }
                         }
                     case .failed:
                         Log.playback.error("\(isScrub ? "(scrub) " : "")FAILED for \(url.path): \(item.error?.localizedDescription ?? "(no error)")")
                         DispatchQueue.main.async {
                             self.consecutiveFailures += 1
+                            Log.playback.info("Consecutive failure count: \(self.consecutiveFailures, privacy: .public), threshold=3")
                             let errorDesc = item.error?.localizedDescription ?? "Unknown error"
                             if !FileManager.default.fileExists(atPath: url.path) {
                                 self.playbackError = .videoFileMissing(url.lastPathComponent)
+                                Log.playback.error("Error state entered: videoFileMissing(\(url.lastPathComponent, privacy: .public))")
                             } else if self.consecutiveFailures >= 3 {
                                 self.playbackError = .multipleConsecutiveFailures(self.consecutiveFailures)
+                                Log.playback.error("Error state entered: multipleConsecutiveFailures(\(self.consecutiveFailures, privacy: .public))")
                             } else {
                                 self.playbackError = .segmentLoadingFailure(errorDesc)
+                                Log.playback.error("Error state entered: segmentLoadingFailure(\(errorDesc, privacy: .public))")
                             }
                             if !self.isScrubbing {
                                 self.showFrozenFrame = true
+                                self.frozenFrameShownAt = ProcessInfo.processInfo.systemUptime
+                                Log.playback.info("Frozen frame shown: reason=loading_failure")
                             }
                         }
                     case .unknown:
@@ -435,22 +478,30 @@ final class PlaybackController: ObservableObject {
         currentTime = time
 
         if currentSegment?.id != segment.id {
+            let oldSegmentID = currentSegment?.id ?? "none"
             if let oldSeg = currentSegment {
                 // Freeze the last frame of the previous segment before switching.
                 captureFrozenFrame(from: oldSeg, atAbsoluteTime: currentTime)
+                Log.playback.info("Frozen frame shown: reason=segment_transition_update, oldSegment=\(oldSegmentID, privacy: .public)")
+                frozenFrameShownAt = ProcessInfo.processInfo.systemUptime
             }
 
             currentSegment = segment
             // Reset preload flag for new segment
             hasPreloadedNext = false
+            let willUsePreload = preloadedSegment?.id == segment.id && preloadPlayer != nil
+            Log.playback.info("Segment transition (update): \(oldSegmentID, privacy: .public) → \(segment.id, privacy: .public), type=\(willUsePreload ? "preloaded" : "fresh_load", privacy: .public)")
 
             // Try to use preloaded segment if available
             if usePreloadedSegmentIfAvailable(segment) {
                 // Preloaded segment successfully used
                 consecutiveFailures = 0
                 playbackError = nil
+                Log.playback.info("Error state cleared: recovery via preloaded segment (update) \(segment.id, privacy: .public)")
                 if !isScrubbing {
                     showFrozenFrame = false
+                    let frozenDuration = ProcessInfo.processInfo.systemUptime - frozenFrameShownAt
+                    if frozenFrameShownAt > 0 { Log.playback.info("Frozen frame hidden: duration=\(frozenDuration, privacy: .public)s") }
                 }
             } else {
                 // No preloaded segment, load normally
@@ -464,26 +515,38 @@ final class PlaybackController: ObservableObject {
                     case .readyToPlay:
                         Log.playback.debug("READY to play \(url.path)")
                         DispatchQueue.main.async {
+                            let hadError = self.playbackError != nil
                             self.consecutiveFailures = 0
                             self.playbackError = nil
+                            if hadError {
+                                Log.playback.info("Error state cleared: recovery after segment ready (update)")
+                            }
                             if !self.isScrubbing {
                                 self.showFrozenFrame = false
+                                let frozenDuration = ProcessInfo.processInfo.systemUptime - self.frozenFrameShownAt
+                                if self.frozenFrameShownAt > 0 { Log.playback.info("Frozen frame hidden: duration=\(frozenDuration, privacy: .public)s") }
                             }
                         }
                     case .failed:
                         Log.playback.error("FAILED for \(url.path): \(item.error?.localizedDescription ?? "(no error)")")
                         DispatchQueue.main.async {
                             self.consecutiveFailures += 1
+                            Log.playback.info("Consecutive failure count: \(self.consecutiveFailures, privacy: .public), threshold=3")
                             let errorDesc = item.error?.localizedDescription ?? "Unknown error"
                             if !FileManager.default.fileExists(atPath: url.path) {
                                 self.playbackError = .videoFileMissing(url.lastPathComponent)
+                                Log.playback.error("Error state entered: videoFileMissing(\(url.lastPathComponent, privacy: .public))")
                             } else if self.consecutiveFailures >= 3 {
                                 self.playbackError = .multipleConsecutiveFailures(self.consecutiveFailures)
+                                Log.playback.error("Error state entered: multipleConsecutiveFailures(\(self.consecutiveFailures, privacy: .public))")
                             } else {
                                 self.playbackError = .segmentLoadingFailure(errorDesc)
+                                Log.playback.error("Error state entered: segmentLoadingFailure(\(errorDesc, privacy: .public))")
                             }
                             if !self.isScrubbing {
                                 self.showFrozenFrame = true
+                                self.frozenFrameShownAt = ProcessInfo.processInfo.systemUptime
+                                Log.playback.info("Frozen frame shown: reason=loading_failure (update)")
                             }
                         }
                     case .unknown:
