@@ -56,27 +56,22 @@ Implemented:
 
 ---
 
-## 5. Processing Service
+## 5. Processing Service ✅ DONE
 
-**Spec:** `processing-service.md` lines 18-26 (pipeline steps), lines 28-36 (video encoding), lines 45-59 (database writes)
 **Source:** `ProcessingService.swift`
 
-### Existing coverage
-- Directory errors, encoding errors, DB errors, success info (18 log calls)
-
-### New logs needed
-
-- **`EVENT`** Processing cycle started — `triggerProcessing()` (line 37), log trigger source (timer vs manual start)
-- **`EVENT`** Processing cycle completed — after `processAllPendingDays()` returns (line 41-44), log total segments created, total frames processed, total duration
-- **`EVENT`** Day directory scan result — `processAllPendingDays()` (line 50), log number of pending days found
-- **`EVENT`** Frame group formed — `processDayDirectory()` (line 136), log group count, frame count per group, resolution
-- **`EVENT`** Video encoding started — `encodeVideo()` (line 279), log frame count, output path, target dimensions, bitrate
-- **`EVENT`** Video encoding progress — inside frame loop (line 313-330), log every 100th frame: frame index, elapsed time
-- **`EVENT`** Video encoding completed — after `writer.finishWriting` (line 336), log output file size, encoding duration, effective FPS
-- **`EVENT`** Database segment inserted — after INSERT succeeds (line 229), log segment ID, date, duration, frame count, file size
-- **`EVENT`** Database appsegment inserted — after INSERT succeeds (line 254), log app ID, duration
-- **`EVENT`** Temp file cleanup result — after deletion loop (line 257-263), log files deleted count, files failed count
-- **`TEMPORAL`** Processing service heartbeat — add 5-minute timer log in `start()` (line 25), log: is processing running, last processing time, segments in DB
+Implemented:
+- Processing cycle started with trigger source (initial_start vs timer) and cycle number
+- Processing cycle completed with segments created, frames processed, total duration
+- Day directory scan result with pending day count
+- Frame group formed with group count, frames per group, resolution
+- Video encoding started with segment ID, frame count, dimensions, bitrate
+- Video encoding progress every 100th frame with elapsed time
+- Video encoding completed with file size, encoding duration, effective FPS
+- Database segment inserted with ID, date, duration, frame count, file size
+- Database appsegment inserted with app ID and duration
+- Temp file cleanup result with deleted/failed counts
+- Processing service heartbeat (5-minute timer) with running state, last processing time, total segments created
 
 ---
 

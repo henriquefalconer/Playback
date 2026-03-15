@@ -17,8 +17,12 @@ final class ProcessingService {
     static let shared = ProcessingService()
 
     private var timer: Timer?
+    private var heartbeatTimer: Timer?
     private let queue = DispatchQueue(label: "com.falconer.Playback.processing", qos: .utility)
     private var isRunning = false
+    private var lastProcessingTime: Date?
+    private var totalSegmentsCreated = 0
+    private var triggerCount = 0
 
     private init() {}
 
@@ -26,28 +30,49 @@ final class ProcessingService {
         timer = Timer.scheduledTimer(withTimeInterval: 5 * 60, repeats: true) { [weak self] _ in
             self?.triggerProcessing()
         }
+        // Heartbeat every 5 minutes
+        heartbeatTimer = Timer.scheduledTimer(withTimeInterval: 5 * 60, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            Log.processing.info("Heartbeat — running=\(self.isRunning, privacy: .public), lastProcessing=\(self.lastProcessingTime?.description ?? "never", privacy: .public), totalSegmentsCreated=\(self.totalSegmentsCreated, privacy: .public)")
+        }
         triggerProcessing()
     }
 
     func stop() {
         timer?.invalidate()
         timer = nil
+        heartbeatTimer?.invalidate()
+        heartbeatTimer = nil
     }
 
     private func triggerProcessing() {
-        guard !isRunning else { return }
+        guard !isRunning else {
+            Log.processing.info("Processing trigger skipped — already running")
+            return
+        }
         isRunning = true
+        triggerCount += 1
+        let trigger = triggerCount
+        let source = trigger == 1 ? "initial_start" : "timer"
+        Log.processing.info("Processing cycle #\(trigger, privacy: .public) started — trigger=\(source, privacy: .public)")
         queue.async { [weak self] in
-            self?.processAllPendingDays()
+            let cycleStart = CFAbsoluteTimeGetCurrent()
+            var segmentsCreated = 0
+            var framesProcessed = 0
+            self?.processAllPendingDays(segmentsCreated: &segmentsCreated, framesProcessed: &framesProcessed)
+            let elapsed = CFAbsoluteTimeGetCurrent() - cycleStart
+            Log.processing.info("Processing cycle #\(trigger, privacy: .public) completed — segments=\(segmentsCreated, privacy: .public), frames=\(framesProcessed, privacy: .public), duration=\(String(format: "%.1f", elapsed), privacy: .public)s")
             DispatchQueue.main.async {
                 self?.isRunning = false
+                self?.lastProcessingTime = Date()
+                self?.totalSegmentsCreated += segmentsCreated
             }
         }
     }
 
     // MARK: - Processing Pipeline
 
-    private func processAllPendingDays() {
+    private func processAllPendingDays(segmentsCreated: inout Int, framesProcessed: inout Int) {
         let tempDir = Paths.tempDirectory
         let fm = FileManager.default
 
@@ -59,6 +84,7 @@ final class ProcessingService {
             return
         }
 
+        var pendingDayCount = 0
         for monthDir in monthDirs.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {
             var isDir: ObjCBool = false
             guard fm.fileExists(atPath: monthDir.path, isDirectory: &isDir), isDir.boolValue else { continue }
@@ -73,12 +99,14 @@ final class ProcessingService {
 
             for dayDir in dayDirs.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {
                 guard fm.fileExists(atPath: dayDir.path, isDirectory: &isDir), isDir.boolValue else { continue }
-                processDayDirectory(dayDir)
+                pendingDayCount += 1
+                processDayDirectory(dayDir, segmentsCreated: &segmentsCreated, framesProcessed: &framesProcessed)
             }
         }
+        Log.processing.info("Day directory scan — \(pendingDayCount, privacy: .public) pending days found")
     }
 
-    private func processDayDirectory(_ dayDir: URL) {
+    private func processDayDirectory(_ dayDir: URL, segmentsCreated: inout Int, framesProcessed: inout Int) {
         let fm = FileManager.default
 
         let files: [URL]
@@ -133,12 +161,14 @@ final class ProcessingService {
             groups.append(currentGroup)
         }
 
+        Log.processing.info("Frame groups formed — \(groups.count, privacy: .public) groups from \(frames.count, privacy: .public) frames in \(dayDir.lastPathComponent, privacy: .public), frames/group=\(groups.map { $0.count }, privacy: .public), resolution=\(frames.first.map { "\($0.width)x\($0.height)" } ?? "unknown", privacy: .public)")
+
         for group in groups {
-            processFrameGroup(group, dayDir: dayDir)
+            processFrameGroup(group, dayDir: dayDir, segmentsCreated: &segmentsCreated, framesProcessed: &framesProcessed)
         }
     }
 
-    private func processFrameGroup(_ frames: [FrameInfo], dayDir: URL) {
+    private func processFrameGroup(_ frames: [FrameInfo], dayDir: URL, segmentsCreated: inout Int, framesProcessed: inout Int) {
         guard let first = frames.first, let last = frames.last else { return }
 
         let startTS = first.timestamp
@@ -168,7 +198,10 @@ final class ProcessingService {
         }
 
         let videoURL = chunksDir.appendingPathComponent("\(segmentId).mp4")
+        let bitrate = max(500_000, width * height)
+        Log.processing.info("Video encoding started — segment=\(segmentId, privacy: .public), frames=\(frames.count, privacy: .public), \(width, privacy: .public)x\(height, privacy: .public), bitrate=\(bitrate, privacy: .public)")
 
+        let encodeStart = CFAbsoluteTimeGetCurrent()
         do {
             try encodeVideo(frames: frames, outputURL: videoURL, width: width, height: height)
             // 0600 — user-readable only (sensitive screen content)
@@ -183,7 +216,10 @@ final class ProcessingService {
             return
         }
 
+        let encodeDuration = CFAbsoluteTimeGetCurrent() - encodeStart
         let fileSize = (try? FileManager.default.attributesOfItem(atPath: videoURL.path)[.size] as? Int) ?? 0
+        let effectiveFPS = encodeDuration > 0 ? Double(frames.count) / encodeDuration : 0
+        Log.processing.info("Video encoding completed — segment=\(segmentId, privacy: .public), size=\(fileSize, privacy: .public)bytes, duration=\(String(format: "%.1f", encodeDuration), privacy: .public)s, effectiveFPS=\(String(format: "%.1f", effectiveFPS), privacy: .public)")
         let basePath = Paths.baseDataDirectory.path
         let relativePath: String
         if videoURL.path.hasPrefix(basePath + "/") {
@@ -225,6 +261,11 @@ final class ProcessingService {
             sqlite3_bind_text(stmt, 10, relativePath, -1, SQLITE_TRANSIENT)
             if sqlite3_step(stmt) != SQLITE_DONE {
                 Log.processing.error("Failed to insert segment: \(String(cString: sqlite3_errmsg(db)))")
+            } else {
+                let duration = endTS - startTS
+                Log.processing.info("DB segment inserted — id=\(segmentId, privacy: .public), date=\(dateStr, privacy: .public), duration=\(String(format: "%.1f", duration), privacy: .public)s, frames=\(frames.count, privacy: .public), size=\(fileSize, privacy: .public)bytes")
+                segmentsCreated += 1
+                framesProcessed += frames.count
             }
         }
 
@@ -249,25 +290,31 @@ final class ProcessingService {
                 sqlite3_bind_double(stmt, 5, appSeg.endTS)
                 if sqlite3_step(stmt) != SQLITE_DONE {
                     Log.processing.error("Failed to insert appsegment: \(String(cString: sqlite3_errmsg(db)))")
+                } else {
+                    let appDuration = appSeg.endTS - appSeg.startTS
+                    Log.processing.info("DB appsegment inserted — app=\(appSeg.appId ?? "unknown", privacy: .public), duration=\(String(format: "%.1f", appDuration), privacy: .public)s")
                 }
             }
         }
 
         // Delete processed temp files after successful DB write
+        var deletedCount = 0
+        var failedCount = 0
         for frame in frames {
             do {
                 try FileManager.default.removeItem(at: frame.url)
+                deletedCount += 1
             } catch {
+                failedCount += 1
                 Log.processing.debug("Failed to delete processed temp file \(frame.url.lastPathComponent): \(error.localizedDescription)")
             }
         }
-
-        Log.processing.info("Processed \(frames.count) frames → segment \(segmentId)")
+        Log.processing.info("Temp cleanup — deleted=\(deletedCount, privacy: .public), failed=\(failedCount, privacy: .public)")
     }
 
     // MARK: - Video Encoding
 
-    private func encodeVideo(frames: [FrameInfo], outputURL: URL, width: Int, height: Int) throws {
+    private func encodeVideo(frames: [FrameInfo], outputURL: URL, width: Int, height: Int) throws {  // swiftlint:disable:this function_body_length
         do {
             try FileManager.default.removeItem(at: outputURL)
         } catch let error as NSError where error.domain == NSCocoaErrorDomain && error.code == NSFileNoSuchFileError {
@@ -310,6 +357,7 @@ final class ProcessingService {
         writer.startWriting()
         writer.startSession(atSourceTime: .zero)
 
+        let encodeLoopStart = CFAbsoluteTimeGetCurrent()
         for (index, frame) in frames.enumerated() {
             guard let image = NSImage(contentsOf: frame.url),
                   let pixelBuffer = createPixelBuffer(from: image, width: width, height: height) else {
@@ -327,6 +375,11 @@ final class ProcessingService {
 
             let presentationTime = CMTime(value: CMTimeValue(index), timescale: 30)
             adaptor.append(pixelBuffer, withPresentationTime: presentationTime)
+
+            if (index + 1) % 100 == 0 {
+                let elapsed = CFAbsoluteTimeGetCurrent() - encodeLoopStart
+                Log.processing.info("Encoding progress — frame \(index + 1, privacy: .public)/\(frames.count, privacy: .public), elapsed=\(String(format: "%.1f", elapsed), privacy: .public)s")
+            }
         }
 
         input.markAsFinished()
