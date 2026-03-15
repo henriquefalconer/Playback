@@ -83,17 +83,14 @@ enum Paths {
         }
     }
 
-    /// Ensure all required directories exist
+    /// Ensure all required directories exist with correct permissions (0700).
     static func ensureDirectoriesExist() throws {
         let fileManager = FileManager.default
-        try fileManager.createDirectory(
-            at: baseDataDirectory,
-            withIntermediateDirectories: true
-        )
-        try fileManager.createDirectory(
-            at: chunksDirectory,
-            withIntermediateDirectories: true
-        )
+        let dirAttrs: [FileAttributeKey: Any] = [.posixPermissions: 0o700]
+        try fileManager.createDirectory(at: baseDataDirectory, withIntermediateDirectories: true)
+        try? fileManager.setAttributes(dirAttrs, ofItemAtPath: baseDataDirectory.path)
+        try fileManager.createDirectory(at: chunksDirectory, withIntermediateDirectories: true)
+        try? fileManager.setAttributes(dirAttrs, ofItemAtPath: chunksDirectory.path)
     }
 }
 

@@ -194,9 +194,10 @@ final class RecordingService: ObservableObject {
             .appendingPathComponent(yearMonth)
             .appendingPathComponent(day)
 
-        // Create directory if needed
+        // Create directory if needed (0700 — user-accessible only)
         do {
             try fileManager.createDirectory(at: tempDir, withIntermediateDirectories: true)
+            try? fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: tempDir.path)
         } catch {
             logError("Failed to create temp directory: \(error.localizedDescription)")
             return
@@ -206,6 +207,8 @@ final class RecordingService: ObservableObject {
         let filePath = tempDir.appendingPathComponent(filename)
         do {
             try pngData.write(to: filePath)
+            // 0600 — user-readable only (sensitive screen content)
+            try? fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: filePath.path)
 
             let sizeKB = Double(pngData.count) / 1024.0
             captureCount += 1

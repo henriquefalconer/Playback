@@ -141,6 +141,8 @@ final class ProcessingService {
 
         do {
             try FileManager.default.createDirectory(at: chunksDir, withIntermediateDirectories: true)
+            // 0700 — user-accessible only
+            try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: chunksDir.path)
         } catch {
             if Paths.isDevelopment {
                 print("[ProcessingService] Failed to create chunks dir: \(error)")
@@ -152,6 +154,8 @@ final class ProcessingService {
 
         do {
             try encodeVideo(frames: frames, outputURL: videoURL, width: width, height: height)
+            // 0600 — user-readable only (sensitive screen content)
+            try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: videoURL.path)
         } catch {
             if Paths.isDevelopment {
                 print("[ProcessingService] Encoding failed for \(segmentId): \(error)")
@@ -354,6 +358,9 @@ final class ProcessingService {
             if let db { sqlite3_close(db) }
             return nil
         }
+
+        // 0600 — user-readable only (contains sensitive metadata)
+        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: path)
 
         // Initialize schema
         let initSQL = """

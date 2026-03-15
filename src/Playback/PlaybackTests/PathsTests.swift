@@ -61,15 +61,9 @@ final class PathsTests: XCTestCase {
     // MARK: - Directory Creation Tests
 
     func testEnsureDirectoriesExistCreatesDirectories() throws {
-        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-
-        // Temporarily override paths to use temp directory (would need refactoring for true isolation)
-        // For now, just test that the method doesn't throw
-        do {
-            try Paths.ensureDirectoriesExist()
-        } catch {
-            XCTFail("ensureDirectoriesExist should not throw: \(error)")
-        }
+        // Just test that the method doesn't throw
+        XCTAssertNoThrow(try Paths.ensureDirectoriesExist(),
+                         "ensureDirectoriesExist should not throw")
 
         // Verify base directory exists
         XCTAssertTrue(FileManager.default.fileExists(atPath: Paths.baseDataDirectory.path),
@@ -78,6 +72,22 @@ final class PathsTests: XCTestCase {
         // Verify chunks directory exists
         XCTAssertTrue(FileManager.default.fileExists(atPath: Paths.chunksDirectory.path),
                       "Chunks directory should exist after calling ensureDirectoriesExist")
+    }
+
+    func testEnsureDirectoriesExistSets0700OnBaseDirectory() throws {
+        try Paths.ensureDirectoriesExist()
+
+        let attrs = try FileManager.default.attributesOfItem(atPath: Paths.baseDataDirectory.path)
+        let perms = attrs[.posixPermissions] as? Int
+        XCTAssertEqual(perms, 0o700, "Base data directory should have 0700 permissions")
+    }
+
+    func testEnsureDirectoriesExistSets0700OnChunksDirectory() throws {
+        try Paths.ensureDirectoriesExist()
+
+        let attrs = try FileManager.default.attributesOfItem(atPath: Paths.chunksDirectory.path)
+        let perms = attrs[.posixPermissions] as? Int
+        XCTAssertEqual(perms, 0o700, "Chunks directory should have 0700 permissions")
     }
 
     // MARK: - Path Consistency Tests
