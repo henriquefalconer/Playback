@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Proprietary
 
 import Foundation
+import os
 import ServiceManagement
 
 @MainActor
@@ -26,16 +27,21 @@ final class LaunchAtLoginManager {
         if #available(macOS 13.0, *) {
             if enabled {
                 if SMAppService.mainApp.status == .enabled {
+                    Log.system.debug("Launch at login already enabled, skipping")
                     return
                 }
                 try SMAppService.mainApp.register()
+                Log.system.info("Launch at login enabled")
             } else {
                 if SMAppService.mainApp.status == .notRegistered {
+                    Log.system.debug("Launch at login already disabled, skipping")
                     return
                 }
                 try SMAppService.mainApp.unregister()
+                Log.system.info("Launch at login disabled")
             }
         } else {
+            Log.system.error("Launch at login requires macOS 13.0+")
             throw LaunchAtLoginError.unsupportedOS
         }
     }

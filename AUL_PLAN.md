@@ -33,6 +33,11 @@ All logging migrated from `#if DEBUG` / `print()` to Apple Unified Logging (AUL)
    - Include actual SQLite error message in non-trivial error cases
    - Set loading state to `.empty` when table doesn't exist
 
+6. **Filled logging coverage gaps** in files that had silent failures:
+   - **DateTimePickerView.swift**: Added logging for database open failures and query preparation failures in both `loadAvailableDates()` and `loadAvailableTimesForSelectedDate()`
+   - **LaunchAtLoginManager.swift**: Added logging for SMAppService register/unregister operations (info level) and unsupported OS errors
+   - **Logging.swift**: Added `Log.system` category for system-level operations (launch-at-login, etc.)
+
 ## Streaming Logs
 
 ```bash

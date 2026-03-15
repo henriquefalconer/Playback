@@ -9,4 +9,5 @@ enum Log {
     static let menuBar    = Logger(subsystem: "com.falconer.Playback", category: "MenuBar")
     static let hotkey     = Logger(subsystem: "com.falconer.Playback", category: "Hotkey")
     static let config     = Logger(subsystem: "com.falconer.Playback", category: "Config")
+    static let system     = Logger(subsystem: "com.falconer.Playback", category: "System")
 }

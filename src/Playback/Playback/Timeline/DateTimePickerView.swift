@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Henrique Falconer. All rights reserved.
 // SPDX-License-Identifier: Proprietary
 
+import os
 import SwiftUI
 import SQLite3
 
@@ -243,6 +244,7 @@ struct DateTimePickerView: View {
             let rc = sqlite3_open(dbPath, &db)
 
             guard rc == SQLITE_OK, let db = db else {
+                Log.timeline.error("DatePicker: failed to open database (rc=\(rc))")
                 return
             }
             defer { sqlite3_close(db) }
@@ -251,6 +253,8 @@ struct DateTimePickerView: View {
             var stmt: OpaquePointer?
 
             guard sqlite3_prepare_v2(db, query, -1, &stmt, nil) == SQLITE_OK else {
+                let errMsg = String(cString: sqlite3_errmsg(db))
+                Log.timeline.debug("DatePicker: dates query failed — \(errMsg)")
                 return
             }
             defer { sqlite3_finalize(stmt) }
@@ -280,6 +284,7 @@ struct DateTimePickerView: View {
             let rc = sqlite3_open(dbPath, &db)
 
             guard rc == SQLITE_OK, let db = db else {
+                Log.timeline.error("DatePicker: failed to open database for times query (rc=\(rc))")
                 DispatchQueue.main.async { self.isLoading = false }
                 return
             }
@@ -289,6 +294,8 @@ struct DateTimePickerView: View {
             var stmt: OpaquePointer?
 
             guard sqlite3_prepare_v2(db, query, -1, &stmt, nil) == SQLITE_OK else {
+                let errMsg = String(cString: sqlite3_errmsg(db))
+                Log.timeline.debug("DatePicker: times query failed — \(errMsg)")
                 DispatchQueue.main.async { self.isLoading = false }
                 return
             }
