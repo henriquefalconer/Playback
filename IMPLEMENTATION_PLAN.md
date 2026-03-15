@@ -12,8 +12,6 @@ Canonical specs live in `specs/`. This plan tracks only actionable work going fo
 ## Phase 5: Polish
 
 - [ ] App icon assets (requires graphic design)
-- [ ] Momentum scrolling with logarithmic deceleration
-- [ ] Drag-drop app exclusion from /Applications
 
 ---
 
