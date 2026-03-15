@@ -46,36 +46,23 @@ echo ""
 echo "4. Installing to /Applications..."
 if [ -d "/Applications/Playback.app" ]; then
     echo "   Removing existing app..."
-    sudo rm -rf /Applications/Playback.app
+    rm -rf /Applications/Playback.app
 fi
 
 echo "   Copying app..."
-sudo cp -R "$BUILT_APP" /Applications/
+cp -R "$BUILT_APP" /Applications/
 
-# 5. Install Python scripts to app bundle
+# 5. Verify installation
 echo ""
-echo "5. Installing Python scripts..."
-REPO_ROOT="$(cd ../.. && pwd)"
-sudo mkdir -p /Applications/Playback.app/Contents/Resources/scripts
-sudo mkdir -p /Applications/Playback.app/Contents/Resources/lib
-
-sudo cp "$REPO_ROOT/src/scripts"/*.py /Applications/Playback.app/Contents/Resources/scripts/
-sudo cp "$REPO_ROOT/src/lib"/*.py /Applications/Playback.app/Contents/Resources/lib/
-
-sudo chmod -R 755 /Applications/Playback.app/Contents/Resources/scripts
-sudo chmod -R 755 /Applications/Playback.app/Contents/Resources/lib
-
-# 6. Verify installation
-echo ""
-echo "6. Verifying installation..."
-if [ -f "/Applications/Playback.app/Contents/Resources/scripts/build_chunks_from_temp.py" ]; then
-    echo "   ✅ Scripts installed correctly"
+echo "5. Verifying installation..."
+if [ -d "/Applications/Playback.app" ]; then
+    echo "   ✅ App installed correctly"
 else
-    echo "   ❌ Scripts missing!"
+    echo "   ❌ App not found in /Applications!"
     exit 1
 fi
 
-# 7. Show next steps
+# 6. Show next steps
 echo ""
 echo "=== Installation Complete ==="
 echo ""

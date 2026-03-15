@@ -49,6 +49,10 @@
 
 ## Commands
 
+### Build and Install (Release)
+- **Build and install to /Applications:** `./scripts/build-and-install.sh`
+- **Open Playback:** `open /Applications/Playback.app`
+
 ### Building with Xcode (Primary)
 Use Xcode for development and production builds. All builds require macOS 26.0+ and Apple Silicon.
 
