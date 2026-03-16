@@ -7,10 +7,12 @@ import CoreGraphics
 import ApplicationServices
 import Combine
 import ScreenCaptureKit
+import CoreMedia
 import os
 
 /// Recording service that captures screenshots at regular intervals
-/// Runs in-process, uses app's Screen Recording permission
+/// Runs in-process, uses app's Screen Recording permission.
+/// A minimal background SCStream keeps the macOS purple recording indicator always visible.
 @MainActor
 final class RecordingService: ObservableObject {
     static let shared = RecordingService()
@@ -21,6 +23,10 @@ final class RecordingService: ObservableObject {
 
     private var timer: Timer?
     private let fileManager = FileManager.default
+
+    // Background SCStream solely to keep the recording indicator visible (not flashing)
+    private var indicatorStream: SCStream?
+    private var indicatorDelegate: IndicatorStreamDelegate?
 
     // Config
     private var captureInterval: TimeInterval = 2.0 // seconds
@@ -61,6 +67,11 @@ final class RecordingService: ObservableObject {
         isRecording = true
         captureCount = 0
 
+        // Start background stream to keep the purple recording indicator always visible
+        Task {
+            await startIndicatorStream()
+        }
+
         // Start timer
         timer = Timer.scheduledTimer(withTimeInterval: captureInterval, repeats: true) { [weak self] _ in
             Log.recording.debug("Timer fired")
@@ -90,6 +101,7 @@ final class RecordingService: ObservableObject {
 
         timer?.invalidate()
         timer = nil
+        stopIndicatorStream()
         isRecording = false
         Log.recording.debug("Recording stopped")
 
@@ -283,6 +295,55 @@ final class RecordingService: ObservableObject {
         }
     }
 
+    // MARK: - Indicator Stream (keeps purple dot visible)
+
+    /// Starts a minimal 1x1 SCStream solely to keep the macOS recording indicator always visible.
+    /// Actual screenshots are still captured via SCScreenshotManager for correct multi-display
+    /// and excluded app handling.
+    private func startIndicatorStream() async {
+        do {
+            let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+            guard let display = content.displays.first else {
+                Log.recording.error("No display found for indicator stream")
+                return
+            }
+
+            let filter = SCContentFilter(display: display, excludingApplications: [], exceptingWindows: [])
+            let config = SCStreamConfiguration()
+            // Absolute minimum resource usage — this stream exists only for the indicator
+            config.width = 1
+            config.height = 1
+            config.minimumFrameInterval = CMTime(value: 10, timescale: 1) // 0.1 FPS
+            config.queueDepth = 1
+            config.pixelFormat = kCVPixelFormatType_32BGRA
+
+            let delegate = IndicatorStreamDelegate()
+            let stream = SCStream(filter: filter, configuration: config, delegate: delegate)
+            try stream.addStreamOutput(delegate, type: .screen, sampleHandlerQueue: DispatchQueue.global(qos: .background))
+            try await stream.startCapture()
+
+            self.indicatorStream = stream
+            self.indicatorDelegate = delegate
+            Log.recording.debug("Indicator stream started (recording indicator will stay visible)")
+        } catch {
+            Log.recording.error("Failed to start indicator stream: \(error.localizedDescription)")
+        }
+    }
+
+    private func stopIndicatorStream() {
+        guard let stream = indicatorStream else { return }
+        indicatorStream = nil
+        indicatorDelegate = nil
+        Task {
+            do {
+                try await stream.stopCapture()
+                Log.recording.debug("Indicator stream stopped")
+            } catch {
+                Log.recording.debug("Indicator stream stop error: \(error.localizedDescription)")
+            }
+        }
+    }
+
     private func loadConfig() {
         let config = ConfigManager.shared.config
         captureInterval = 2.0 // Fixed at 2 seconds for now
@@ -306,5 +367,19 @@ final class RecordingService: ObservableObject {
         // Clean up - timer will be invalidated when released
         timer?.invalidate()
         NotificationCenter.default.removeObserver(self)
+    }
+}
+
+// MARK: - Indicator Stream Delegate
+
+/// Minimal delegate that discards all frames — exists only to keep the SCStream alive
+/// so the macOS recording indicator stays visible.
+private final class IndicatorStreamDelegate: NSObject, SCStreamDelegate, SCStreamOutput {
+    func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
+        // Intentionally discard — this stream only exists for the recording indicator
+    }
+
+    func stream(_ stream: SCStream, didStopWithError error: Error) {
+        Log.recording.debug("Indicator stream stopped with error: \(error.localizedDescription)")
     }
 }
