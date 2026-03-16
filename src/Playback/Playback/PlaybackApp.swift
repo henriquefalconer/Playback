@@ -28,7 +28,7 @@ struct PlaybackApp: App {
         // Store openWindow action for use by AppDelegate (evaluated on every body access)
         let _ = { WindowOpener.openWindow = openWindow }()
 
-        WindowGroup(id: "timeline") {
+        Window("Playback", id: "timeline") {
             ContentView()
                 .environmentObject(timelineStore)
                 .environmentObject(playbackController)
@@ -62,6 +62,7 @@ struct PlaybackApp: App {
                 }
         }
         .windowStyle(.hiddenTitleBar)
+        .defaultLaunchBehavior(.suppressed)
 
         Window("Settings", id: "settings") {
             SettingsView()
@@ -96,6 +97,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var iconObserver: AnyCancellable?
     private var hotkeyManagerWrapper: GlobalHotkeyManagerWrapper?
     private var notificationObservers: [Any] = []
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if !flag {
+            Self.openTimeline()
+        }
+        return false
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Clean up stale signal file from previous run
