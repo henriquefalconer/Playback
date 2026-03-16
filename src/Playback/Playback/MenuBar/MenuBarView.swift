@@ -6,7 +6,6 @@ import os
 
 struct MenuBarView: View {
     @ObservedObject var viewModel: MenuBarViewModel
-    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         VStack(spacing: 0) {
@@ -23,8 +22,7 @@ struct MenuBarView: View {
 
             Button(action: {
                 Log.menuBar.info("Open Timeline clicked")
-                NSApp.activate(ignoringOtherApps: true)
-                openWindow(id: "timeline")
+                NotificationCenter.default.post(name: .openTimeline, object: nil)
             }) {
                 HStack {
                     Image(systemName: "clock.arrow.circlepath")
@@ -44,8 +42,7 @@ struct MenuBarView: View {
 
             Button(action: {
                 Log.menuBar.info("Settings clicked")
-                NSApp.activate(ignoringOtherApps: true)
-                openWindow(id: "settings")
+                NotificationCenter.default.post(name: .openSettings, object: nil)
             }) {
                 HStack {
                     Image(systemName: "gearshape")
