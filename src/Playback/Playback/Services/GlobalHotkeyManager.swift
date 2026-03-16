@@ -132,4 +132,89 @@ extension GlobalHotkeyManager {
         keyCode: 49,
         modifiers: UInt32(optionKey | shiftKey)
     )
+
+    /// Parses a shortcut string like "Option+Shift+Space" into Carbon keyCode and modifiers.
+    /// Returns nil if the key cannot be mapped.
+    static func parse(shortcut: String) -> (keyCode: UInt32, modifiers: UInt32)? {
+        let parts = shortcut.split(separator: "+").map { String($0) }
+        guard parts.count >= 2 else { return nil }
+
+        var modifiers: UInt32 = 0
+        var keyPart: String?
+
+        for part in parts {
+            switch part {
+            case "Control": modifiers |= UInt32(controlKey)
+            case "Option": modifiers |= UInt32(optionKey)
+            case "Shift": modifiers |= UInt32(shiftKey)
+            case "Command": modifiers |= UInt32(cmdKey)
+            default: keyPart = part
+            }
+        }
+
+        guard let key = keyPart, let keyCode = carbonKeyCode(for: key) else { return nil }
+        return (keyCode: keyCode, modifiers: modifiers)
+    }
+
+    private static func carbonKeyCode(for key: String) -> UInt32? {
+        switch key {
+        case "Space": return 49
+        case "Return": return 36
+        case "Tab": return 48
+        case "Delete": return 51
+        case "Escape": return 53
+        case "Up": return 126
+        case "Down": return 125
+        case "Left": return 123
+        case "Right": return 124
+        case "A": return 0
+        case "B": return 11
+        case "C": return 8
+        case "D": return 2
+        case "E": return 14
+        case "F": return 3
+        case "G": return 5
+        case "H": return 4
+        case "I": return 34
+        case "J": return 38
+        case "K": return 40
+        case "L": return 37
+        case "M": return 46
+        case "N": return 45
+        case "O": return 31
+        case "P": return 35
+        case "Q": return 12
+        case "R": return 15
+        case "S": return 1
+        case "T": return 17
+        case "U": return 32
+        case "V": return 9
+        case "W": return 13
+        case "X": return 7
+        case "Y": return 16
+        case "Z": return 6
+        case "0": return 29
+        case "1": return 18
+        case "2": return 19
+        case "3": return 20
+        case "4": return 21
+        case "5": return 23
+        case "6": return 22
+        case "7": return 26
+        case "8": return 28
+        case "9": return 25
+        case "-": return 27
+        case "=": return 24
+        case "[": return 33
+        case "]": return 30
+        case "\\": return 42
+        case ";": return 41
+        case "'": return 39
+        case ",": return 43
+        case ".": return 47
+        case "/": return 44
+        case "`": return 50
+        default: return nil
+        }
+    }
 }

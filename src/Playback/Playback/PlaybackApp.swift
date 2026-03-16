@@ -298,12 +298,34 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 final class GlobalHotkeyManagerWrapper: ObservableObject {
     let objectWillChange = PassthroughSubject<Void, Never>()
     private let manager = GlobalHotkeyManager.shared
+    private var hotkeyCallback: (() -> Void)?
+    private var configObserver: Any?
 
     func registerHotkey(callback: @escaping () -> Void) {
+        self.hotkeyCallback = callback
+
+        let shortcut = ConfigManager.shared.config.timelineShortcut
+        registerShortcut(shortcut)
+
+        configObserver = NotificationCenter.default.addObserver(
+            forName: NSNotification.Name("ConfigDidChange"), object: nil, queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            let newShortcut = ConfigManager.shared.config.timelineShortcut
+            self.manager.unregister()
+            self.registerShortcut(newShortcut)
+        }
+    }
+
+    private func registerShortcut(_ shortcut: String) {
+        guard let parsed = GlobalHotkeyManager.parse(shortcut: shortcut) else {
+            Log.hotkey.error("Failed to parse shortcut string: \(shortcut)")
+            return
+        }
+
         do {
-            let (keyCode, modifiers) = GlobalHotkeyManager.optionShiftSpace
-            try manager.register(keyCode: keyCode, modifiers: modifiers, callback: callback)
-            Log.session.info("Accessibility permission: granted")
+            try manager.register(keyCode: parsed.keyCode, modifiers: parsed.modifiers, callback: hotkeyCallback!)
+            Log.session.info("Registered hotkey: \(shortcut)")
         } catch HotkeyError.accessibilityPermissionDenied {
             Log.session.info("Accessibility permission: denied")
             Log.playback.notice("Accessibility permission denied. Global hotkey will not work.")
@@ -317,7 +339,7 @@ final class GlobalHotkeyManagerWrapper: ObservableObject {
         DispatchQueue.main.async {
             let alert = NSAlert()
             alert.messageText = "Accessibility Permission Required"
-            alert.informativeText = "Playback needs Accessibility permission to register the global hotkey (Option+Shift+Space).\n\nYou can grant this permission in System Settings > Privacy & Security > Accessibility."
+            alert.informativeText = "Playback needs Accessibility permission to register the global hotkey.\n\nYou can grant this permission in System Settings > Privacy & Security > Accessibility."
             alert.alertStyle = .warning
             alert.addButton(withTitle: "Open System Settings")
             alert.addButton(withTitle: "Cancel")
@@ -327,6 +349,12 @@ final class GlobalHotkeyManagerWrapper: ObservableObject {
                     NSWorkspace.shared.open(url)
                 }
             }
+        }
+    }
+
+    deinit {
+        if let observer = configObserver {
+            NotificationCenter.default.removeObserver(observer)
         }
     }
 }

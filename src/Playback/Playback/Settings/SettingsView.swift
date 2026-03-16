@@ -115,7 +115,7 @@ private struct SettingsPanel: View {
                         Image(systemName: "info.circle")
                             .foregroundColor(.secondary)
                             .font(.caption)
-                        Text("Accessibility permission enables the global hotkey (Option+Shift+Space).")
+                        Text("Accessibility permission enables the global hotkey (\(configManager.config.timelineShortcut)).")
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
