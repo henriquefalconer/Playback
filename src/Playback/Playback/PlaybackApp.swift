@@ -141,6 +141,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     static func openTimeline() {
+        if NSApp.windows.contains(where: { $0.isVisible && $0.identifier?.rawValue.contains("timeline") == true }) {
+            Log.hotkey.debug("Timeline already open — ignoring")
+            return
+        }
         NSApp.activate(ignoringOtherApps: true)
         WindowOpener.openWindow?(id: "timeline")
     }

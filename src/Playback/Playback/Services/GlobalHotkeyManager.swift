@@ -23,10 +23,12 @@ final class GlobalHotkeyManager {
 
     func register(keyCode: UInt32, modifiers: UInt32, callback: @escaping () -> Void) throws {
         guard hotkey == nil else {
+            Log.hotkey.error("Registration failed: hotkey already registered")
             throw HotkeyError.alreadyRegistered
         }
 
         if !checkAccessibilityPermission() {
+            Log.hotkey.error("Registration failed: accessibility permission denied")
             throw HotkeyError.accessibilityPermissionDenied
         }
 
@@ -55,9 +57,13 @@ final class GlobalHotkeyManager {
                 )
 
                 if hotkeyID.id == 1 {
+                    Log.hotkey.debug("Hotkey press detected (id=\(hotkeyID.id), signature=\(hotkeyID.signature))")
                     Task { @MainActor in
+                        Log.hotkey.info("Invoking hotkey callback")
                         manager.callback?()
                     }
+                } else {
+                    Log.hotkey.debug("Ignored hotkey event with unknown id=\(hotkeyID.id)")
                 }
 
                 return noErr
@@ -83,6 +89,7 @@ final class GlobalHotkeyManager {
         )
 
         guard registerStatus == noErr else {
+            Log.hotkey.error("RegisterEventHotKey failed with status \(registerStatus)")
             if let handler = eventHandler {
                 RemoveEventHandler(handler)
                 eventHandler = nil
