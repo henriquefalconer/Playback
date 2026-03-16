@@ -55,7 +55,7 @@ After 3 consecutive segment loading failures, show `ErrorStateView` with retry b
 
 ### Layout
 
-- Position: Bottom of screen, 80px height, 28px margin
+- Position: Bottom of screen, 120px height, 40px margin
 - Gradient overlay for visibility against video
 
 ### Segment Bar
@@ -63,12 +63,12 @@ After 3 consecutive segment loading failures, show `ErrorStateView` with retry b
 - Horizontal bar with rounded rectangles per app segment
 - Colors derived from app icons (CIAreaAverage filter)
 - Fallback: hash bundle ID to HSL color
-- Height: 12px
+- Height: 20px
 - Gaps show transparent background
 
 ### Playhead
 
-- White vertical line (3px wide, 70px tall) at center
+- White vertical line (4px wide, 110px tall) at center
 - Fixed position — timeline scrolls behind it
 
 ### Time Ticks

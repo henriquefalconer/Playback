@@ -130,7 +130,7 @@ struct ContentView: View {
                     startPoint: .top,
                     endPoint: .bottom
                 )
-                .frame(height: 100)
+                .frame(height: 140)
                 .ignoresSafeArea(edges: .bottom)
             }
 
@@ -146,8 +146,8 @@ struct ContentView: View {
                     )
                     .environmentObject(timelineStore)
                     .environmentObject(playbackController)
-                    .frame(height: 80)
-                    .padding(.bottom, 28)
+                    .frame(height: 120)
+                    .padding(.bottom, 40)
                     .animation(
                         .spring(response: 0.35, dampingFraction: 0.8, blendDuration: 0.15),
                         value: visibleWindowSeconds
