@@ -1,22 +1,28 @@
-# Plan: Add "Open Timeline" to Right-Click Menu on Tray Icon
+# Plan: Smaller Timeline Segments
 
 ## Status: COMPLETED
 
 ## What was done
 
-Added right-click menu on the tray icon (status bar button) with an "Open Timeline" option. Implementation:
+Reduced the visual height of timeline segment bars and adjusted all dependent elements proportionally for a more compact, refined look.
 
-1. **Notification bridge** (`PlaybackApp.swift`): Added `Notification.Name.openTimeline` to bridge from AppKit right-click handler to SwiftUI's `openWindow(id: "timeline")`. The `MenuBarExtra` body listens via `.onReceive`.
+### Changes
 
-2. **Event monitors** (`AppDelegate`): Installed both local and global `NSEvent` monitors for `.rightMouseDown`:
-   - Local monitor handles right-clicks when app is active (during MenuBarExtra interaction)
-   - Global monitor handles right-clicks when app is in background (normal state for menu bar apps)
-   - Both check if the click targets the `NSStatusBarWindow` backing the `MenuBarExtra`
-
-3. **NSMenu**: Single-item menu with "Open Timeline" and `clock.arrow.circlepath` SF Symbol, matching the left-click menu item.
-
-4. **Logging**: All interactions logged via `Log.menuBar` — monitor installation, menu display, and timeline open.
+| Element | Before | After |
+|---------|--------|-------|
+| Segment bar height | 20px | 12px |
+| App icon in segment | 16×16 | 10×10 |
+| Playhead | 4×110 | 3×70 |
+| Container height | 120px | 80px |
+| Bottom gradient | 140px | 100px |
+| Bottom padding | 40px | 28px |
+| Segments Y offset | +22 | +14 |
+| Time bubble Y offset | -32 | -22 |
+| Ticks Y offset | +60 | +38 |
+| Major/minor ticks | 12/6 | 8/4 |
 
 ## Files Modified
 
-- `src/Playback/Playback/PlaybackApp.swift` — notification extension, `.onReceive` listener, right-click monitor setup in AppDelegate
+- `src/Playback/Playback/TimelineView.swift` — 8 dimension changes (bar height, icon size, playhead, offsets, ticks)
+- `src/Playback/Playback/ContentView.swift` — 3 dimension changes (container, gradient, padding)
+- `specs/timeline-graphical-interface.md` — updated spec to match new dimensions
