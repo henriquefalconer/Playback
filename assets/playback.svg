@@ -7,12 +7,13 @@
     </linearGradient>
 
     <mask id="playMask">
-      <path d="M80 65L135 100L80 135Z" 
-            fill="white" 
-            stroke="white" 
-            stroke-width="12" 
-            stroke-linejoin="round" 
-            stroke-linecap="round" />
+      <path d="M80 65L135 100L80 135Z"
+            fill="white"
+            stroke="white"
+            stroke-width="12"
+            stroke-linejoin="round"
+            stroke-linecap="round"
+            transform="translate(93.4,100) scale(1.8) translate(-98.3,-100)" />
     </mask>
   </defs>
 
