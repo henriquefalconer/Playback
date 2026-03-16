@@ -11,7 +11,7 @@ Canonical specs live in `specs/`. This plan tracks only actionable work going fo
 
 ## Phase 5: Polish
 
-- [ ] App icon assets (requires graphic design)
+- [x] App icon assets (generated from playback.svg)
 
 ---
 
