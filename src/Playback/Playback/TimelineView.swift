@@ -191,9 +191,9 @@ struct TimelineView: View {
     var body: some View {
         GeometryReader { geo in
             let width = geo.size.width * 0.8
-            let height: CGFloat = 20
+            let height: CGFloat = 12
             let barY = geo.size.height - height / 2 - 8
-            let segmentsY = barY + 22
+            let segmentsY = barY + 14
             let span = windowSpan
             let windowStart = span.start
             let pixelsPerSecond = width / visibleWindowSeconds
@@ -230,7 +230,7 @@ struct TimelineView: View {
                                 icon
                                     .resizable()
                                     .aspectRatio(contentMode: .fit)
-                                    .frame(width: 16, height: 16)
+                                    .frame(width: 10, height: 10)
                             }
                         }
                         .position(x: segCenterX, y: height / 2)
@@ -242,8 +242,8 @@ struct TimelineView: View {
                 // Playhead central
                 RoundedRectangle(cornerRadius: 999)
                     .fill(Color.white)
-                    .frame(width: 4, height: 110)
-                    .position(x: geo.size.width / 2, y: barY + 48)
+                    .frame(width: 3, height: 70)
+                    .position(x: geo.size.width / 2, y: barY + 30)
 
                 // Timestamp bubble
                 Button(action: {
@@ -262,7 +262,7 @@ struct TimelineView: View {
                     .foregroundColor(.black)
                 }
                 .buttonStyle(.plain)
-                .position(x: geo.size.width / 2, y: barY - 32)
+                .position(x: geo.size.width / 2, y: barY - 22)
                 .accessibilityIdentifier("timeline.timeBubbleButton")
             }
             .contentShape(ExpandedVerticalHitShape(extra: 20))
@@ -344,7 +344,7 @@ struct TimeTicksView: View {
                 VStack(spacing: 2) {
                     Rectangle()
                         .fill(Color.white.opacity(0.3))
-                        .frame(width: 1, height: isMajorTick(tick) ? 12 : 6)
+                        .frame(width: 1, height: isMajorTick(tick) ? 8 : 4)
 
                     if isMajorTick(tick) {
                         Text(formatTime(tick))
@@ -352,7 +352,7 @@ struct TimeTicksView: View {
                             .foregroundColor(.white.opacity(0.6))
                     }
                 }
-                .position(x: x, y: barY + 60)
+                .position(x: x, y: barY + 38)
             }
         }
         .frame(width: width)
