@@ -404,7 +404,7 @@ final class PlaybackController: ObservableObject {
                 let item = AVPlayerItem(url: url)
 
                 // Keep the status observer for debugging if something goes wrong during loading.
-                statusObserver = item.observe(\.status, options: [.initial, .new]) { [weak self] item, _ in
+                statusObserver = item.observe(\.status, options: [.new]) { [weak self] item, _ in
                     guard let self else { return }
                     switch item.status {
                     case .readyToPlay:
@@ -509,7 +509,7 @@ final class PlaybackController: ObservableObject {
                 let item = AVPlayerItem(url: url)
 
                 // Observe status to understand decoding/loading failures
-                statusObserver = item.observe(\.status, options: [.initial, .new]) { [weak self] item, _ in
+                statusObserver = item.observe(\.status, options: [.new]) { [weak self] item, _ in
                     guard let self else { return }
                     switch item.status {
                     case .readyToPlay:
