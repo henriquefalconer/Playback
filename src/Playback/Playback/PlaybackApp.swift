@@ -8,6 +8,11 @@ extension Notification.Name {
     static let openSettings = Notification.Name("com.falconer.Playback.openSettings")
 }
 
+/// Stores the SwiftUI openWindow action so it can be called from AppDelegate
+enum WindowOpener {
+    @MainActor static var openWindow: OpenWindowAction?
+}
+
 @main
 struct PlaybackApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
@@ -15,12 +20,14 @@ struct PlaybackApp: App {
     @StateObject private var playbackController = PlaybackController()
     @StateObject private var signalManager = SignalFileManagerWrapper()
     @StateObject private var configManager = ConfigManager.shared
-    @StateObject private var hotkeyManager = GlobalHotkeyManagerWrapper()
     @StateObject private var fullscreenManager = FullscreenManagerWrapper()
     @State private var timelineOpenTime: Date?
     @Environment(\.openWindow) private var openWindow
 
     var body: some Scene {
+        // Store openWindow action for use by AppDelegate (evaluated on every body access)
+        let _ = { WindowOpener.openWindow = openWindow }()
+
         WindowGroup(id: "timeline") {
             ContentView()
                 .environmentObject(timelineStore)
@@ -40,15 +47,6 @@ struct PlaybackApp: App {
                     }
 
                     signalManager.createSignal()
-                    hotkeyManager.registerHotkey {
-                        NSApp.activate(ignoringOtherApps: true)
-                        if let window = NSApp.windows.first(where: { $0.level == .normal }) {
-                            window.makeKeyAndOrderFront(nil)
-                            if !window.styleMask.contains(.fullScreen) {
-                                window.toggleFullScreen(nil)
-                            }
-                        }
-                    }
                     timelineOpenTime = openTime
                 }
                 .onDisappear {
@@ -59,14 +57,6 @@ struct PlaybackApp: App {
                     }
                     fullscreenManager.restoreNormalPresentation()
                     signalManager.removeSignal()
-                }
-                .onReceive(NotificationCenter.default.publisher(for: .openTimeline)) { _ in
-                    NSApp.activate(ignoringOtherApps: true)
-                    openWindow(id: "timeline")
-                }
-                .onReceive(NotificationCenter.default.publisher(for: .openSettings)) { _ in
-                    NSApp.activate(ignoringOtherApps: true)
-                    openWindow(id: "settings")
                 }
         }
         .windowStyle(.hiddenTitleBar)
@@ -90,6 +80,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var statusItem: NSStatusItem?
     private let menuBarViewModel = MenuBarViewModel()
     private var iconObserver: AnyCancellable?
+    private var hotkeyManagerWrapper: GlobalHotkeyManagerWrapper?
+    private var notificationObservers: [Any] = []
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Clean up stale signal file from previous run
@@ -115,10 +107,40 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
 
         setupStatusItem()
+        setupNotificationObservers()
+        registerGlobalHotkey()
 
         Task {
             await ensureServicesRunning()
         }
+    }
+
+    private func registerGlobalHotkey() {
+        let hotkeyManager = GlobalHotkeyManagerWrapper()
+        hotkeyManager.registerHotkey {
+            Self.openTimeline()
+        }
+        self.hotkeyManagerWrapper = hotkeyManager
+    }
+
+    private func setupNotificationObservers() {
+        let timelineObserver = NotificationCenter.default.addObserver(
+            forName: .openTimeline, object: nil, queue: .main
+        ) { _ in
+            Self.openTimeline()
+        }
+        let settingsObserver = NotificationCenter.default.addObserver(
+            forName: .openSettings, object: nil, queue: .main
+        ) { _ in
+            NSApp.activate(ignoringOtherApps: true)
+            WindowOpener.openWindow?(id: "settings")
+        }
+        notificationObservers = [timelineObserver, settingsObserver]
+    }
+
+    static func openTimeline() {
+        NSApp.activate(ignoringOtherApps: true)
+        WindowOpener.openWindow?(id: "timeline")
     }
 
     private func setupStatusItem() {
