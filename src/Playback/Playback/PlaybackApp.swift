@@ -3,10 +3,6 @@ import AppKit
 import Combine
 import os
 
-extension Notification.Name {
-    static let openTimeline = Notification.Name("com.falconer.Playback.openTimeline")
-}
-
 @main
 struct PlaybackApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
@@ -18,16 +14,11 @@ struct PlaybackApp: App {
     @StateObject private var hotkeyManager = GlobalHotkeyManagerWrapper()
     @StateObject private var fullscreenManager = FullscreenManagerWrapper()
     @State private var timelineOpenTime: Date?
-    @Environment(\.openWindow) private var openWindow
 
     var body: some Scene {
         MenuBarExtra {
             MenuBarView(viewModel: menuBarViewModel)
                 .environmentObject(configManager)
-                .onReceive(NotificationCenter.default.publisher(for: .openTimeline)) { _ in
-                    NSApp.activate(ignoringOtherApps: true)
-                    openWindow(id: "timeline")
-                }
         } label: {
             Image(systemName: menuBarViewModel.recordingState.iconName)
                 .foregroundColor(menuBarViewModel.recordingState == .recording ? .red : .primary)
@@ -94,10 +85,6 @@ struct PlaybackApp: App {
 }
 
 class AppDelegate: NSObject, NSApplicationDelegate {
-    private var localRightClickMonitor: Any?
-    private var globalRightClickMonitor: Any?
-    private var statusBarButtonFrame: NSRect = .zero
-
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Clean up stale signal file from previous run (if app crashed or was force-quit)
         let signalPath = Paths.timelineOpenSignalPath
@@ -121,102 +108,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             CGRequestScreenCaptureAccess()
         }
 
-        setupStatusBarRightClickMenu()
-
         Task {
             await ensureServicesRunning()
         }
-    }
-
-    private func setupStatusBarRightClickMenu() {
-        // Delay to allow MenuBarExtra to render and create its NSStatusItem
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
-            self?.installRightClickMonitor()
-        }
-    }
-
-    private func installRightClickMonitor() {
-        // Find and cache the status bar button window frame
-        if let statusWindow = NSApp.windows.first(where: {
-            String(describing: type(of: $0)).contains("NSStatusBarWindow")
-        }) {
-            statusBarButtonFrame = statusWindow.frame
-            Log.menuBar.info("Found status bar window at frame=\(statusWindow.frame.debugDescription, privacy: .public)")
-        }
-
-        // Local monitor: catches events when app is active (e.g. during MenuBarExtra interaction)
-        localRightClickMonitor = NSEvent.addLocalMonitorForEvents(matching: .rightMouseDown) { [weak self] event in
-            guard self != nil else { return event }
-
-            if let window = event.window,
-               String(describing: type(of: window)).contains("NSStatusBarWindow") {
-                Log.menuBar.info("Right-click menu shown on tray icon (local)")
-                self?.showRightClickMenu(at: event)
-                return nil
-            }
-            return event
-        }
-
-        // Global monitor: catches events when app is NOT active (normal state for menu bar apps)
-        globalRightClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: .rightMouseDown) { [weak self] event in
-            guard let self = self else { return }
-
-            // Re-find the status bar window frame (it can move if menu bar items change)
-            if let statusWindow = NSApp.windows.first(where: {
-                String(describing: type(of: $0)).contains("NSStatusBarWindow")
-            }) {
-                self.statusBarButtonFrame = statusWindow.frame
-            }
-
-            // Check if click is within the status bar button's screen frame
-            let clickLocation = NSEvent.mouseLocation
-            if self.statusBarButtonFrame.contains(clickLocation) {
-                Log.menuBar.info("Right-click menu shown on tray icon (global)")
-                DispatchQueue.main.async {
-                    self.showRightClickMenuAtStatusBar()
-                }
-            }
-        }
-
-        Log.menuBar.info("Right-click monitors installed on status bar button")
-    }
-
-    private func makeRightClickMenu() -> NSMenu {
-        let menu = NSMenu()
-
-        let openTimelineItem = NSMenuItem(
-            title: "Open Timeline",
-            action: #selector(openTimelineFromRightClick),
-            keyEquivalent: ""
-        )
-        openTimelineItem.target = self
-        openTimelineItem.image = NSImage(systemSymbolName: "clock.arrow.circlepath", accessibilityDescription: "Open Timeline")
-        menu.addItem(openTimelineItem)
-
-        return menu
-    }
-
-    private func showRightClickMenu(at event: NSEvent) {
-        let menu = makeRightClickMenu()
-        if let window = event.window {
-            menu.popUp(positioning: nil, at: event.locationInWindow, in: window.contentView)
-        }
-    }
-
-    private func showRightClickMenuAtStatusBar() {
-        let menu = makeRightClickMenu()
-        if let statusWindow = NSApp.windows.first(where: {
-            String(describing: type(of: $0)).contains("NSStatusBarWindow")
-        }) {
-            // Show menu at the bottom-left of the status bar button
-            let menuLocation = NSPoint(x: 0, y: 0)
-            menu.popUp(positioning: nil, at: menuLocation, in: statusWindow.contentView)
-        }
-    }
-
-    @objc private func openTimelineFromRightClick() {
-        Log.menuBar.info("Open Timeline clicked (right-click menu)")
-        NotificationCenter.default.post(name: .openTimeline, object: nil)
     }
 
     private func ensureServicesRunning() async {
