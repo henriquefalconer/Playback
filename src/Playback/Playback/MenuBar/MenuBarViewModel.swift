@@ -39,8 +39,6 @@ enum RecordingState: Equatable {
 final class MenuBarViewModel: ObservableObject {
     @Published var recordingState: RecordingState = .paused
     @Published var isRecordingEnabled: Bool = false
-    @Published var showSettings = false
-
     private let configManager: ConfigManager
     private let recordingService: RecordingService
     private var statusTimer: Timer?

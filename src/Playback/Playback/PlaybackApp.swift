@@ -86,9 +86,8 @@ struct PlaybackApp: App {
     }
 }
 
-class AppDelegate: NSObject, NSApplicationDelegate {
+class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var statusItem: NSStatusItem?
-    private var popover: NSPopover?
     private let menuBarViewModel = MenuBarViewModel()
     private var iconObserver: AnyCancellable?
 
@@ -125,12 +124,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func setupStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
 
-        guard let button = statusItem?.button else {
+        guard statusItem?.button != nil else {
             Log.menuBar.error("Failed to create status bar button")
             return
         }
 
-        // Set initial icon
         updateStatusBarIcon()
 
         // Observe recording state changes to update icon
@@ -140,13 +138,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.updateStatusBarIcon()
             }
 
-        // Left-click action
-        button.action = #selector(statusBarButtonClicked(_:))
-        button.target = self
-        // Send action on both left and right click
-        button.sendAction(on: [.leftMouseUp, .rightMouseUp])
+        let menu = NSMenu()
+        menu.delegate = self
+        statusItem?.menu = menu
 
-        Log.menuBar.info("Custom status bar item created with right-click support")
+        Log.menuBar.info("Status bar item created with native menu")
     }
 
     private func updateStatusBarIcon() {
@@ -156,65 +152,100 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             image.isTemplate = true
             button.image = image
         }
+        button.toolTip = menuBarViewModel.recordingState.tooltip
     }
 
-    @objc private func statusBarButtonClicked(_ sender: NSStatusBarButton) {
-        guard let event = NSApp.currentEvent else { return }
+    // MARK: - NSMenuDelegate
 
-        if event.type == .rightMouseUp {
-            Log.menuBar.info("Right-click on tray icon — showing context menu")
-            showRightClickMenu()
-        } else {
-            Log.menuBar.info("Left-click on tray icon — showing popover")
-            togglePopover()
-        }
-    }
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        menu.removeAllItems()
 
-    private func togglePopover() {
-        if let popover = popover, popover.isShown {
-            popover.performClose(nil)
-            return
-        }
+        // Record Screen toggle
+        let recordItem = NSMenuItem(
+            title: "Record Screen",
+            action: #selector(toggleRecording),
+            keyEquivalent: ""
+        )
+        recordItem.target = self
+        recordItem.state = menuBarViewModel.isRecordingEnabled ? .on : .off
+        recordItem.setAccessibilityIdentifier("menubar.recordToggle")
+        menu.addItem(recordItem)
 
-        let menuBarView = MenuBarView(viewModel: menuBarViewModel)
-            .environmentObject(ConfigManager.shared)
+        menu.addItem(.separator())
 
-        let popover = NSPopover()
-        popover.contentSize = NSSize(width: 240, height: 220)
-        popover.behavior = .transient
-        popover.contentViewController = NSHostingController(rootView: menuBarView)
-
-        self.popover = popover
-
-        if let button = statusItem?.button {
-            popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-        }
-    }
-
-    private func showRightClickMenu() {
-        let menu = NSMenu()
-
-        let openTimelineItem = NSMenuItem(
+        // Open Timeline
+        let timelineItem = NSMenuItem(
             title: "Open Timeline",
             action: #selector(openTimelineFromMenu),
             keyEquivalent: ""
         )
-        openTimelineItem.target = self
-        openTimelineItem.image = NSImage(systemSymbolName: "clock.arrow.circlepath", accessibilityDescription: "Open Timeline")
-        menu.addItem(openTimelineItem)
+        timelineItem.target = self
+        timelineItem.image = NSImage(systemSymbolName: "clock.arrow.circlepath", accessibilityDescription: nil)
+        timelineItem.setAccessibilityIdentifier("menubar.openTimelineButton")
+        menu.addItem(timelineItem)
 
-        if let button = statusItem?.button {
-            // Position menu below the status bar button
-            statusItem?.menu = menu
-            button.performClick(nil)
-            // Clear menu so left-click still works as popover
-            statusItem?.menu = nil
-        }
+        // Settings
+        let settingsItem = NSMenuItem(
+            title: "Settings…",
+            action: #selector(openSettingsFromMenu),
+            keyEquivalent: ","
+        )
+        settingsItem.target = self
+        settingsItem.keyEquivalentModifierMask = .command
+        settingsItem.setAccessibilityIdentifier("menubar.settingsButton")
+        menu.addItem(settingsItem)
+
+        menu.addItem(.separator())
+
+        // About
+        let aboutItem = NSMenuItem(
+            title: "About Playback",
+            action: #selector(showAbout),
+            keyEquivalent: ""
+        )
+        aboutItem.target = self
+        aboutItem.setAccessibilityIdentifier("menubar.aboutButton")
+        menu.addItem(aboutItem)
+
+        menu.addItem(.separator())
+
+        // Quit
+        let quitItem = NSMenuItem(
+            title: "Quit Playback",
+            action: #selector(quitFromMenu),
+            keyEquivalent: "q"
+        )
+        quitItem.target = self
+        quitItem.keyEquivalentModifierMask = .command
+        quitItem.setAccessibilityIdentifier("menubar.quitButton")
+        menu.addItem(quitItem)
+    }
+
+    // MARK: - Menu Actions
+
+    @objc private func toggleRecording() {
+        menuBarViewModel.isRecordingEnabled.toggle()
+        menuBarViewModel.toggleRecording()
     }
 
     @objc private func openTimelineFromMenu() {
-        Log.menuBar.info("Open Timeline clicked (right-click menu)")
+        Log.menuBar.info("Open Timeline clicked")
         NotificationCenter.default.post(name: .openTimeline, object: nil)
+    }
+
+    @objc private func openSettingsFromMenu() {
+        Log.menuBar.info("Settings clicked")
+        NotificationCenter.default.post(name: .openSettings, object: nil)
+    }
+
+    @objc private func showAbout() {
+        Log.menuBar.info("About Playback clicked")
+        NSApp.activate(ignoringOtherApps: true)
+        NSApp.orderFrontStandardAboutPanel()
+    }
+
+    @objc private func quitFromMenu() {
+        menuBarViewModel.quitPlayback()
     }
 
     private func ensureServicesRunning() async {
