@@ -380,6 +380,9 @@ private final class IndicatorStreamDelegate: NSObject, SCStreamDelegate, SCStrea
     }
 
     func stream(_ stream: SCStream, didStopWithError error: Error) {
-        Log.recording.debug("Indicator stream stopped with error: \(error.localizedDescription)")
+        Log.recording.info("Indicator stream stopped externally (user clicked Stop Presenting), quitting app")
+        Task { @MainActor in
+            NSApplication.shared.terminate(nil)
+        }
     }
 }
