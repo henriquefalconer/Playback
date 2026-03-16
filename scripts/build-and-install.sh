@@ -1,7 +1,28 @@
 #!/bin/bash
 # Build Playback Release and install to /Applications
+#
+# Usage: ./build-and-install.sh [--no-self-signing]
+#
+# Options:
+#   --no-self-signing  Use Xcode automatic signing instead of
+#                   the "macos-codesigning" self-signed certificate
 
 set -e
+
+# Parse arguments
+AUTO_SIGNING=false
+for arg in "$@"; do
+    case "$arg" in
+        --no-self-signing)
+            AUTO_SIGNING=true
+            ;;
+        *)
+            echo "Unknown option: $arg"
+            echo "Usage: $0 [--no-self-signing]"
+            exit 1
+            ;;
+    esac
+done
 
 echo "=== Build and Install Playback to /Applications ==="
 echo ""
@@ -17,12 +38,23 @@ echo ""
 echo "2. Building Release configuration..."
 cd src/Playback
 
-xcodebuild \
-    -scheme Playback \
-    -configuration Release \
-    clean build \
-    -quiet \
-    CODE_SIGN_IDENTITY="macos-codesigning"
+if [ "$AUTO_SIGNING" = true ]; then
+    echo "   Using automatic signing..."
+    xcodebuild \
+        -scheme Playback \
+        -configuration Release \
+        clean build \
+        -quiet \
+        CODE_SIGN_IDENTITY="-" \
+        CODE_SIGNING_ALLOWED=YES
+else
+    xcodebuild \
+        -scheme Playback \
+        -configuration Release \
+        clean build \
+        -quiet \
+        CODE_SIGN_IDENTITY="macos-codesigning"
+fi
 
 # 3. Find the built app
 echo ""
@@ -42,8 +74,13 @@ echo "✅ Found: $BUILT_APP"
 
 # 3b. Re-sign with entitlements and hardened runtime
 echo ""
-echo "3b. Signing with macos-codesigning certificate..."
-codesign --force --sign "macos-codesigning" --entitlements Playback/Playback.entitlements --options runtime "$BUILT_APP"
+if [ "$AUTO_SIGNING" = true ]; then
+    echo "3b. Ad-hoc signing with entitlements..."
+    codesign --force --sign "-" --entitlements Playback/Playback.entitlements --options runtime "$BUILT_APP"
+else
+    echo "3b. Signing with macos-codesigning certificate..."
+    codesign --force --sign "macos-codesigning" --entitlements Playback/Playback.entitlements --options runtime "$BUILT_APP"
+fi
 
 # 3c. Verify code signature
 echo "3c. Verifying code signature..."
@@ -81,7 +118,3 @@ echo "Next steps:"
 echo "  1. Launch app: open /Applications/Playback.app"
 echo "  2. Grant permissions when prompted"
 echo "  3. Enable recording from menu bar"
-echo ""
-echo "Verify processing service:"
-echo "  launchctl list | grep com.playback.processing"
-echo "  ./diagnose-processing.sh"
