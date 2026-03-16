@@ -22,19 +22,8 @@ private struct SettingsPanel: View {
     @State private var launchAtLoginError: String?
     @State private var screenRecordingGranted = false
     @State private var accessibilityGranted = false
-    @State private var newAppId = ""
-    @State private var isDragTargeted = false
-
-    private let recommendedExclusions: [(bundleId: String, name: String)] = [
-        ("com.apple.keychainaccess", "Keychain Access"),
-        ("com.1password.1password", "1Password 8"),
-        ("com.agilebits.onepassword7", "1Password 7"),
-        ("com.lastpass.LastPass", "LastPass"),
-        ("com.dashlane.Dashlane", "Dashlane"),
-        ("com.keepassxc.keepassxc", "KeePassXC"),
-        ("com.bitwarden.desktop", "Bitwarden"),
-        ("org.keepassx.keepassxc", "KeePassX")
-    ]
+    @State private var storageInfo: StorageInfo?
+    @State private var isCalculatingStorage = false
 
     var body: some View {
         Form {
@@ -55,6 +44,32 @@ private struct SettingsPanel: View {
                             .foregroundColor(.red)
                     }
                     .padding(.top, 4)
+                }
+            }
+
+            Section("Storage") {
+                HStack {
+                    if let info = storageInfo {
+                        Text(info.totalFormatted)
+                    } else if isCalculatingStorage {
+                        ProgressView()
+                            .controlSize(.small)
+                    }
+                    Spacer()
+                    Button("Reveal in Finder") {
+                        NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: Paths.baseDataDirectory.path)
+                    }
+                    .buttonStyle(.borderless)
+                    .controlSize(.small)
+                }
+
+                HStack(spacing: 4) {
+                    Image(systemName: "info.circle")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Text("~10–14 GB/month typical usage")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
                 }
             }
 
@@ -126,94 +141,46 @@ private struct SettingsPanel: View {
                 }
             }
 
-            Section("Recommended Exclusions") {
-                Text("Password managers and sensitive apps")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-
-                ForEach(recommendedExclusions, id: \.bundleId) { app in
-                    HStack {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(app.name)
-                            Text(app.bundleId)
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
-                        Spacer()
-                        if configManager.config.excludedApps.contains(app.bundleId) {
-                            Text("Added")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        } else {
-                            Button("Add") {
-                                addRecommendedApp(app.bundleId)
+            Section("Excluded Apps") {
+                if configManager.config.excludedApps.isEmpty {
+                    Text("No apps excluded")
+                        .foregroundColor(.secondary)
+                        .font(.caption)
+                        .padding(.vertical, 8)
+                } else {
+                    ForEach(configManager.config.excludedApps, id: \.self) { appId in
+                        HStack {
+                            Text(appId)
+                            Spacer()
+                            Button {
+                                removeApp(appId)
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .foregroundColor(.secondary)
                             }
                             .buttonStyle(.borderless)
-                            .controlSize(.small)
                         }
                     }
                 }
-            }
 
-            Section("Excluded Apps") {
-                VStack(alignment: .leading, spacing: 8) {
-                    if configManager.config.excludedApps.isEmpty {
-                        Text("No apps excluded")
-                            .foregroundColor(.secondary)
-                            .font(.caption)
-                            .padding(.vertical, 8)
-                    } else {
-                        List {
-                            ForEach(configManager.config.excludedApps, id: \.self) { appId in
-                                Text(appId)
-                            }
-                            .onDelete(perform: deleteApps)
-                        }
-                        .frame(height: 120)
-                    }
-
-                    // Drop zone: drag an app from Finder/Applications to add it.
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 8)
-                            .strokeBorder(
-                                isDragTargeted ? Color.accentColor : Color.secondary.opacity(0.4),
-                                style: StrokeStyle(lineWidth: 1.5, dash: [6, 4])
-                            )
-                            .background(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .fill(isDragTargeted ? Color.accentColor.opacity(0.08) : Color.clear)
-                            )
-
-                        HStack(spacing: 6) {
-                            Image(systemName: "arrow.down.app")
-                                .foregroundColor(.secondary)
-                            Text("Drop app here")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
-                        .padding(.vertical, 8)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .onDrop(of: [UTType.fileURL], isTargeted: $isDragTargeted) { providers in
-                        handleAppDrop(providers: providers)
-                    }
-
+                Button {
+                    pickApp()
+                } label: {
                     HStack {
-                        TextField("com.example.app", text: $newAppId)
-                            .accessibilityIdentifier("settings.privacy.appIdTextField")
-                        Button("Add") {
-                            addApp()
-                        }
-                        .disabled(newAppId.isEmpty)
-                        .accessibilityIdentifier("settings.privacy.addAppButton")
+                        Spacer()
+                        Text("Add App")
+                        Spacer()
                     }
                 }
+                .buttonStyle(.borderedProminent)
+                .accessibilityIdentifier("settings.privacy.addAppButton")
             }
         }
         .formStyle(.grouped)
         .onAppear {
             checkPermissions()
             launchAtLoginEnabled = LaunchAtLoginManager.shared.isEnabled
+            calculateStorage()
         }
     }
 
@@ -258,7 +225,25 @@ private struct SettingsPanel: View {
         }
     }
 
-    private func addRecommendedApp(_ bundleId: String) {
+    private func removeApp(_ bundleId: String) {
+        var config = configManager.config
+        config.excludedApps.removeAll { $0 == bundleId }
+        configManager.updateConfig(config)
+    }
+
+    private func pickApp() {
+        let panel = NSOpenPanel()
+        panel.title = "Select an App"
+        panel.allowedContentTypes = [UTType.application]
+        panel.allowsMultipleSelection = false
+        panel.directoryURL = URL(fileURLWithPath: "/Applications")
+        panel.canChooseDirectories = false
+
+        guard panel.runModal() == .OK,
+              let url = panel.url,
+              let bundle = Bundle(url: url),
+              let bundleId = bundle.bundleIdentifier else { return }
+
         var config = configManager.config
         if !config.excludedApps.contains(bundleId) {
             config.excludedApps.append(bundleId)
@@ -266,44 +251,45 @@ private struct SettingsPanel: View {
         }
     }
 
-    private func addApp() {
-        var config = configManager.config
-        if !config.excludedApps.contains(newAppId) {
-            config.excludedApps.append(newAppId)
-            configManager.updateConfig(config)
-            newAppId = ""
-        }
-    }
-
-    private func deleteApps(at offsets: IndexSet) {
-        var config = configManager.config
-        config.excludedApps.remove(atOffsets: offsets)
-        configManager.updateConfig(config)
-    }
-
-    /// Handle dropping an .app bundle from Finder onto the excluded apps drop zone.
-    /// Extracts the bundle identifier and adds it to the exclusion list.
-    @discardableResult
-    private func handleAppDrop(providers: [NSItemProvider]) -> Bool {
-        var handled = false
-        for provider in providers {
-            if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
-                provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier) { item, _ in
-                    guard let data = item as? Data,
-                          let url = URL(dataRepresentation: data, relativeTo: nil),
-                          url.pathExtension == "app",
-                          let bundle = Bundle(url: url),
-                          let bundleId = bundle.bundleIdentifier else {
-                        return
-                    }
-                    DispatchQueue.main.async {
-                        addRecommendedApp(bundleId)
-                    }
-                }
-                handled = true
+    private func calculateStorage() {
+        isCalculatingStorage = true
+        Task.detached {
+            let info = StorageInfo.calculate()
+            await MainActor.run {
+                storageInfo = info
+                isCalculatingStorage = false
             }
         }
-        return handled
+    }
+}
+
+private struct StorageInfo {
+    let totalBytes: Int64
+
+    var totalFormatted: String {
+        ByteCountFormatter.string(fromByteCount: totalBytes, countStyle: .file)
+    }
+
+    static func calculate() -> StorageInfo {
+        StorageInfo(totalBytes: directorySize(Paths.baseDataDirectory))
+    }
+
+    private static func directorySize(_ url: URL) -> Int64 {
+        let fm = FileManager.default
+        guard let enumerator = fm.enumerator(
+            at: url,
+            includingPropertiesForKeys: [.fileSizeKey, .isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        ) else { return 0 }
+
+        var total: Int64 = 0
+        for case let fileURL as URL in enumerator {
+            guard let values = try? fileURL.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey]),
+                  values.isRegularFile == true,
+                  let size = values.fileSize else { continue }
+            total += Int64(size)
+        }
+        return total
     }
 }
 
