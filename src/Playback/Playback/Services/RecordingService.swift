@@ -240,10 +240,22 @@ final class RecordingService: ObservableObject {
             // Get available displays
             let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
 
-            guard let display = content.displays.first else {
+            guard !content.displays.isEmpty else {
                 Log.recording.error("No displays found for screen capture")
                 return nil
             }
+
+            // Select the display containing the mouse cursor
+            let mouseLocation = NSEvent.mouseLocation
+            let display = content.displays.first { scDisplay in
+                // NSEvent.mouseLocation uses bottom-left origin; SCDisplay frame uses top-left origin.
+                // Compare using CGDirectDisplayID to match against NSScreen.
+                if let screen = NSScreen.screens.first(where: { $0.frame.contains(mouseLocation) }) {
+                    return scDisplay.displayID == screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID
+                }
+                return false
+            } ?? content.displays.first!
+
             Log.recording.debug("Display enumeration: count=\(content.displays.count), selected=\(display.width)x\(display.height)")
 
             // Create screenshot
