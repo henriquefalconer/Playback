@@ -8,7 +8,9 @@ import CoreGraphics
 import SQLite3
 import AppKit
 import Security
+import UniformTypeIdentifiers
 import os
+import MachO
 
 private let SQLITE_TRANSIENT = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
 
@@ -23,7 +25,6 @@ final class ProcessingService {
     private var lastProcessingTime: Date?
     private var totalSegmentsCreated = 0
     private var triggerCount = 0
-
     private init() {}
 
     func start() {
@@ -45,7 +46,7 @@ final class ProcessingService {
         heartbeatTimer = nil
     }
 
-    private func triggerProcessing() {
+    func triggerProcessing(source: String? = nil) {
         guard !isRunning else {
             Log.processing.info("Processing trigger skipped — already running")
             return
@@ -53,14 +54,16 @@ final class ProcessingService {
         isRunning = true
         triggerCount += 1
         let trigger = triggerCount
-        let source = trigger == 1 ? "initial_start" : "timer"
+        let source = source ?? (trigger == 1 ? "initial_start" : "timer")
         Log.processing.info("Processing cycle #\(trigger, privacy: .public) started — trigger=\(source, privacy: .public)")
         queue.async { [weak self] in
             let cycleStart = CFAbsoluteTimeGetCurrent()
             var segmentsCreated = 0
             var framesProcessed = 0
+            self?.logMemory("cycle #\(trigger) start")
             self?.processAllPendingDays(segmentsCreated: &segmentsCreated, framesProcessed: &framesProcessed)
             let elapsed = CFAbsoluteTimeGetCurrent() - cycleStart
+            self?.logMemory("cycle #\(trigger) end")
             Log.processing.info("Processing cycle #\(trigger, privacy: .public) completed — segments=\(segmentsCreated, privacy: .public), frames=\(framesProcessed, privacy: .public), duration=\(String(format: "%.1f", elapsed), privacy: .public)s")
             DispatchQueue.main.async {
                 self?.isRunning = false
@@ -117,11 +120,11 @@ final class ProcessingService {
             return
         }
 
-        // Screenshot files have no extension, named YYYYMMDD-HHMMSS-<uuid>-<bundleid>
         let screenshotFiles = files
-            .filter { $0.pathExtension.isEmpty && isScreenshotFilename($0.lastPathComponent) }
+            .filter { isScreenshotFilename($0.lastPathComponent) }
             .sorted { $0.lastPathComponent < $1.lastPathComponent }
 
+        Log.processing.info("Day \(dayDir.lastPathComponent, privacy: .public): \(files.count, privacy: .public) files, \(screenshotFiles.count, privacy: .public) screenshots")
         guard !screenshotFiles.isEmpty else { return }
 
         // Load frame metadata (size) without loading full image data
@@ -130,17 +133,25 @@ final class ProcessingService {
             guard let (timestamp, appId) = parseFilename(fileURL.lastPathComponent) else { continue }
 
             // Read image dimensions without loading full pixel data
-            guard let imageSource = CGImageSourceCreateWithURL(fileURL as CFURL, nil),
-                  let props = CGImageSourceCopyPropertiesAtIndex(imageSource, 0, nil) as? [CFString: Any],
+            let hint = [kCGImageSourceTypeIdentifierHint: UTType.png.identifier as CFString] as CFDictionary
+            guard let imageSource = CGImageSourceCreateWithURL(fileURL as CFURL, hint) else {
+                Log.processing.error("CGImageSourceCreateWithURL failed for \(fileURL.lastPathComponent, privacy: .public)")
+                continue
+            }
+            guard let props = CGImageSourceCopyPropertiesAtIndex(imageSource, 0, nil) as? [CFString: Any],
                   let width = props[kCGImagePropertyPixelWidth] as? Int,
                   let height = props[kCGImagePropertyPixelHeight] as? Int else {
+                Log.processing.error("Failed to read image properties for \(fileURL.lastPathComponent, privacy: .public)")
                 continue
             }
 
             frames.append(FrameInfo(url: fileURL, timestamp: timestamp, appId: appId, width: width, height: height))
         }
 
-        guard !frames.isEmpty else { return }
+        guard !frames.isEmpty else {
+            Log.processing.error("No frames loaded from \(screenshotFiles.count, privacy: .public) screenshot files in \(dayDir.lastPathComponent, privacy: .public)")
+            return
+        }
 
         // Group frames into segments (split on resolution changes, max 900 frames)
         let maxFramesPerSegment = 900
@@ -220,6 +231,7 @@ final class ProcessingService {
         let fileSize = (try? FileManager.default.attributesOfItem(atPath: videoURL.path)[.size] as? Int) ?? 0
         let effectiveFPS = encodeDuration > 0 ? Double(frames.count) / encodeDuration : 0
         Log.processing.info("Video encoding completed — segment=\(segmentId, privacy: .public), size=\(fileSize, privacy: .public)bytes, duration=\(String(format: "%.1f", encodeDuration), privacy: .public)s, effectiveFPS=\(String(format: "%.1f", effectiveFPS), privacy: .public)")
+        logMemory("post-encode \(segmentId)")
         let basePath = Paths.baseDataDirectory.path
         let relativePath: String
         if videoURL.path.hasPrefix(basePath + "/") {
@@ -359,26 +371,28 @@ final class ProcessingService {
 
         let encodeLoopStart = CFAbsoluteTimeGetCurrent()
         for (index, frame) in frames.enumerated() {
-            guard let image = NSImage(contentsOf: frame.url),
-                  let pixelBuffer = createPixelBuffer(from: image, width: width, height: height) else {
-                Log.processing.notice("Skipping unreadable frame: \(frame.url.lastPathComponent)")
-                continue
-            }
+            autoreleasepool {
+                guard let image = NSImage(contentsOf: frame.url),
+                      let pixelBuffer = createPixelBuffer(from: image, width: width, height: height) else {
+                    Log.processing.notice("Skipping unreadable frame: \(frame.url.lastPathComponent)")
+                    return
+                }
 
-            // Wait for input to be ready
-            var waited = 0
-            while !input.isReadyForMoreMediaData {
-                Thread.sleep(forTimeInterval: 0.01)
-                waited += 1
-                if waited > 1000 { break }  // Timeout after 10s
-            }
+                // Wait for input to be ready
+                var waited = 0
+                while !input.isReadyForMoreMediaData {
+                    Thread.sleep(forTimeInterval: 0.01)
+                    waited += 1
+                    if waited > 1000 { break }  // Timeout after 10s
+                }
 
-            let presentationTime = CMTime(value: CMTimeValue(index), timescale: 30)
-            adaptor.append(pixelBuffer, withPresentationTime: presentationTime)
+                let presentationTime = CMTime(value: CMTimeValue(index), timescale: 30)
+                adaptor.append(pixelBuffer, withPresentationTime: presentationTime)
 
-            if (index + 1) % 100 == 0 {
-                let elapsed = CFAbsoluteTimeGetCurrent() - encodeLoopStart
-                Log.processing.info("Encoding progress — frame \(index + 1, privacy: .public)/\(frames.count, privacy: .public), elapsed=\(String(format: "%.1f", elapsed), privacy: .public)s")
+                if (index + 1) % 100 == 0 {
+                    let elapsed = CFAbsoluteTimeGetCurrent() - encodeLoopStart
+                    Log.processing.info("Encoding progress — frame \(index + 1, privacy: .public)/\(frames.count, privacy: .public), elapsed=\(String(format: "%.1f", elapsed), privacy: .public)s")
+                }
             }
         }
 
@@ -581,6 +595,25 @@ final class ProcessingService {
         ))
 
         return result
+    }
+
+    // MARK: - Memory
+
+    private func currentMemoryMB() -> Double {
+        var info = mach_task_basic_info()
+        var count = mach_msg_type_number_t(MemoryLayout<mach_task_basic_info>.size) / 4
+        let result = withUnsafeMutablePointer(to: &info) {
+            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+                task_info(mach_task_self_, task_flavor_t(MACH_TASK_BASIC_INFO), $0, &count)
+            }
+        }
+        guard result == KERN_SUCCESS else { return -1 }
+        return Double(info.resident_size) / 1_048_576.0
+    }
+
+    private func logMemory(_ label: String) {
+        let mb = currentMemoryMB()
+        Log.processing.notice("Memory [\(label, privacy: .public)] — \(String(format: "%.1f", mb), privacy: .public) MB")
     }
 
     // MARK: - Errors

@@ -48,6 +48,8 @@ struct PlaybackApp: App {
 
                     signalManager.createSignal()
                     timelineOpenTime = openTime
+
+                    ProcessingService.shared.triggerProcessing(source: "timeline_open")
                 }
                 .onDisappear {
                     if let openTime = timelineOpenTime {
