@@ -29,6 +29,10 @@
 - Cleanup/retention of old chunks is a user preference, NOT a critical system requirement
 - Do NOT treat disk storage as an urgent concern or blocker when making architectural decisions
 
+## Troubleshooting
+
+- **Always assume the user rebuilt the app.** During troubleshooting conversations, never question whether the user rebuilt — always consider they did.
+
 ## Development
 
 - **Git authentication:** If git push fails due to authentication, use `gh auth login --with-token < "/Volumes/My Shared Files/vm-macos-sharing/claude-pat-github.txt" && gh auth setup-git` to configure credentials, then retry the push
