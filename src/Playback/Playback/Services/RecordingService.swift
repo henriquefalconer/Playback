@@ -28,7 +28,6 @@ final class RecordingService: ObservableObject {
 
     // Capture cycle summary counters (logged every 60 captures)
     private var summaryCapturesSinceLastLog: UInt64 = 0
-    private var summarySkippedByExclusion: UInt64 = 0
     private var summarySkippedByTimeline: UInt64 = 0
     private var summaryTotalFileBytes: UInt64 = 0
     private var cumulativeSessionBytes: UInt64 = 0
@@ -140,14 +139,7 @@ final class RecordingService: ObservableObject {
 
         Log.recording.debug("Frontmost app: \(frontmostApp)")
 
-        // Check if app is excluded
-        if excludedApps.contains(frontmostApp) {
-            summarySkippedByExclusion += 1
-            Log.recording.notice("Skipping excluded app: \(frontmostApp)")
-            return
-        }
-
-        // Capture display using ScreenCaptureKit (modern API)
+        // Capture display using ScreenCaptureKit (excluded apps are filtered out at capture level)
         guard let pngData = await captureScreen() else {
             Log.recording.error("Failed to capture screen")
             return
@@ -214,9 +206,8 @@ final class RecordingService: ObservableObject {
             if summaryCapturesSinceLastLog >= 60 {
                 let avgSizeKB = String(format: "%.1f", Double(summaryTotalFileBytes) / Double(summaryCapturesSinceLastLog) / 1024.0)
                 let cumMB = String(format: "%.1f", Double(self.cumulativeSessionBytes) / 1024.0 / 1024.0)
-                Log.recording.info("Capture summary: total=\(self.captureCount, privacy: .public), recent=\(self.summaryCapturesSinceLastLog, privacy: .public), skipped_exclusion=\(self.summarySkippedByExclusion, privacy: .public), skipped_timeline=\(self.summarySkippedByTimeline, privacy: .public), avg_size=\(avgSizeKB, privacy: .public)KB, cumulative=\(cumMB, privacy: .public)MB")
+                Log.recording.info("Capture summary: total=\(self.captureCount, privacy: .public), recent=\(self.summaryCapturesSinceLastLog, privacy: .public), skipped_timeline=\(self.summarySkippedByTimeline, privacy: .public), avg_size=\(avgSizeKB, privacy: .public)KB, cumulative=\(cumMB, privacy: .public)MB")
                 summaryCapturesSinceLastLog = 0
-                summarySkippedByExclusion = 0
                 summarySkippedByTimeline = 0
                 summaryTotalFileBytes = 0
             }
@@ -258,8 +249,16 @@ final class RecordingService: ObservableObject {
 
             Log.recording.debug("Display enumeration: count=\(content.displays.count), selected=\(display.width)x\(display.height)")
 
-            // Create screenshot
-            let filter = SCContentFilter(display: display, excludingWindows: [])
+            // Filter out windows belonging to excluded apps
+            let excludedSCApps = content.applications.filter { app in
+                excludedApps.contains(app.bundleIdentifier)
+            }
+            if !excludedSCApps.isEmpty {
+                Log.recording.debug("Excluding \(excludedSCApps.count) app(s) from capture")
+            }
+
+            // Create screenshot with excluded apps filtered out
+            let filter = SCContentFilter(display: display, excludingApplications: excludedSCApps, exceptingWindows: [])
             let config = SCStreamConfiguration()
 
             // Capture at native resolution

@@ -79,7 +79,10 @@ struct PlaybackApp: App {
         .commands {
             CommandGroup(replacing: .appSettings) {
                 Button("Settings…") {
-                    NotificationCenter.default.post(name: .openSettings, object: nil)
+                    let timelineOpen = NSApp.windows.contains(where: { $0.isVisible && $0.identifier?.rawValue.contains("timeline") == true })
+                    if !timelineOpen {
+                        NotificationCenter.default.post(name: .openSettings, object: nil)
+                    }
                 }
                 .keyboardShortcut(",", modifiers: .command)
             }

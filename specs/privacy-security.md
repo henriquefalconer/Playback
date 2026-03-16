@@ -4,14 +4,16 @@
 
 ## App Exclusion
 
-### Skip Mode (Only Mode)
+### Window Filtering Mode (Only Mode)
 
-When the frontmost app is in the excluded apps list, the recording service skips the capture entirely. No screenshot is taken, no file is created.
+Excluded apps are filtered out at the ScreenCaptureKit level. Their windows are removed from the capture, revealing whatever is behind them. The screenshot is still taken — only the excluded app's windows are invisible.
 
 ```swift
-if excludedApps.contains(frontmostApp) {
-    return // skip capture
+let excludedSCApps = content.applications.filter { app in
+    guard let bundleID = app.bundleIdentifier else { return false }
+    return excludedApps.contains(bundleID)
 }
+let filter = SCContentFilter(display: display, excludingApplications: excludedSCApps, exceptingWindows: [])
 ```
 
 ### Excluded Apps List
