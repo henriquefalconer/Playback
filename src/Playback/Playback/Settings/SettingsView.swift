@@ -52,6 +52,15 @@ private struct SettingsPanel: View {
             }
 
             Section("Storage") {
+                HStack(spacing: 4) {
+                    Image(systemName: "info.circle")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Text("~10–14 GB/month typical usage")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+
                 HStack {
                     if let info = storageInfo {
                         Text(info.totalFormatted)
