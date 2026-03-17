@@ -60,23 +60,6 @@ private struct SettingsPanel: View {
                             .controlSize(.small)
                     }
                     Spacer()
-                    Button("Reveal in Finder") {
-                        NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: Paths.baseDataDirectory.path)
-                    }
-                    .buttonStyle(.borderless)
-                    .controlSize(.small)
-                }
-
-                HStack(spacing: 4) {
-                    Image(systemName: "info.circle")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    Text("~10–14 GB/month typical usage")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-
-                HStack {
                     Button(role: .destructive) {
                         Log.settings.info("Delete All Recordings button tapped")
                         showDeleteConfirmation = true
@@ -109,7 +92,7 @@ private struct SettingsPanel: View {
                             Log.settings.info("Delete All Recordings cancelled by user")
                         }
                     } message: {
-                        Text("This will permanently delete all screenshots, video segments, and metadata. Your settings will be preserved. This cannot be undone.")
+                        Text("This will permanently delete all data and metadata. Your settings will be preserved. This cannot be undone.")
                     }
                 }
 
