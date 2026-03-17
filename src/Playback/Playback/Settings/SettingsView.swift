@@ -59,6 +59,18 @@ private struct SettingsPanel: View {
                         ProgressView()
                             .controlSize(.small)
                     }
+                }
+
+                HStack(spacing: 4) {
+                    Image(systemName: "info.circle")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Text("~10–14 GB/month typical usage")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+
+                HStack {
                     Spacer()
                     Button(role: .destructive) {
                         Log.settings.info("Delete All Recordings button tapped")
@@ -94,15 +106,6 @@ private struct SettingsPanel: View {
                     } message: {
                         Text("This will permanently delete all data and metadata. Your settings will be preserved. This cannot be undone.")
                     }
-                }
-
-                HStack(spacing: 4) {
-                    Image(systemName: "info.circle")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    Text("~10–14 GB/month typical usage")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
                 }
 
                 if let error = deleteError {
