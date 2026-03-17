@@ -372,12 +372,6 @@ final class ProcessingService {
         let encodeLoopStart = CFAbsoluteTimeGetCurrent()
         for (index, frame) in frames.enumerated() {
             autoreleasepool {
-                guard let image = NSImage(contentsOf: frame.url),
-                      let pixelBuffer = createPixelBuffer(from: image, width: width, height: height) else {
-                    Log.processing.notice("Skipping unreadable frame: \(frame.url.lastPathComponent)")
-                    return
-                }
-
                 // Wait for input to be ready
                 var waited = 0
                 while !input.isReadyForMoreMediaData {
@@ -386,8 +380,30 @@ final class ProcessingService {
                     if waited > 1000 { break }  // Timeout after 10s
                 }
 
+                guard let pool = adaptor.pixelBufferPool else {
+                    Log.processing.notice("Pixel buffer pool unavailable at frame \(index)")
+                    return
+                }
+                var pixelBuffer: CVPixelBuffer?
+                let poolStatus = CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault, pool, &pixelBuffer)
+                guard poolStatus == kCVReturnSuccess, let buffer = pixelBuffer else {
+                    Log.processing.notice("Failed to get buffer from pool at frame \(index): \(poolStatus)")
+                    return
+                }
+
+                guard let imageSource = CGImageSourceCreateWithURL(frame.url as CFURL, nil),
+                      let cgImage = CGImageSourceCreateImageAtIndex(imageSource, 0, nil) else {
+                    Log.processing.notice("Skipping unreadable frame: \(frame.url.lastPathComponent)")
+                    return
+                }
+
+                guard fillPixelBuffer(buffer, from: cgImage, width: width, height: height) else {
+                    Log.processing.notice("Skipping frame (render failed): \(frame.url.lastPathComponent)")
+                    return
+                }
+
                 let presentationTime = CMTime(value: CMTimeValue(index), timescale: 30)
-                adaptor.append(pixelBuffer, withPresentationTime: presentationTime)
+                adaptor.append(buffer, withPresentationTime: presentationTime)
 
                 if (index + 1) % 100 == 0 {
                     let elapsed = CFAbsoluteTimeGetCurrent() - encodeLoopStart
@@ -407,23 +423,11 @@ final class ProcessingService {
         }
     }
 
-    private func createPixelBuffer(from image: NSImage, width: Int, height: Int) -> CVPixelBuffer? {
-        var pixelBuffer: CVPixelBuffer?
-        let status = CVPixelBufferCreate(
-            kCFAllocatorDefault,
-            width,
-            height,
-            kCVPixelFormatType_32BGRA,
-            nil,
-            &pixelBuffer
-        )
-
-        guard status == kCVReturnSuccess, let buffer = pixelBuffer else { return nil }
-
+    private func fillPixelBuffer(_ buffer: CVPixelBuffer, from cgImage: CGImage, width: Int, height: Int) -> Bool {
         CVPixelBufferLockBaseAddress(buffer, [])
         defer { CVPixelBufferUnlockBaseAddress(buffer, []) }
 
-        guard let baseAddress = CVPixelBufferGetBaseAddress(buffer) else { return nil }
+        guard let baseAddress = CVPixelBufferGetBaseAddress(buffer) else { return false }
 
         let bytesPerRow = CVPixelBufferGetBytesPerRow(buffer)
         let colorSpace = CGColorSpaceCreateDeviceRGB()
@@ -436,12 +440,11 @@ final class ProcessingService {
             bytesPerRow: bytesPerRow,
             space: colorSpace,
             bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue
-        ) else { return nil }
+        ) else { return false }
 
-        guard let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return nil }
         context.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
 
-        return buffer
+        return true
     }
 
     // MARK: - Database
@@ -599,21 +602,33 @@ final class ProcessingService {
 
     // MARK: - Memory
 
-    private func currentMemoryMB() -> Double {
-        var info = mach_task_basic_info()
-        var count = mach_msg_type_number_t(MemoryLayout<mach_task_basic_info>.size) / 4
-        let result = withUnsafeMutablePointer(to: &info) {
-            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
-                task_info(mach_task_self_, task_flavor_t(MACH_TASK_BASIC_INFO), $0, &count)
+    private func currentMemoryStats() -> (resident: Double, footprint: Double)? {
+        var basicInfo = mach_task_basic_info()
+        var basicCount = mach_msg_type_number_t(MemoryLayout<mach_task_basic_info>.size) / 4
+        let basicResult = withUnsafeMutablePointer(to: &basicInfo) {
+            $0.withMemoryRebound(to: integer_t.self, capacity: Int(basicCount)) {
+                task_info(mach_task_self_, task_flavor_t(MACH_TASK_BASIC_INFO), $0, &basicCount)
             }
         }
-        guard result == KERN_SUCCESS else { return -1 }
-        return Double(info.resident_size) / 1_048_576.0
+
+        var vmInfo = task_vm_info_data_t()
+        var vmCount = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size) / 4
+        let vmResult = withUnsafeMutablePointer(to: &vmInfo) {
+            $0.withMemoryRebound(to: integer_t.self, capacity: Int(vmCount)) {
+                task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &vmCount)
+            }
+        }
+
+        guard basicResult == KERN_SUCCESS, vmResult == KERN_SUCCESS else { return nil }
+        return (
+            resident: Double(basicInfo.resident_size) / 1_048_576.0,
+            footprint: Double(vmInfo.phys_footprint) / 1_048_576.0
+        )
     }
 
     private func logMemory(_ label: String) {
-        let mb = currentMemoryMB()
-        Log.processing.notice("Memory [\(label, privacy: .public)] — \(String(format: "%.1f", mb), privacy: .public) MB")
+        guard let stats = currentMemoryStats() else { return }
+        Log.processing.notice("Memory [\(label, privacy: .public)] — resident=\(String(format: "%.1f", stats.resident), privacy: .public) MB, footprint=\(String(format: "%.1f", stats.footprint), privacy: .public) MB")
     }
 
     // MARK: - Errors

@@ -77,6 +77,12 @@ Playback is a single unified macOS app:
 - **Light Usage**: 6-8 GB/month
 - **Heavy Usage**: 20-28 GB/month
 
+## RAM Usage
+
+- **Idle / between processing cycles**: ~20-40 MB footprint, ~90-120 MB resident
+- **During video encoding**: ~150-230 MB footprint, ~600-720 MB resident
+- Memory returns to idle levels after each processing cycle completes
+
 ## User Interactions
 
 - **Menu Bar Icon**: Toggle recording, access settings

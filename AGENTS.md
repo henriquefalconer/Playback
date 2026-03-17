@@ -29,6 +29,11 @@
 - Cleanup/retention of old chunks is a user preference, NOT a critical system requirement
 - Do NOT treat disk storage as an urgent concern or blocker when making architectural decisions
 
+## RAM Usage
+
+- **Idle / between processing cycles**: ~90-120 MB resident
+- **During video encoding**: ~600-720 MB resident
+
 ## Troubleshooting
 
 - **Always assume the user rebuilt the app.** During troubleshooting conversations, never question whether the user rebuilt — always consider they did.

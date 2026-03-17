@@ -123,6 +123,12 @@ cd src/Playback && xcodebuild -scheme Playback -configuration Release build
 - **Database**: ~2.5 GB per year
 - **Recommended**: 100 GB free for 6 months of recordings
 
+## RAM Usage
+
+- **Idle / between processing cycles**: ~20-40 MB footprint, ~90-120 MB resident
+- **During video encoding**: ~150-230 MB footprint, ~600-720 MB resident
+- Memory returns to idle levels after each processing cycle completes
+
 ## User Guide
 
 ### Keyboard Shortcuts
