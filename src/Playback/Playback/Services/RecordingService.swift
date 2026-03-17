@@ -44,7 +44,7 @@ final class RecordingService: ObservableObject {
         Log.recording.debug("Initializing singleton")
         loadConfig()
         setupConfigObserver()
-        setupDisplaySleepObservers()
+        setupSystemPauseObservers()
         Log.recording.debug("Initialization complete")
     }
 
@@ -112,7 +112,7 @@ final class RecordingService: ObservableObject {
         Log.recording.info("Recording service stopped, total_captures=\(self.captureCount)")
     }
 
-    /// Pause recording due to display sleep or screen saver.
+    /// Pause recording due to display sleep, screen lock, or screen saver.
     /// Stops the indicator stream gracefully before macOS revokes Screen Recording.
     func pause() {
         // Cancel any pending termination — the stream stop was caused by display sleep, not user action
@@ -126,7 +126,7 @@ final class RecordingService: ObservableObject {
             return
         }
 
-        Log.recording.info("Pausing recording (display sleep / screen saver)")
+        Log.recording.info("Pausing recording (system event)")
         isPausedBySystem = true
         timer?.invalidate()
         timer = nil
@@ -134,7 +134,7 @@ final class RecordingService: ObservableObject {
         isRecording = false
     }
 
-    /// Resume recording after display wake or screen saver dismissal.
+    /// Resume recording after screen unlock or screen saver dismissal.
     /// Only resumes if the pause was system-initiated and recording is still enabled.
     func resume() {
         guard isPausedBySystem else { return }
@@ -149,7 +149,7 @@ final class RecordingService: ObservableObject {
             return
         }
 
-        Log.recording.info("Resuming recording (display wake / screen saver ended)")
+        Log.recording.info("Resuming recording (screen unlocked)")
         isPausedBySystem = false
         isRecording = true
 
@@ -426,7 +426,7 @@ final class RecordingService: ObservableObject {
         }
     }
 
-    private func setupDisplaySleepObservers() {
+    private func setupSystemPauseObservers() {
         let workspace = NSWorkspace.shared.notificationCenter
 
         workspace.addObserver(
@@ -438,14 +438,9 @@ final class RecordingService: ObservableObject {
             Task { @MainActor in self?.pause() }
         }
 
-        workspace.addObserver(
-            forName: NSWorkspace.screensDidWakeNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            Log.recording.info("Display wake detected")
-            Task { @MainActor in self?.resume() }
-        }
+        // Note: screensDidWakeNotification is intentionally NOT observed for resume.
+        // Display wake fires before user authentication — we only resume on screen unlock
+        // (com.apple.screenIsUnlocked) which fires after the user has actually logged in.
 
         DistributedNotificationCenter.default().addObserver(
             forName: NSNotification.Name("com.apple.screenIsLocked"),

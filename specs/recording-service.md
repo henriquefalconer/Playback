@@ -43,8 +43,8 @@ Example: `20260315-143052-a3f8b29c-com.apple.Safari`
 1. App launches → `start()` if recording enabled in config
 2. Timeline opens → pauses capture (signal file mechanism)
 3. Timeline closes → resumes capture
-4. Display sleeps / screen saver starts → `pause()` (stops timer + indicator stream)
-5. Display wakes / screen saver ends → `resume()` (if recording was enabled)
+4. Display sleeps / screen lock / screen saver starts → `pause()` (stops timer + indicator stream)
+5. Screen unlocked (user logged in) → `resume()` (if recording was enabled)
 6. Config changes → `reload()` (re-reads excluded apps)
 7. App quits → `stop()`
 

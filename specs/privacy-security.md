@@ -61,12 +61,12 @@ Recording pauses automatically in two scenarios:
 2. `RecordingService` checks for file before each capture → skips if present
 3. Timeline closes → signal file removed → recording resumes
 
-### Display Sleep / Screen Saver
+### Display Sleep / Screen Lock / Screen Saver
 
-1. Display sleeps or screen saver starts → `RecordingService.pause()` stops the indicator stream and capture timer
+1. Display sleeps, screen locks, or screen saver starts → `RecordingService.pause()` stops the indicator stream and capture timer
 2. This prevents macOS from killing the SCStream (which would quit the app via `didStopWithError`)
-3. Display wakes or screen saver ends → `RecordingService.resume()` restarts indicator stream and timer
-4. Observed via `NSWorkspace.screensDidSleep/WakeNotification` and `DistributedNotificationCenter` lock/unlock notifications
+3. User logs in (screen unlock) → `RecordingService.resume()` restarts indicator stream and timer
+4. Pause observed via `NSWorkspace.screensDidSleepNotification` and `DistributedNotificationCenter` `com.apple.screenIsLocked`; resume observed via `DistributedNotificationCenter` `com.apple.screenIsUnlocked` only (display wake does NOT trigger resume, since it fires before user authentication)
 
 Note: display sleep pause stops the indicator stream entirely to prevent the auto-quit; timeline pause only skips captures.
 

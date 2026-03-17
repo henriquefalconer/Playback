@@ -25,7 +25,7 @@ Playback is a single unified macOS app (`Playback.app`) with two scenes and two 
    - Uses ScreenCaptureKit (app's Screen Recording permission)
    - Fixed 2-second interval via Timer
    - Pauses when timeline window is open (hardcoded, always on)
-   - Pauses on display sleep / screen saver (auto-resumes on wake)
+   - Pauses on display sleep / screen saver (auto-resumes on screen unlock)
    - Respects excluded apps list from config
    - Saves PNGs to `temp/YYYYMM/DD/`
 
@@ -51,7 +51,7 @@ All communication is in-process (no IPC needed):
 - **Config changes** → `ConfigManager` publishes via `@Published` / NotificationCenter
 - **Recording state** → `RecordingService.shared.isRecording` observed by MenuBarViewModel
 - **Timeline open/close** → `SignalFileManager` creates/removes `.timeline_open` file; RecordingService checks before each capture
-- **Display state** → `NSWorkspace.screensDidSleep/Wake` + `DistributedNotificationCenter` lock/unlock → RecordingService pauses/resumes
+- **Display state** → `NSWorkspace.screensDidSleep` + `DistributedNotificationCenter` lock/unlock → RecordingService pauses/resumes (resume only on unlock, not display wake)
 - **Segment data** → `TimelineStore` reads SQLite directly; auto-refreshes every 5 seconds
 
 ### Data Flow
