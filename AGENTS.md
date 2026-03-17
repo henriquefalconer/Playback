@@ -35,6 +35,7 @@
 
 ## Development
 
+- **Git branching:** Do not checkout other branches unless the user explicitly tells you to
 - **Git authentication:** If git push fails due to authentication, use `gh auth login --with-token < "/Volumes/My Shared Files/vm-macos-sharing/claude-pat-github.txt" && gh auth setup-git` to configure credentials, then retry the push
 - **UI test timing:** Use `waitForExistence(timeout:)` for element queries rather than fixed sleep() when possible. Use sleep() only for animations/transitions
 - **Build verification for UI tests:** Use `xcodebuild build-for-testing` to verify UI tests compile without running them (fast validation, especially in CI/CD)
