@@ -23,7 +23,7 @@ final class RecordingService: ObservableObject {
     @Published private(set) var isPausedBySystem = false
 
     private var timer: Timer?
-    private var pendingTerminationWork: DispatchWorkItem?
+    var pendingTerminationWork: DispatchWorkItem?
     private let fileManager = FileManager.default
 
     // Background SCStream solely to keep the recording indicator visible (not flashing)
