@@ -74,6 +74,12 @@ enum Paths {
         } catch {
             Log.system.debug("Could not set permissions on chunks directory: \(error.localizedDescription)")
         }
+        try fileManager.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
+        do {
+            try fileManager.setAttributes(dirAttrs, ofItemAtPath: tempDirectory.path)
+        } catch {
+            Log.system.debug("Could not set permissions on temp directory: \(error.localizedDescription)")
+        }
     }
 }
 
