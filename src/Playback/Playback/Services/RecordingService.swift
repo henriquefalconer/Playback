@@ -20,8 +20,10 @@ final class RecordingService: ObservableObject {
     @Published private(set) var isRecording = false
     @Published private(set) var lastCaptureTime: Date?
     @Published private(set) var captureCount: UInt64 = 0
+    @Published private(set) var isPausedBySystem = false
 
     private var timer: Timer?
+    private var pendingTerminationWork: DispatchWorkItem?
     private let fileManager = FileManager.default
 
     // Background SCStream solely to keep the recording indicator visible (not flashing)
@@ -42,6 +44,7 @@ final class RecordingService: ObservableObject {
         Log.recording.debug("Initializing singleton")
         loadConfig()
         setupConfigObserver()
+        setupDisplaySleepObservers()
         Log.recording.debug("Initialization complete")
     }
 
@@ -103,9 +106,69 @@ final class RecordingService: ObservableObject {
         timer = nil
         stopIndicatorStream()
         isRecording = false
+        isPausedBySystem = false
         Log.recording.debug("Recording stopped")
 
         Log.recording.info("Recording service stopped, total_captures=\(self.captureCount)")
+    }
+
+    /// Pause recording due to display sleep or screen saver.
+    /// Stops the indicator stream gracefully before macOS revokes Screen Recording.
+    func pause() {
+        // Cancel any pending termination — the stream stop was caused by display sleep, not user action
+        cancelPendingTermination()
+
+        guard isRecording, !isPausedBySystem else {
+            // Even if not recording, mark as system-paused so the grace period check works
+            if !isPausedBySystem {
+                isPausedBySystem = true
+            }
+            return
+        }
+
+        Log.recording.info("Pausing recording (display sleep / screen saver)")
+        isPausedBySystem = true
+        timer?.invalidate()
+        timer = nil
+        stopIndicatorStream()
+        isRecording = false
+    }
+
+    /// Resume recording after display wake or screen saver dismissal.
+    /// Only resumes if the pause was system-initiated and recording is still enabled.
+    func resume() {
+        guard isPausedBySystem else { return }
+        guard ConfigManager.shared.config.recordingEnabled else {
+            Log.recording.info("Not resuming — recording disabled by user")
+            isPausedBySystem = false
+            return
+        }
+        guard CGPreflightScreenCaptureAccess() else {
+            Log.recording.error("Not resuming — Screen Recording permission revoked")
+            isPausedBySystem = false
+            return
+        }
+
+        Log.recording.info("Resuming recording (display wake / screen saver ended)")
+        isPausedBySystem = false
+        isRecording = true
+
+        Task {
+            await startIndicatorStream()
+        }
+
+        timer = Timer.scheduledTimer(withTimeInterval: captureInterval, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                await self?.captureScreenshot()
+            }
+        }
+    }
+
+    /// Cancel any pending auto-termination (called when a system pause arrives
+    /// within the grace period after an unexpected indicator stream stop).
+    func cancelPendingTermination() {
+        pendingTerminationWork?.cancel()
+        pendingTerminationWork = nil
     }
 
     /// Reload configuration
@@ -363,6 +426,46 @@ final class RecordingService: ObservableObject {
         }
     }
 
+    private func setupDisplaySleepObservers() {
+        let workspace = NSWorkspace.shared.notificationCenter
+
+        workspace.addObserver(
+            forName: NSWorkspace.screensDidSleepNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Log.recording.info("Display sleep detected")
+            Task { @MainActor in self?.pause() }
+        }
+
+        workspace.addObserver(
+            forName: NSWorkspace.screensDidWakeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Log.recording.info("Display wake detected")
+            Task { @MainActor in self?.resume() }
+        }
+
+        DistributedNotificationCenter.default().addObserver(
+            forName: NSNotification.Name("com.apple.screenIsLocked"),
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Log.recording.info("Screen locked detected")
+            Task { @MainActor in self?.pause() }
+        }
+
+        DistributedNotificationCenter.default().addObserver(
+            forName: NSNotification.Name("com.apple.screenIsUnlocked"),
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Log.recording.info("Screen unlocked detected")
+            Task { @MainActor in self?.resume() }
+        }
+    }
+
     deinit {
         // Clean up - timer will be invalidated when released
         timer?.invalidate()
@@ -380,9 +483,29 @@ private final class IndicatorStreamDelegate: NSObject, SCStreamDelegate, SCStrea
     }
 
     func stream(_ stream: SCStream, didStopWithError error: Error) {
-        Log.recording.info("Indicator stream stopped externally (user clicked Stop Presenting), quitting app")
+        Log.recording.info("Indicator stream stopped externally: \(error.localizedDescription)")
         Task { @MainActor in
-            NSApplication.shared.terminate(nil)
+            let service = RecordingService.shared
+            // If already paused by system, this is expected — ignore.
+            if service.isPausedBySystem {
+                Log.recording.debug("Stream stop ignored — already paused by system")
+                return
+            }
+            // Race condition: macOS may kill the stream before our sleep notification arrives.
+            // Delay termination by 2 seconds to give sleep/lock notifications time to arrive.
+            let work = DispatchWorkItem { [weak service] in
+                Task { @MainActor in
+                    guard let service else { return }
+                    if service.isPausedBySystem {
+                        Log.recording.debug("Termination cancelled — system pause arrived during grace period")
+                    } else {
+                        Log.recording.info("No system pause detected — quitting (user clicked Stop Presenting)")
+                        NSApplication.shared.terminate(nil)
+                    }
+                }
+            }
+            service.pendingTerminationWork = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0, execute: work)
         }
     }
 }

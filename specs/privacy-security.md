@@ -53,11 +53,22 @@ Shown inline in the settings panel (not a separate wizard):
 
 ## Recording Pause
 
-Recording always pauses when the timeline viewer is open. This is hardcoded behavior, not a user setting. The mechanism:
+Recording pauses automatically in two scenarios:
+
+### Timeline Open (Signal File)
 
 1. Timeline opens → `SignalFileManager` creates `.timeline_open` file
 2. `RecordingService` checks for file before each capture → skips if present
 3. Timeline closes → signal file removed → recording resumes
+
+### Display Sleep / Screen Saver
+
+1. Display sleeps or screen saver starts → `RecordingService.pause()` stops the indicator stream and capture timer
+2. This prevents macOS from killing the SCStream (which would quit the app via `didStopWithError`)
+3. Display wakes or screen saver ends → `RecordingService.resume()` restarts indicator stream and timer
+4. Observed via `NSWorkspace.screensDidSleep/WakeNotification` and `DistributedNotificationCenter` lock/unlock notifications
+
+Note: display sleep pause stops the indicator stream entirely to prevent the auto-quit; timeline pause only skips captures.
 
 ## File Permissions
 

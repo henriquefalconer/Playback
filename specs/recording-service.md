@@ -41,10 +41,12 @@ Example: `20260315-143052-a3f8b29c-com.apple.Safari`
 ## Lifecycle
 
 1. App launches → `start()` if recording enabled in config
-2. Timeline opens → pauses (always, hardcoded)
-3. Timeline closes → resumes
-4. Config changes → `reload()` (re-reads excluded apps)
-5. App quits → `stop()`
+2. Timeline opens → pauses capture (signal file mechanism)
+3. Timeline closes → resumes capture
+4. Display sleeps / screen saver starts → `pause()` (stops timer + indicator stream)
+5. Display wakes / screen saver ends → `resume()` (if recording was enabled)
+6. Config changes → `reload()` (re-reads excluded apps)
+7. App quits → `stop()`
 
 ## Permission
 
@@ -62,6 +64,7 @@ Uses the app's Screen Recording permission (`CGPreflightScreenCaptureAccess`). W
 @Published private(set) var isRecording: Bool
 @Published private(set) var lastCaptureTime: Date?
 @Published private(set) var captureCount: UInt64
+@Published private(set) var isPausedBySystem: Bool
 ```
 
 Consumed by `MenuBarViewModel` for status display.

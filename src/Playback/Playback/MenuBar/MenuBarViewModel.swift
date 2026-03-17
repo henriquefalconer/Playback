@@ -144,9 +144,13 @@ final class MenuBarViewModel: ObservableObject {
         }
 
         let oldState = recordingState
-        Log.menuBar.debug("Updating state - recordingService.isRecording=\(self.recordingService.isRecording)")
+        Log.menuBar.debug("Updating state - recordingService.isRecording=\(self.recordingService.isRecording), isPausedBySystem=\(self.recordingService.isPausedBySystem)")
         if recordingService.isRecording {
             recordingState = .recording
+            isRecordingEnabled = true
+        } else if recordingService.isPausedBySystem {
+            // System-initiated pause (display sleep / screen saver) — show paused but keep toggle on
+            recordingState = .paused
             isRecordingEnabled = true
         } else {
             recordingState = .paused
