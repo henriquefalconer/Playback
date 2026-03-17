@@ -3,6 +3,7 @@
 
 import SwiftUI
 import AppKit
+import os
 import UniformTypeIdentifiers
 
 struct SettingsView: View {
@@ -24,6 +25,9 @@ private struct SettingsPanel: View {
     @State private var accessibilityGranted = false
     @State private var storageInfo: StorageInfo?
     @State private var isCalculatingStorage = false
+    @State private var showDeleteConfirmation = false
+    @State private var isDeleting = false
+    @State private var deleteError: String?
 
     var body: some View {
         Form {
@@ -70,6 +74,55 @@ private struct SettingsPanel: View {
                     Text("~10–14 GB/month typical usage")
                         .font(.caption)
                         .foregroundColor(.secondary)
+                }
+
+                HStack {
+                    Button(role: .destructive) {
+                        Log.settings.info("Delete All Recordings button tapped")
+                        showDeleteConfirmation = true
+                    } label: {
+                        if isDeleting {
+                            ProgressView()
+                                .controlSize(.small)
+                            Text("Deleting…")
+                        } else {
+                            Text("Delete All Recordings")
+                        }
+                    }
+                    .disabled(isDeleting)
+                    .confirmationDialog("Delete All Recordings?", isPresented: $showDeleteConfirmation) {
+                        Button("Delete All", role: .destructive) {
+                            Log.settings.info("Delete All Recordings confirmed by user")
+                            isDeleting = true
+                            deleteError = nil
+                            Task {
+                                do {
+                                    try DataManager.shared.deleteAllRecordings()
+                                    calculateStorage()
+                                } catch {
+                                    deleteError = error.localizedDescription
+                                }
+                                isDeleting = false
+                            }
+                        }
+                        Button("Cancel", role: .cancel) {
+                            Log.settings.info("Delete All Recordings cancelled by user")
+                        }
+                    } message: {
+                        Text("This will permanently delete all screenshots, video segments, and metadata. Your settings will be preserved. This cannot be undone.")
+                    }
+                }
+
+                if let error = deleteError {
+                    HStack(spacing: 4) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundColor(.red)
+                            .font(.caption)
+                        Text(error)
+                            .font(.caption)
+                            .foregroundColor(.red)
+                    }
+                    .padding(.top, 4)
                 }
             }
 

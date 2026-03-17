@@ -118,6 +118,11 @@ final class TimelineStore: ObservableObject {
 
         loadSegments()
         startAutoRefresh()
+
+        NotificationCenter.default.addObserver(forName: DataManager.recordingsDidResetNotification, object: nil, queue: .main) { [weak self] _ in
+            Log.timeline.info("Reloading segments after data reset")
+            self?.loadSegments()
+        }
     }
 
     init(dbPath: String, baseDir: URL, autoRefresh: Bool = true) {
