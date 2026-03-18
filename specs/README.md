@@ -79,8 +79,8 @@ Playback is a single unified macOS app:
 
 ## RAM Usage
 
-- **Idle / between processing cycles**: ~20-40 MB footprint, ~90-120 MB resident
-- **During video encoding**: ~150-230 MB footprint, ~600-720 MB resident
+- **Idle / between processing cycles**: ~20-40 MB footprint
+- **During video encoding**: ~150-230 MB footprint
 - Memory returns to idle levels after each processing cycle completes
 
 ## User Interactions
