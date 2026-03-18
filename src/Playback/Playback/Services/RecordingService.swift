@@ -26,6 +26,7 @@ final class RecordingService: ObservableObject {
     private var timer: Timer?
     var pendingTerminationWork: DispatchWorkItem?
     private var displayStabilizationWork: DispatchWorkItem?
+    private var lastDisplaySignature: String = ""
     private let fileManager = FileManager.default
 
     // Background SCStream solely to keep the recording indicator visible (not flashing)
@@ -47,7 +48,16 @@ final class RecordingService: ObservableObject {
         loadConfig()
         setupConfigObserver()
         setupSystemPauseObservers()
+        lastDisplaySignature = Self.currentDisplaySignature()
         Log.recording.debug("Initialization complete")
+    }
+
+    /// Returns a string signature of display count + resolutions, used to detect
+    /// actual display reconfigurations vs. cosmetic changes (dock moving, etc.).
+    private static func currentDisplaySignature() -> String {
+        NSScreen.screens.map { "\(Int($0.frame.width))x\(Int($0.frame.height))" }
+            .sorted()
+            .joined(separator: ",")
     }
 
     // MARK: - Public API
@@ -178,7 +188,16 @@ final class RecordingService: ObservableObject {
 
     /// Handle display reconfiguration (monitor connect/disconnect/resolution change).
     /// Pauses recording and schedules auto-resume after WindowServer stabilizes.
+    /// Ignores cosmetic changes like dock moving between monitors.
     private func handleDisplayReconfiguration() {
+        let newSignature = Self.currentDisplaySignature()
+        guard newSignature != lastDisplaySignature else {
+            Log.recording.debug("Screen parameters changed but display signature unchanged — ignoring (dock move, etc.)")
+            return
+        }
+        lastDisplaySignature = newSignature
+        Log.recording.info("Display signature changed: \(newSignature, privacy: .public)")
+
         // Debounce: cancel any existing stabilization timer (macOS fires multiple notifications per event)
         displayStabilizationWork?.cancel()
         displayStabilizationWork = nil
