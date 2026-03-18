@@ -21,9 +21,11 @@ final class RecordingService: ObservableObject {
     @Published private(set) var lastCaptureTime: Date?
     @Published private(set) var captureCount: UInt64 = 0
     @Published private(set) var isPausedBySystem = false
+    private var isPausedByDisplayChange = false
 
     private var timer: Timer?
     var pendingTerminationWork: DispatchWorkItem?
+    private var displayStabilizationWork: DispatchWorkItem?
     private let fileManager = FileManager.default
 
     // Background SCStream solely to keep the recording indicator visible (not flashing)
@@ -104,6 +106,9 @@ final class RecordingService: ObservableObject {
 
         timer?.invalidate()
         timer = nil
+        displayStabilizationWork?.cancel()
+        displayStabilizationWork = nil
+        isPausedByDisplayChange = false
         stopIndicatorStream()
         isRecording = false
         isPausedBySystem = false
@@ -169,6 +174,41 @@ final class RecordingService: ObservableObject {
     func cancelPendingTermination() {
         pendingTerminationWork?.cancel()
         pendingTerminationWork = nil
+    }
+
+    /// Handle display reconfiguration (monitor connect/disconnect/resolution change).
+    /// Pauses recording and schedules auto-resume after WindowServer stabilizes.
+    private func handleDisplayReconfiguration() {
+        // Debounce: cancel any existing stabilization timer (macOS fires multiple notifications per event)
+        displayStabilizationWork?.cancel()
+        displayStabilizationWork = nil
+
+        // Cancel pending termination — the stream stop was caused by display change, not user action
+        cancelPendingTermination()
+
+        if isRecording, !isPausedBySystem {
+            pause()
+            isPausedByDisplayChange = true
+        } else if !isPausedByDisplayChange {
+            isPausedByDisplayChange = true
+        }
+
+        // Schedule resume after WindowServer stabilizes (~1-2s, use 3s for margin)
+        let work = DispatchWorkItem { [weak self] in
+            Task { @MainActor in
+                self?.resumeAfterDisplayChange()
+            }
+        }
+        displayStabilizationWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0, execute: work)
+    }
+
+    /// Resume recording after display reconfiguration stabilization.
+    private func resumeAfterDisplayChange() {
+        guard isPausedByDisplayChange else { return }
+        isPausedByDisplayChange = false
+        Log.recording.info("Display reconfiguration stabilized, resuming")
+        resume()
     }
 
     /// Reload configuration
@@ -459,11 +499,21 @@ final class RecordingService: ObservableObject {
             Log.recording.info("Screen unlocked detected")
             Task { @MainActor in self?.resume() }
         }
+
+        NotificationCenter.default.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Log.recording.info("Display reconfiguration detected")
+            Task { @MainActor in self?.handleDisplayReconfiguration() }
+        }
     }
 
     deinit {
         // Clean up - timer will be invalidated when released
         timer?.invalidate()
+        displayStabilizationWork?.cancel()
         NotificationCenter.default.removeObserver(self)
     }
 }
@@ -481,9 +531,9 @@ private final class IndicatorStreamDelegate: NSObject, SCStreamDelegate, SCStrea
         Log.recording.info("Indicator stream stopped externally: \(error.localizedDescription)")
         Task { @MainActor in
             let service = RecordingService.shared
-            // If already paused by system, this is expected — ignore.
-            if service.isPausedBySystem {
-                Log.recording.debug("Stream stop ignored — already paused by system")
+            // If already paused by system or display change, this is expected — ignore.
+            if service.isPausedBySystem || service.isPausedByDisplayChange {
+                Log.recording.debug("Stream stop ignored — already paused by system or display change")
                 return
             }
             // Race condition: macOS may kill the stream before our sleep notification arrives.
@@ -491,8 +541,8 @@ private final class IndicatorStreamDelegate: NSObject, SCStreamDelegate, SCStrea
             let work = DispatchWorkItem { [weak service] in
                 Task { @MainActor in
                     guard let service else { return }
-                    if service.isPausedBySystem {
-                        Log.recording.debug("Termination cancelled — system pause arrived during grace period")
+                    if service.isPausedBySystem || service.isPausedByDisplayChange {
+                        Log.recording.debug("Termination cancelled — system pause or display change arrived during grace period")
                     } else {
                         Log.recording.info("No system pause detected — quitting (user clicked Stop Presenting)")
                         NSApplication.shared.terminate(nil)

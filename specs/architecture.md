@@ -51,7 +51,7 @@ All communication is in-process (no IPC needed):
 - **Config changes** → `ConfigManager` publishes via `@Published` / NotificationCenter
 - **Recording state** → `RecordingService.shared.isRecording` observed by MenuBarViewModel
 - **Timeline open/close** → `SignalFileManager` creates/removes `.timeline_open` file; RecordingService checks before each capture
-- **Display state** → `NSWorkspace.screensDidSleep` + `DistributedNotificationCenter` lock/unlock → RecordingService pauses/resumes (resume only on unlock, not display wake)
+- **Display state** → `NSWorkspace.screensDidSleep` + `DistributedNotificationCenter` lock/unlock → RecordingService pauses/resumes (resume only on unlock, not display wake) + `NSApplication.didChangeScreenParametersNotification` → RecordingService pauses/auto-resumes on display reconfiguration
 - **Segment data** → `TimelineStore` reads SQLite directly; auto-refreshes every 5 seconds
 
 ### Data Flow
