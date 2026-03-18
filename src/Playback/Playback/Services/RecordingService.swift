@@ -22,6 +22,7 @@ final class RecordingService: ObservableObject {
     @Published private(set) var captureCount: UInt64 = 0
     @Published private(set) var isPausedBySystem = false
     fileprivate var isPausedByDisplayChange = false
+    fileprivate var isPausedByScreensaver = false
 
     private var timer: Timer?
     var pendingTerminationWork: DispatchWorkItem?
@@ -58,6 +59,12 @@ final class RecordingService: ObservableObject {
         NSScreen.screens.map { "\(Int($0.frame.width))x\(Int($0.frame.height))" }
             .sorted()
             .joined(separator: ",")
+    }
+
+    /// Check if a bundle ID belongs to the screensaver / lock screen.
+    /// On modern macOS, the screensaver is handled by loginwindow, not a separate process.
+    private static func isScreensaverApp(_ bundleID: String) -> Bool {
+        bundleID == "com.apple.loginwindow"
     }
 
     // MARK: - Public API
@@ -164,8 +171,9 @@ final class RecordingService: ObservableObject {
             return
         }
 
-        Log.recording.info("Resuming recording (screen unlocked)")
+        Log.recording.info("Resuming recording (isPausedByScreensaver=\(self.isPausedByScreensaver))")
         isPausedBySystem = false
+        isPausedByScreensaver = false
         isRecording = true
 
         Task {
@@ -226,7 +234,44 @@ final class RecordingService: ObservableObject {
     private func resumeAfterDisplayChange() {
         guard isPausedByDisplayChange else { return }
         isPausedByDisplayChange = false
+        if isPausedByScreensaver {
+            Log.recording.info("Display reconfiguration stabilized, but screensaver is active — staying paused")
+            return
+        }
+        // Double-check frontmost app before resuming (screensaver flag may not be set yet)
+        if let frontmost = getFrontmostApp(), Self.isScreensaverApp(frontmost) {
+            Log.recording.info("Display reconfiguration stabilized, but screensaver is frontmost app — staying paused")
+            isPausedByScreensaver = true
+            return
+        }
         Log.recording.info("Display reconfiguration stabilized, resuming")
+        resume()
+    }
+
+    /// Handle screensaver activation — pause recording so we don't capture the screensaver.
+    private func handleScreensaverStart() {
+        isPausedByScreensaver = true
+
+        // Cancel any pending display-change resume so it doesn't restart recording
+        // while the screensaver is showing.
+        displayStabilizationWork?.cancel()
+        displayStabilizationWork = nil
+        Log.recording.debug("Cancelled pending display stabilization resume due to screensaver")
+
+        if isRecording, !isPausedBySystem {
+            Log.recording.info("Pausing recording due to screensaver")
+            pause()
+        } else {
+            Log.recording.debug("Screensaver started but already paused (isPausedBySystem=\(self.isPausedBySystem), isRecording=\(self.isRecording))")
+        }
+    }
+
+    /// Handle screensaver dismissal — resume recording if not locked.
+    /// Idempotent: resume() guards against double-resume, so this is safe even if
+    /// screen unlock already resumed recording before this notification arrives.
+    private func handleScreensaverStop() {
+        isPausedByScreensaver = false
+        Log.recording.info("Screensaver dismissed, resuming recording")
         resume()
     }
 
@@ -271,11 +316,26 @@ final class RecordingService: ObservableObject {
             return
         }
 
-        Log.recording.debug("Frontmost app: \(frontmostApp)")
+        Log.recording.debug("Frontmost app: \(frontmostApp, privacy: .public)")
+
+        // Detect screensaver by frontmost app (notifications are unreliable on modern macOS)
+        if Self.isScreensaverApp(frontmostApp) {
+            Log.recording.info("Screensaver detected as frontmost app: \(frontmostApp, privacy: .public)")
+            handleScreensaverStart()
+            return
+        }
 
         // Capture display using ScreenCaptureKit (excluded apps are filtered out at capture level)
         guard let pngData = await captureScreen() else {
             Log.recording.error("Failed to capture screen")
+            return
+        }
+
+        // Re-check timeline signal after capture (the async capture takes time,
+        // so the timeline may have opened between the initial check and now)
+        if fileManager.fileExists(atPath: Paths.timelineOpenSignalPath.path) {
+            summarySkippedByTimeline += 1
+            Log.recording.debug("Timeline opened during capture — discarding frame")
             return
         }
 
@@ -519,6 +579,35 @@ final class RecordingService: ObservableObject {
             Task { @MainActor in self?.resume() }
         }
 
+        // Screensaver detection via app activation (distributed notifications and
+        // app launch/terminate are unreliable for the screensaver on modern macOS).
+        // Belt-and-suspenders: captureScreenshot() also checks the frontmost app.
+        workspace.addObserver(
+            forName: NSWorkspace.didActivateApplicationNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
+                  let bundleID = app.bundleIdentifier else { return }
+            if Self.isScreensaverApp(bundleID) {
+                Log.recording.info("Screensaver activated as frontmost app: \(bundleID, privacy: .public)")
+                Task { @MainActor in self?.handleScreensaverStart() }
+            }
+        }
+
+        workspace.addObserver(
+            forName: NSWorkspace.didDeactivateApplicationNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
+                  let bundleID = app.bundleIdentifier else { return }
+            if Self.isScreensaverApp(bundleID) {
+                Log.recording.info("Screensaver deactivated: \(bundleID, privacy: .public)")
+                Task { @MainActor in self?.handleScreensaverStop() }
+            }
+        }
+
         NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification,
             object: nil,
@@ -550,9 +639,9 @@ private final class IndicatorStreamDelegate: NSObject, SCStreamDelegate, SCStrea
         Log.recording.info("Indicator stream stopped externally: \(error.localizedDescription)")
         Task { @MainActor in
             let service = RecordingService.shared
-            // If already paused by system or display change, this is expected — ignore.
-            if service.isPausedBySystem || service.isPausedByDisplayChange {
-                Log.recording.debug("Stream stop ignored — already paused by system or display change")
+            // If already paused by system, display change, or screensaver, this is expected — ignore.
+            if service.isPausedBySystem || service.isPausedByDisplayChange || service.isPausedByScreensaver {
+                Log.recording.debug("Stream stop ignored — already paused by system, display change, or screensaver")
                 return
             }
             // Race condition: macOS may kill the stream before our sleep notification arrives.
@@ -560,8 +649,8 @@ private final class IndicatorStreamDelegate: NSObject, SCStreamDelegate, SCStrea
             let work = DispatchWorkItem { [weak service] in
                 Task { @MainActor in
                     guard let service else { return }
-                    if service.isPausedBySystem || service.isPausedByDisplayChange {
-                        Log.recording.debug("Termination cancelled — system pause or display change arrived during grace period")
+                    if service.isPausedBySystem || service.isPausedByDisplayChange || service.isPausedByScreensaver {
+                        Log.recording.debug("Termination cancelled — system pause, display change, or screensaver arrived during grace period")
                     } else {
                         Log.recording.info("No system pause detected — quitting (user clicked Stop Presenting)")
                         NSApplication.shared.terminate(nil)
