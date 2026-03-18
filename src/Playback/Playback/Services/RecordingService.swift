@@ -21,7 +21,7 @@ final class RecordingService: ObservableObject {
     @Published private(set) var lastCaptureTime: Date?
     @Published private(set) var captureCount: UInt64 = 0
     @Published private(set) var isPausedBySystem = false
-    private var isPausedByDisplayChange = false
+    fileprivate var isPausedByDisplayChange = false
 
     private var timer: Timer?
     var pendingTerminationWork: DispatchWorkItem?
