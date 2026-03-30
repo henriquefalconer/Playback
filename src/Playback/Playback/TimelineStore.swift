@@ -88,15 +88,6 @@ final class TimelineStore: ObservableObject {
     @Published private(set) var appSegments: [AppSegment] = []
     @Published private(set) var loadingState: LoadingState = .loading
 
-    /// Current visible window used for windowed appSegment queries.
-    /// Updated by the view layer; triggers a reload when the window moves
-    /// beyond the prefetched range.
-    private var appSegmentWindowStart: TimeInterval = 0
-    private var appSegmentWindowEnd: TimeInterval = 0
-    /// Prefetched range (2x the visible window on each side for smooth scrolling).
-    private var prefetchedStart: TimeInterval = 0
-    private var prefetchedEnd: TimeInterval = 0
-
     var timelineStart: TimeInterval? {
         segments.first?.startTS
     }
@@ -239,76 +230,15 @@ final class TimelineStore: ObservableObject {
             )
         }
 
-        // Load appSegments for the current prefetched window only.
-        let appSegmentsLoaded = self.loadAppSegments(db: db, start: self.prefetchedStart, end: self.prefetchedEnd)
-
-        DispatchQueue.main.async {
-            self.segments = loaded
-            self.appSegments = appSegmentsLoaded
-
-            if loaded.isEmpty {
-                self.loadingState = .empty
-            } else {
-                self.loadingState = .loaded
-            }
-
-            Log.timeline.debug("Loaded \(loaded.count) segments and \(appSegmentsLoaded.count) appsegments (window: \(self.prefetchedStart)-\(self.prefetchedEnd))")
-        }
-    }
-
-    /// Called by the view layer when the visible time window changes (zoom/scroll).
-    /// Only reloads appSegments from DB when the view moves outside the prefetched range.
-    func updateVisibleWindow(start: TimeInterval, end: TimeInterval) {
-        appSegmentWindowStart = start
-        appSegmentWindowEnd = end
-
-        // If current view is within the prefetched range, no reload needed.
-        if start >= prefetchedStart && end <= prefetchedEnd && !appSegments.isEmpty {
-            return
-        }
-
-        // Prefetch 2x the visible window on each side for smooth scrolling.
-        let windowSize = end - start
-        let newPrefetchStart = start - windowSize * 2
-        let newPrefetchEnd = end + windowSize * 2
-        prefetchedStart = newPrefetchStart
-        prefetchedEnd = newPrefetchEnd
-
-        // Reload appSegments from DB with the new window.
-        var db: OpaquePointer?
-        guard sqlite3_open(dbPath, &db) == SQLITE_OK, let db else { return }
-        defer { sqlite3_close(db) }
-
-        let loaded = loadAppSegments(db: db, start: newPrefetchStart, end: newPrefetchEnd)
-        DispatchQueue.main.async {
-            self.appSegments = loaded
-            Log.timeline.debug("AppSegments reloaded: \(loaded.count) (prefetch \(newPrefetchStart)-\(newPrefetchEnd))")
-        }
-    }
-
-    /// Loads appSegments from DB within a time range. Pass 0/0 to load all (initial load fallback).
-    private func loadAppSegments(db: OpaquePointer, start: TimeInterval, end: TimeInterval) -> [AppSegment] {
-        let appQuery: String
-        if start == 0 && end == 0 {
-            // No window set yet — load recent 2 hours as reasonable default
-            let now = Date().timeIntervalSince1970
-            appQuery = """
-            SELECT id, app_id, start_ts, end_ts
-            FROM appsegments
-            WHERE end_ts >= \(now - 7200) AND start_ts <= \(now)
-            ORDER BY start_ts ASC;
-            """
-        } else {
-            appQuery = """
-            SELECT id, app_id, start_ts, end_ts
-            FROM appsegments
-            WHERE end_ts >= \(start) AND start_ts <= \(end)
-            ORDER BY start_ts ASC;
-            """
-        }
+        // Also load appsegments, if the table exists.
+        let appQuery = """
+        SELECT id, app_id, start_ts, end_ts
+        FROM appsegments
+        ORDER BY start_ts ASC;
+        """
 
         var appStmt: OpaquePointer?
-        var result: [AppSegment] = []
+        var loadedAppSegments: [AppSegment] = []
 
         if sqlite3_prepare_v2(db, appQuery, -1, &appStmt, nil) == SQLITE_OK, let appStmt {
             defer { sqlite3_finalize(appStmt) }
@@ -327,7 +257,7 @@ final class TimelineStore: ObservableObject {
                 let startTS = sqlite3_column_double(appStmt, 2)
                 let endTS = sqlite3_column_double(appStmt, 3)
 
-                result.append(
+                loadedAppSegments.append(
                     AppSegment(
                         id: id,
                         startTS: startTS,
@@ -340,7 +270,18 @@ final class TimelineStore: ObservableObject {
             Log.timeline.notice("appsegments table not found or error preparing query; only segments will be loaded.")
         }
 
-        return result
+        DispatchQueue.main.async {
+            self.segments = loaded
+            self.appSegments = loadedAppSegments
+
+            if loaded.isEmpty {
+                self.loadingState = .empty
+            } else {
+                self.loadingState = .loaded
+            }
+
+            Log.timeline.debug("Loaded \(loaded.count) segments and \(loadedAppSegments.count) appsegments")
+        }
     }
 
     /// Simple version (without explicit direction) used in places where we're not

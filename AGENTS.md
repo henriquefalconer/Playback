@@ -31,8 +31,8 @@
 
 ## RAM Usage
 
-- **Idle / between processing cycles**: ~612 MB footprint (ScreenCaptureKit framework overhead), ~65-85 MB resident
-- **During video encoding**: ~650-685 MB footprint, ~100-165 MB resident (spikes to ~430 MB resident with large mixed-resolution batches)
+- **Idle / between processing cycles**: ~20-40 MB footprint, ~90-120 MB resident
+- **During video encoding**: ~150-230 MB footprint, ~600-720 MB resident
 
 ## Troubleshooting
 

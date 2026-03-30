@@ -5,11 +5,6 @@ import os
 
 // Extension to obtain an average color from an icon using only native APIs (CoreImage).
 extension NSImage {
-    private static let sharedCIContext = CIContext(options: [
-        .workingColorSpace: NSNull(),
-        .outputColorSpace: NSNull()
-    ])
-
     var averageColor: NSColor? {
         guard
             let tiffData = self.tiffRepresentation,
@@ -33,8 +28,13 @@ extension NSImage {
             return nil
         }
 
+        let context = CIContext(options: [
+            .workingColorSpace: NSNull(),
+            .outputColorSpace: NSNull()
+        ])
+
         var bitmapData = [UInt8](repeating: 0, count: 4)
-        Self.sharedCIContext.render(
+        context.render(
             outputImage,
             toBitmap: &bitmapData,
             rowBytes: 4,
@@ -115,8 +115,6 @@ struct TimelineView: View {
         return formatter.string(from: date)
     }
 
-    private static let maxCacheSize = 100
-
     private static var appNameCache: [String: String] = [:]
 
     private func appDisplayName(for appId: String) -> String {
@@ -129,7 +127,6 @@ struct TimelineView: View {
         } else {
             name = appId.components(separatedBy: ".").last ?? appId
         }
-        if Self.appNameCache.count >= Self.maxCacheSize { Self.appNameCache.removeAll() }
         Self.appNameCache[appId] = name
         return name
     }
@@ -145,18 +142,11 @@ struct TimelineView: View {
         }
         let icon = NSWorkspace.shared.icon(forFile: appURL.path)
         icon.size = NSSize(width: 18, height: 18)
-        if Self.appIconCache.count >= Self.maxCacheSize { Self.appIconCache.removeAll() }
         Self.appIconCache[appId] = icon
         return Image(nsImage: icon)
     }
 
     private static var appColorCache: [String: Color] = [:]
-
-    static func clearCaches() {
-        appNameCache.removeAll()
-        appIconCache.removeAll()
-        appColorCache.removeAll()
-    }
 
     /// "Representative" color of the app, natively derived from the app icon.
     private func appColor(for appId: String) -> Color {
@@ -194,7 +184,6 @@ struct TimelineView: View {
             color = .blue
         }
 
-        if Self.appColorCache.count >= Self.maxCacheSize { Self.appColorCache.removeAll() }
         Self.appColorCache[appId] = color
         return color
     }
@@ -304,8 +293,6 @@ struct TimelineView: View {
                         Log.timeline.debug("  playbackController.currentTime after scrub=\(playbackController.currentTime)")
                         centerTime = playbackController.currentTime
                         Log.timeline.debug("  centerTime updated=\(centerTime)")
-                        let mem = MemoryStats.current()
-                        Log.memory.info("[TIMELINE_CLICK] \(mem.description, privacy: .public), targetTime=\(newTime, privacy: .public)")
                     }
             )
         }
