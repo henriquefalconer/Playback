@@ -47,9 +47,11 @@ struct ContentView: View {
                 centerTime = latest
                 playbackController.update(for: latest, store: timelineStore)
             }
+            updateAppSegmentWindow()
         }
         .onDisappear {
             cleanupEventHandlers()
+            TimelineView.clearCaches()
         }
         // Whenever segment count changes (initial load or reload),
         // reposition centerTime to the latest available timestamp.
@@ -59,6 +61,8 @@ struct ContentView: View {
             centerTime = latest
             playbackController.update(for: latest, store: timelineStore)
         }
+        .onChange(of: centerTime) { _, _ in updateAppSegmentWindow() }
+        .onChange(of: visibleWindowSeconds) { _, _ in updateAppSegmentWindow() }
         // Allow pinch zoom in ANY window area, not just over segment bar.
         .simultaneousGesture(
             MagnificationGesture()
@@ -69,6 +73,8 @@ struct ContentView: View {
                         pinchBaseVisibleWindowSeconds = visibleWindowSeconds
                         pinchAnchorTimestamp = centerTime
                         Log.ui.info("Pinch zoom started — visibleWindowSeconds=\(visibleWindowSeconds)")
+                        let mem = MemoryStats.current()
+                        Log.memory.info("[ZOOM_START] \(mem.description, privacy: .public), visibleWindow=\(visibleWindowSeconds, privacy: .public)")
                     }
                     guard let base = pinchBaseVisibleWindowSeconds else { return }
                     guard let anchorTimestamp = pinchAnchorTimestamp else { return }
@@ -88,10 +94,14 @@ struct ContentView: View {
                         centerTime = anchorTimestamp + (centerTime - anchorTimestamp) * (newWindow / oldWindow)
 
                         Log.ui.info("Pinch zoom -> visibleWindowSeconds=\(visibleWindowSeconds), centerTime=\(centerTime)")
+                        let mem = MemoryStats.current()
+                        Log.memory.debug("[ZOOM_CHANGED] \(mem.description, privacy: .public), window=\(newWindow, privacy: .public)s (was \(oldWindow, privacy: .public)s)")
                     }
                 }
                 .onEnded { _ in
                     Log.ui.info("Pinch zoom ended — visibleWindowSeconds=\(visibleWindowSeconds)")
+                    let mem = MemoryStats.current()
+                    Log.memory.info("[ZOOM_END] \(mem.description, privacy: .public), finalWindow=\(visibleWindowSeconds, privacy: .public)s")
                     pinchBaseVisibleWindowSeconds = nil
                     pinchAnchorTimestamp = nil
                 }
@@ -239,7 +249,11 @@ struct ContentView: View {
             let isOSMomentum = event.momentumPhase != []
 
             // Stop custom momentum when user starts a new scroll gesture.
-            if event.phase == .began || event.phase == .changed {
+            if event.phase == .began {
+                stopMomentum()
+                let mem = MemoryStats.current()
+                Log.memory.info("[SCROLL_START] \(mem.description, privacy: .public)")
+            } else if event.phase == .changed {
                 stopMomentum()
             }
 
@@ -274,6 +288,12 @@ struct ContentView: View {
                 }
             }
 
+            // Log memory when scroll gesture ends (trackpad or mouse)
+            if event.phase == .ended || event.momentumPhase == .ended {
+                let mem = MemoryStats.current()
+                Log.memory.info("[SCROLL_END] \(mem.description, privacy: .public), phase=\(event.phase.rawValue, privacy: .public), momentumPhase=\(event.momentumPhase.rawValue, privacy: .public)")
+            }
+
             return nil
         }
     }
@@ -288,6 +308,11 @@ struct ContentView: View {
             scrollMonitor = nil
         }
         stopMomentum()
+    }
+
+    private func updateAppSegmentWindow() {
+        let half = visibleWindowSeconds / 2
+        timelineStore.updateVisibleWindow(start: centerTime - half, end: centerTime + half)
     }
 
     /// Apply a time delta to the timeline, clamping to timeline bounds.

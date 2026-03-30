@@ -6,6 +6,7 @@ import AppKit
 import CoreGraphics
 import ApplicationServices
 import Combine
+import ImageIO
 import ScreenCaptureKit
 import CoreMedia
 import os
@@ -462,12 +463,17 @@ final class RecordingService: ObservableObject {
 
             let image = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config)
 
-            // Convert CGImage to PNG
-            let nsImage = NSImage(cgImage: image, size: NSZeroSize)
-            guard let tiffData = nsImage.tiffRepresentation,
-                  let bitmapImage = NSBitmapImageRep(data: tiffData),
-                  let pngData = bitmapImage.representation(using: .png, properties: [:]) else {
-                return nil
+            // Convert CGImage directly to PNG via CGImageDestination (avoids NSImage/TIFF roundtrip)
+            let pngData: Data? = autoreleasepool {
+                let data = NSMutableData()
+                guard let dest = CGImageDestinationCreateWithData(data as CFMutableData, "public.png" as CFString, 1, nil) else {
+                    return nil
+                }
+                CGImageDestinationAddImage(dest, image, nil)
+                guard CGImageDestinationFinalize(dest) else {
+                    return nil
+                }
+                return data as Data
             }
 
             return pngData

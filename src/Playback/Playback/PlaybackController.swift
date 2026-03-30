@@ -50,6 +50,8 @@ final class PlaybackController: ObservableObject {
     private var pendingWorkItem: DispatchWorkItem?
     private var statusObserver: NSKeyValueObservation?
     private var scrubEndWorkItem: DispatchWorkItem?
+    /// Currently in-flight frozen frame generator; cancelled when a new capture starts.
+    private var frozenFrameGenerator: AVAssetImageGenerator?
     private var consecutiveFailures: Int = 0
 
     /// Timestamp when frozenFrame was last shown (for duration logging)
@@ -91,6 +93,8 @@ final class PlaybackController: ObservableObject {
             if self.timeObserverTickCount >= 25 {
                 self.timeObserverTickCount = 0
                 Log.playback.info("Time tick: absoluteTime=\(self.currentTime, privacy: .public), videoOffset=\(seconds, privacy: .public), segmentID=\(segment.id, privacy: .public), playing=\(self.isPlaying, privacy: .public), frozenFrame=\(self.showFrozenFrame, privacy: .public)")
+                let mem = MemoryStats.current()
+                Log.memory.info("[PERIODIC] \(mem.description, privacy: .public), playing=\(self.isPlaying, privacy: .public), segID=\(segment.id, privacy: .public)")
             }
 
             // Segment preloading: When playback reaches 80% of current segment,
@@ -105,11 +109,16 @@ final class PlaybackController: ObservableObject {
         let offset = max(0, segment.videoOffset(forAbsoluteTime: time))
         let url = segment.videoURL
 
+        // Cancel any in-flight generation so its AVURLAsset can be released.
+        frozenFrameGenerator?.cancelAllCGImageGeneration()
+
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self else { return }
             let asset = AVURLAsset(url: url)
             let generator = AVAssetImageGenerator(asset: asset)
             generator.appliesPreferredTrackTransform = true
+
+            DispatchQueue.main.async { self.frozenFrameGenerator = generator }
 
             let cmTime = CMTime(seconds: offset, preferredTimescale: 600)
             generator.generateCGImageAsynchronously(for: cmTime) { [weak self] image, _, error in
@@ -117,6 +126,8 @@ final class PlaybackController: ObservableObject {
 
                 if let cgImage = image {
                     let nsImage = NSImage(cgImage: cgImage, size: .zero)
+                    let mem = MemoryStats.current()
+                    Log.memory.debug("[FROZEN_FRAME_CAPTURED] \(mem.description, privacy: .public), imageSize=\(cgImage.width, privacy: .public)x\(cgImage.height, privacy: .public)")
                     DispatchQueue.main.async {
                         self.frozenFrame = nsImage
                         self.showFrozenFrame = true
@@ -207,7 +218,8 @@ final class PlaybackController: ObservableObject {
                 if item.status == .readyToPlay {
                     self.preloadPlayer = player
                     self.preloadedSegment = segment
-                    Log.playback.debug("Successfully preloaded segment \(segment.id)")
+                    let mem = MemoryStats.current()
+                    Log.memory.info("[PRELOAD_READY] \(mem.description, privacy: .public), segment=\(segment.id, privacy: .public)")
                 } else {
                     Log.playback.error("Failed to preload segment \(segment.id): \(item.error?.localizedDescription ?? "unknown")")
                     self.preloadPlayer = nil
@@ -319,12 +331,18 @@ final class PlaybackController: ObservableObject {
         let distToEnd = seg.endTS - clampedTime
 
         Log.playback.debug("(scrub) segment id=\(seg.id), videoOffset=\(offset), distToStart=\(distToStart), distToEnd=\(distToEnd)")
+
+        let mem = MemoryStats.current()
+        Log.memory.debug("[SCRUB] \(mem.description, privacy: .public), segID=\(seg.id, privacy: .public), time=\(clampedTime, privacy: .public)")
+
         seek(to: seg, offset: offset, isScrub: true)
 
         // Schedule the end of scrubbing 500ms after the last scroll event (per spec).
         let work = DispatchWorkItem { [weak self] in
             guard let self else { return }
             self.isScrubbing = false
+            let mem = MemoryStats.current()
+            Log.memory.info("[SCRUB_END] \(mem.description, privacy: .public), atStartBoundary=\(self.atStartBoundary, privacy: .public)")
             // When scrubbing finishes, if the player already has a new valid
             // frame ready (status READY) and we are **not** at
             // the absolute start of the timeline, we can hide the frozen frame.
@@ -386,6 +404,9 @@ final class PlaybackController: ObservableObject {
             let willUsePreload = preloadedSegment?.id == segment.id && preloadPlayer != nil
             Log.playback.info("Segment transition: \(oldSegmentID, privacy: .public) → \(segment.id, privacy: .public), type=\(willUsePreload ? "preloaded" : "fresh_load", privacy: .public), isScrub=\(isScrub, privacy: .public)")
 
+            let memBefore = MemoryStats.current()
+            Log.memory.info("[SEG_TRANSITION_START] \(memBefore.description, privacy: .public), old=\(oldSegmentID, privacy: .public), new=\(segment.id, privacy: .public), preloaded=\(willUsePreload, privacy: .public)")
+
             // Try to use preloaded segment if available
             if usePreloadedSegmentIfAvailable(segment) {
                 // Preloaded segment successfully used, skip manual loading
@@ -409,6 +430,8 @@ final class PlaybackController: ObservableObject {
                     switch item.status {
                     case .readyToPlay:
                         Log.playback.debug("\(isScrub ? "(scrub) " : "")READY to play \(url.path)")
+                        let memReady = MemoryStats.current()
+                        Log.memory.info("[SEG_READY] \(memReady.description, privacy: .public), segment=\(segment.id, privacy: .public), isScrub=\(isScrub, privacy: .public)")
                         DispatchQueue.main.async {
                             let hadError = self.playbackError != nil
                             self.consecutiveFailures = 0
