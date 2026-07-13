@@ -148,6 +148,14 @@ struct TimelineView: View {
 
     private static var appColorCache: [String: Color] = [:]
 
+    /// Drop all static caches when the timeline window closes, so the
+    /// background (menu-bar-only) process keeps no icons or colors alive.
+    static func clearCaches() {
+        appNameCache.removeAll()
+        appIconCache.removeAll()
+        appColorCache.removeAll()
+    }
+
     /// "Representative" color of the app, natively derived from the app icon.
     private func appColor(for appId: String) -> Color {
         if let cached = Self.appColorCache[appId] {

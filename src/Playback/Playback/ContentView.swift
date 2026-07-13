@@ -6,6 +6,11 @@ import os
 struct ContentView: View {
     @EnvironmentObject var timelineStore: TimelineStore
     @EnvironmentObject var playbackController: PlaybackController
+    @ObservedObject private var processingService = ProcessingService.shared
+
+    // Initial load: the video area stays black until the pending screenshots
+    // are encoded and the player is ready at the latest frame.
+    @State private var revealVideo = false
 
     @State private var centerTime: TimeInterval = 0
     @State private var showDatePicker = false
@@ -40,7 +45,9 @@ struct ContentView: View {
             }
         }
         .onAppear {
+            revealVideo = false
             setupEventHandlers()
+            timelineStore.resume()
             // If segments are already loaded when view appears,
             // immediately position at the most recent instant.
             if let latest = timelineStore.latestTS {
@@ -51,6 +58,9 @@ struct ContentView: View {
         .onDisappear {
             cleanupEventHandlers()
             playbackController.releaseResources()
+            timelineStore.suspend()
+            TimelineView.clearCaches()
+            revealVideo = false
         }
         // Whenever segment count changes (initial load or reload),
         // reposition centerTime to the latest available timestamp.
@@ -58,7 +68,22 @@ struct ContentView: View {
             guard newCount > 0, let latest = timelineStore.latestTS else { return }
             Log.ui.debug("segments.count changed to \(newCount); repositioning centerTime to latestTS=\(latest)")
             centerTime = latest
+            // While the opening backlog is still encoding, don't load each
+            // intermediate segment into the player — the video area is black
+            // and every load spins up a decoder for frames nobody sees.
+            if !revealVideo && processingService.isRunning { return }
             playbackController.update(for: latest, store: timelineStore)
+        }
+        // When the opening backlog finishes encoding, jump to the (final)
+        // latest frame; the black cover lifts once the player is ready.
+        .onChange(of: processingService.isRunning) { _, running in
+            guard !running, !revealVideo, let latest = timelineStore.latestTS else { return }
+            centerTime = latest
+            playbackController.update(for: latest, store: timelineStore)
+            maybeRevealVideo()
+        }
+        .onChange(of: playbackController.isCurrentItemReady) { _, _ in
+            maybeRevealVideo()
         }
         // Allow pinch zoom in ANY window area, not just over segment bar.
         .simultaneousGesture(
@@ -119,6 +144,15 @@ struct ContentView: View {
                         .ignoresSafeArea()
                 }
                 .transition(.opacity.animation(.easeInOut(duration: 0.2)))
+            }
+
+            // Initial load: cover the video (and frozen frame) with black until
+            // the latest frame is decoded, instead of flashing through
+            // partially loaded frames.
+            if !revealVideo {
+                Color.black
+                    .ignoresSafeArea()
+                    .transition(.opacity.animation(.easeInOut(duration: 0.2)))
             }
 
             // Subtle bottom gradient in gray-blue tones
@@ -362,5 +396,14 @@ struct ContentView: View {
 
     private func togglePlayPause() {
         playbackController.togglePlayPause()
+    }
+
+    /// Lift the black initial-load cover once the opening backlog is encoded
+    /// and the player is showing the latest frame.
+    private func maybeRevealVideo() {
+        guard !revealVideo else { return }
+        guard !processingService.isRunning, playbackController.isCurrentItemReady else { return }
+        Log.ui.info("Initial load complete — revealing video at latest frame")
+        revealVideo = true
     }
 }

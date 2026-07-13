@@ -33,6 +33,9 @@ final class PlaybackController: ObservableObject {
     @Published var frozenFrame: NSImage?
     /// When `true`, the UI should display `frozenFrame` over the video.
     @Published var showFrozenFrame: Bool = false
+    /// True once the player's current item is ready to display frames.
+    /// Reset whenever the item is swapped.
+    @Published private(set) var isCurrentItemReady: Bool = false
 
     /// Indicates whether we're in the middle of an active scrubbing (via scroll/drag).
     /// While `true`, we ignore periodic updates from `timeObserver`
@@ -138,6 +141,7 @@ final class PlaybackController: ObservableObject {
         if let item {
             item.add(frozenFrameOutput)
         }
+        isCurrentItemReady = item?.status == .readyToPlay
         player.replaceCurrentItem(with: item)
     }
 
@@ -446,6 +450,7 @@ final class PlaybackController: ObservableObject {
                     case .readyToPlay:
                         Log.playback.debug("\(isScrub ? "(scrub) " : "")READY to play \(url.path)")
                         DispatchQueue.main.async {
+                            self.isCurrentItemReady = true
                             let hadError = self.playbackError != nil
                             self.consecutiveFailures = 0
                             self.playbackError = nil
@@ -551,6 +556,7 @@ final class PlaybackController: ObservableObject {
                     case .readyToPlay:
                         Log.playback.debug("READY to play \(url.path)")
                         DispatchQueue.main.async {
+                            self.isCurrentItemReady = true
                             let hadError = self.playbackError != nil
                             self.consecutiveFailures = 0
                             self.playbackError = nil

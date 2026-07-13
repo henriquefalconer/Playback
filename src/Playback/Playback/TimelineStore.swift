@@ -116,12 +116,13 @@ final class TimelineStore: ObservableObject {
             Log.timeline.error("Error creating directories: \(error.localizedDescription)")
         }
 
-        loadSegments()
-        startAutoRefresh()
+        // Data is loaded lazily via resume() when the timeline window opens;
+        // the store stays empty while the app runs menu-bar-only.
 
         NotificationCenter.default.addObserver(forName: DataManager.recordingsDidResetNotification, object: nil, queue: .main) { [weak self] _ in
+            guard let self, self.refreshTimer != nil else { return }
             Log.timeline.info("Reloading segments after data reset")
-            self?.loadSegments()
+            self.loadSegments()
         }
     }
 
@@ -139,6 +140,25 @@ final class TimelineStore: ObservableObject {
         refreshTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in
             self?.refreshIfNeeded()
         }
+    }
+
+    /// Load data and start auto-refresh while the timeline window is open.
+    func resume() {
+        guard refreshTimer == nil else { return }
+        loadingState = .loading
+        loadSegments()
+        startAutoRefresh()
+    }
+
+    /// Stop auto-refresh and drop loaded data when the timeline window closes,
+    /// so the background (menu-bar-only) process keeps no segment arrays alive
+    /// and stops polling the database every 5 seconds.
+    func suspend() {
+        refreshTimer?.invalidate()
+        refreshTimer = nil
+        segments = []
+        appSegments = []
+        loadingState = .loading
     }
 
     private func refreshIfNeeded() {

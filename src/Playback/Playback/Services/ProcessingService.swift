@@ -3,6 +3,7 @@
 
 import Foundation
 import AVFoundation
+import Combine
 import CoreVideo
 import CoreGraphics
 import SQLite3
@@ -15,13 +16,14 @@ import MachO
 private let SQLITE_TRANSIENT = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
 
 @MainActor
-final class ProcessingService {
+final class ProcessingService: ObservableObject {
     static let shared = ProcessingService()
 
     private var timer: Timer?
     private var heartbeatTimer: Timer?
     private let queue = DispatchQueue(label: "com.falconer.Playback.processing", qos: .utility)
-    private var isRunning = false
+    /// True while a processing cycle (screenshot → video encoding) is in flight.
+    @Published private(set) var isRunning = false
     private var lastProcessingTime: Date?
     private var totalSegmentsCreated = 0
     private var triggerCount = 0
