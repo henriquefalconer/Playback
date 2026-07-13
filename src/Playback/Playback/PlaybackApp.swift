@@ -159,6 +159,21 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         NSApp.setActivationPolicy(policy)
         Log.session.info("Activation policy changed: \(policy == .regular ? "regular (Dock icon shown)" : "accessory (menu bar only)", privacy: .public)")
+
+        if policy == .accessory {
+            // AppKit quirk: the status item stops receiving real mouse clicks after a
+            // regular → accessory transition. Recreating it restores click handling.
+            (NSApp.delegate as? AppDelegate)?.rebuildStatusItem()
+        }
+    }
+
+    func rebuildStatusItem() {
+        if let item = statusItem {
+            NSStatusBar.system.removeStatusItem(item)
+        }
+        statusItem = nil
+        setupStatusItem()
+        Log.menuBar.info("Status bar item rebuilt after activation policy change")
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
