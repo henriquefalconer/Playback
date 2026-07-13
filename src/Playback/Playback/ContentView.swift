@@ -50,6 +50,7 @@ struct ContentView: View {
         }
         .onDisappear {
             cleanupEventHandlers()
+            playbackController.releaseResources()
         }
         // Whenever segment count changes (initial load or reload),
         // reposition centerTime to the latest available timestamp.

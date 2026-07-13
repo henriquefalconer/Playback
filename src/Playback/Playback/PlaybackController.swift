@@ -2,6 +2,7 @@ import Foundation
 import AVFoundation
 import Combine
 import AppKit
+import CoreImage
 import os
 
 enum PlaybackError: Equatable {
@@ -54,6 +55,14 @@ final class PlaybackController: ObservableObject {
 
     /// Timestamp when frozenFrame was last shown (for duration logging)
     private var frozenFrameShownAt: TimeInterval = 0
+
+    /// Video output kept attached to the player's current item so the on-screen
+    /// frame can be snapshotted for the frozen-frame fallback.
+    private let frozenFrameOutput = AVPlayerItemVideoOutput(pixelBufferAttributes: [
+        kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA
+    ])
+    /// Shared context for converting snapshot pixel buffers to CGImage.
+    private static let frozenFrameContext = CIContext()
     /// Counter for time observer ticks to sample logging every ~5s (25 ticks at 0.2s interval)
     private var timeObserverTickCount: Int = 0
 
@@ -99,35 +108,37 @@ final class PlaybackController: ObservableObject {
         }
     }
 
-    /// Generates, in background, a video snapshot for `segment` at the position
-    /// corresponding to the given absolute time, and publishes it to `frozenFrame`.
-    private func captureFrozenFrame(from segment: Segment, atAbsoluteTime time: TimeInterval) {
-        let offset = max(0, segment.videoOffset(forAbsoluteTime: time))
-        let url = segment.videoURL
-
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            guard let self else { return }
-            let asset = AVURLAsset(url: url)
-            let generator = AVAssetImageGenerator(asset: asset)
-            generator.appliesPreferredTrackTransform = true
-
-            let cmTime = CMTime(seconds: offset, preferredTimescale: 600)
-            generator.generateCGImageAsynchronously(for: cmTime) { [weak self] image, _, error in
-                guard let self else { return }
-
-                if let cgImage = image {
-                    let nsImage = NSImage(cgImage: cgImage, size: .zero)
-                    DispatchQueue.main.async {
-                        self.frozenFrame = nsImage
-                        self.showFrozenFrame = true
-                    }
-                } else if let error = error {
-                    Log.playback.error("Failed to generate frozen frame for \(url.path) at offset=\(offset): \(error.localizedDescription)")
-                } else {
-                    Log.playback.error("Frozen frame generation returned no image or error for \(url.path) at offset=\(offset)")
-                }
-            }
+    /// Snapshots the frame currently displayed by the player and publishes it
+    /// to `frozenFrame`. Reads the player's own decoded output — do NOT use
+    /// AVAssetImageGenerator here: every generation spins up a fresh decoder
+    /// session whose mapped frame memory is never reclaimed (~7 MB per call,
+    /// dozens of calls per scrub session).
+    private func captureFrozenFrame() {
+        let itemTime = player.currentTime()
+        guard player.currentItem != nil,
+              let buffer = frozenFrameOutput.copyPixelBuffer(forItemTime: itemTime, itemTimeForDisplay: nil) else {
+            // No decoded frame available yet — keep the previous frozen frame
+            // as the visual fallback instead of failing.
+            Log.playback.debug("No pixel buffer available for frozen frame at itemTime=\(itemTime.seconds)")
+            return
         }
+        let ciImage = CIImage(cvPixelBuffer: buffer)
+        guard let cgImage = Self.frozenFrameContext.createCGImage(ciImage, from: ciImage.extent) else {
+            Log.playback.error("Failed to create CGImage for frozen frame")
+            return
+        }
+        frozenFrame = NSImage(cgImage: cgImage, size: .zero)
+        showFrozenFrame = true
+    }
+
+    /// Swap the player's current item, keeping the frozen-frame video output
+    /// attached to whichever item is current.
+    private func installItem(_ item: AVPlayerItem?) {
+        player.currentItem?.remove(frozenFrameOutput)
+        if let item {
+            item.add(frozenFrameOutput)
+        }
+        player.replaceCurrentItem(with: item)
     }
 
     deinit {
@@ -135,6 +146,30 @@ final class PlaybackController: ObservableObject {
             player.removeTimeObserver(token)
         }
         preloadPlayer = nil
+    }
+
+    /// Release all playback resources when the timeline window closes.
+    /// The controller outlives the window (it's an app-level @StateObject), so
+    /// without this the video decoder, its IOSurfaces, and the frozen frame
+    /// stay resident for the whole background (menu-bar-only) lifetime.
+    func releaseResources() {
+        player.pause()
+        isPlaying = false
+        pendingWorkItem?.cancel()
+        pendingWorkItem = nil
+        scrubEndWorkItem?.cancel()
+        scrubEndWorkItem = nil
+        statusObserver?.invalidate()
+        statusObserver = nil
+        installItem(nil)
+        preloadPlayer?.replaceCurrentItem(with: nil)
+        preloadPlayer = nil
+        preloadedSegment = nil
+        hasPreloadedNext = false
+        currentSegment = nil
+        frozenFrame = nil
+        showFrozenFrame = false
+        Log.playback.info("Playback resources released (timeline closed)")
     }
 
     /// Check if we should preload the next segment. Triggers at 80% of current segment duration.
@@ -225,7 +260,8 @@ final class PlaybackController: ObservableObject {
             Log.playback.debug("Using preloaded segment \(segment.id) - seamless transition")
             // Transfer the player item to main player
             if let item = preloadedPlayer.currentItem {
-                player.replaceCurrentItem(with: item)
+                preloadedPlayer.replaceCurrentItem(with: nil)
+                installItem(item)
                 // Clean up preload state
                 self.preloadPlayer = nil
                 self.preloadedSegment = nil
@@ -264,7 +300,7 @@ final class PlaybackController: ObservableObject {
             // Ensure we have a frozen frame to show. If there isn't one yet,
             // we use the frame from the current segment (if it exists).
             if frozenFrame == nil || !atStartBoundary, let seg = currentSegment {
-                captureFrozenFrame(from: seg, atAbsoluteTime: currentTime)
+                captureFrozenFrame()
             }
             if !showFrozenFrame {
                 Log.playback.info("Frozen frame shown: reason=start_boundary")
@@ -375,7 +411,7 @@ final class PlaybackController: ObservableObject {
             if let oldSeg = currentSegment {
                 // Before switching segments, freeze the last frame to
                 // avoid the black "flash" while the new video loads.
-                captureFrozenFrame(from: oldSeg, atAbsoluteTime: currentTime)
+                captureFrozenFrame()
                 Log.playback.info("Frozen frame shown: reason=segment_transition, oldSegment=\(oldSegmentID, privacy: .public), newSegment=\(segment.id, privacy: .public)")
                 frozenFrameShownAt = ProcessInfo.processInfo.systemUptime
             }
@@ -455,7 +491,7 @@ final class PlaybackController: ObservableObject {
                     }
                 }
 
-                player.replaceCurrentItem(with: item)
+                installItem(item)
             }
         }
 
@@ -481,7 +517,7 @@ final class PlaybackController: ObservableObject {
             let oldSegmentID = currentSegment?.id ?? "none"
             if let oldSeg = currentSegment {
                 // Freeze the last frame of the previous segment before switching.
-                captureFrozenFrame(from: oldSeg, atAbsoluteTime: currentTime)
+                captureFrozenFrame()
                 Log.playback.info("Frozen frame shown: reason=segment_transition_update, oldSegment=\(oldSegmentID, privacy: .public)")
                 frozenFrameShownAt = ProcessInfo.processInfo.systemUptime
             }
@@ -556,7 +592,7 @@ final class PlaybackController: ObservableObject {
                     }
                 }
 
-                player.replaceCurrentItem(with: item)
+                installItem(item)
             }
 
             let cm = CMTime(seconds: offset, preferredTimescale: 600)
