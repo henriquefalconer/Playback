@@ -142,6 +142,16 @@ final class TimelineStore: ObservableObject {
         }
     }
 
+    /// Reload segments and invoke `completion` on the main queue after the
+    /// freshly loaded data has been published.
+    func reload(then completion: @escaping () -> Void) {
+        loadSegments()
+        // loadSegments publishes its results via an async hop to the main
+        // queue; enqueueing the completion afterwards guarantees it runs with
+        // the fresh data visible.
+        DispatchQueue.main.async(execute: completion)
+    }
+
     /// Load data and start auto-refresh while the timeline window is open.
     func resume() {
         guard refreshTimer == nil else { return }
@@ -236,6 +246,15 @@ final class TimelineStore: ObservableObject {
             let fpsValue = sqlite3_column_double(stmt, 4)
             let fps: Double? = fpsValue > 0 ? fpsValue : nil
             let videoPath = String(cString: videoPathC)
+
+            // Skip rows with impossible timestamps (end before start, or end in
+            // the future) — a single corrupt span that overlaps the whole
+            // timeline hijacks every segment(for:) lookup.
+            let now = Date().timeIntervalSince1970
+            guard endTS > startTS, endTS <= now + 120 else {
+                Log.timeline.error("Skipping segment \(id, privacy: .public) with invalid span: start=\(startTS, privacy: .public), end=\(endTS, privacy: .public)")
+                continue
+            }
 
             let url = baseDir.appendingPathComponent(videoPath)
             loaded.append(

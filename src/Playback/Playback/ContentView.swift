@@ -11,6 +11,10 @@ struct ContentView: View {
     // Initial load: the video area stays black until the pending screenshots
     // are encoded and the player is ready at the latest frame.
     @State private var revealVideo = false
+    // True once the store has been reloaded AFTER the opening backlog finished
+    // encoding — revealing before this shows a stale "latest" frame, because
+    // the store's auto-refresh only picks up new segments every 5 seconds.
+    @State private var latestDataLoaded = false
 
     @State private var centerTime: TimeInterval = 0
     @State private var showDatePicker = false
@@ -46,6 +50,7 @@ struct ContentView: View {
         }
         .onAppear {
             revealVideo = false
+            latestDataLoaded = false
             setupEventHandlers()
             timelineStore.resume()
             // If segments are already loaded when view appears,
@@ -61,6 +66,7 @@ struct ContentView: View {
             timelineStore.suspend()
             TimelineView.clearCaches()
             revealVideo = false
+            latestDataLoaded = false
         }
         // Whenever segment count changes (initial load or reload),
         // reposition centerTime to the latest available timestamp.
@@ -68,19 +74,25 @@ struct ContentView: View {
             guard newCount > 0, let latest = timelineStore.latestTS else { return }
             Log.ui.debug("segments.count changed to \(newCount); repositioning centerTime to latestTS=\(latest)")
             centerTime = latest
-            // While the opening backlog is still encoding, don't load each
-            // intermediate segment into the player — the video area is black
-            // and every load spins up a decoder for frames nobody sees.
-            if !revealVideo && processingService.isRunning { return }
+            // Until the initial load completes (backlog encoded + store
+            // reloaded), don't load intermediate segments into the player —
+            // the video area is black and every load spins up a decoder for
+            // frames nobody sees. The reload completion performs the final load.
+            if !revealVideo && !latestDataLoaded { return }
             playbackController.update(for: latest, store: timelineStore)
         }
-        // When the opening backlog finishes encoding, jump to the (final)
-        // latest frame; the black cover lifts once the player is ready.
+        // When the opening backlog finishes encoding, reload the store so the
+        // just-encoded segments are visible, then jump to the true latest
+        // frame; the black cover lifts once the player is ready there.
         .onChange(of: processingService.isRunning) { _, running in
-            guard !running, !revealVideo, let latest = timelineStore.latestTS else { return }
-            centerTime = latest
-            playbackController.update(for: latest, store: timelineStore)
-            maybeRevealVideo()
+            guard !running, !revealVideo else { return }
+            timelineStore.reload {
+                latestDataLoaded = true
+                guard let latest = timelineStore.latestTS else { return }
+                centerTime = latest
+                playbackController.update(for: latest, store: timelineStore)
+                maybeRevealVideo()
+            }
         }
         .onChange(of: playbackController.isCurrentItemReady) { _, _ in
             maybeRevealVideo()
@@ -398,11 +410,14 @@ struct ContentView: View {
         playbackController.togglePlayPause()
     }
 
-    /// Lift the black initial-load cover once the opening backlog is encoded
-    /// and the player is showing the latest frame.
+    /// Lift the black initial-load cover once the opening backlog is encoded,
+    /// the store has been reloaded with the freshly encoded segments, and the
+    /// player is ready at the latest frame.
     private func maybeRevealVideo() {
         guard !revealVideo else { return }
-        guard !processingService.isRunning, playbackController.isCurrentItemReady else { return }
+        guard latestDataLoaded,
+              !processingService.isRunning,
+              playbackController.isCurrentItemReady else { return }
         Log.ui.info("Initial load complete — revealing video at latest frame")
         revealVideo = true
     }
