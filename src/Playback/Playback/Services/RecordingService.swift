@@ -327,7 +327,12 @@ final class RecordingService: ObservableObject {
         }
 
         // Capture display using ScreenCaptureKit (excluded apps are filtered out at capture level)
-        guard let pngData = await captureScreen() else {
+        let capturedData = await captureScreen()
+        // Return freed capture/PNG buffers to the OS right away. They are
+        // several MB per capture (every 2s) and macOS reclaims them lazily,
+        // so without this the footprint sawtooths into the hundreds of MB.
+        MemoryReclaimer.reclaimNow()
+        guard let pngData = capturedData else {
             Log.recording.error("Failed to capture screen")
             return
         }

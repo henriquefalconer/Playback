@@ -2,7 +2,6 @@ import Foundation
 import AVFoundation
 import Combine
 import AppKit
-import CoreImage
 import os
 
 enum PlaybackError: Equatable {
@@ -66,8 +65,6 @@ final class PlaybackController: ObservableObject {
     private let frozenFrameOutput = AVPlayerItemVideoOutput(pixelBufferAttributes: [
         kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA
     ])
-    /// Shared context for converting snapshot pixel buffers to CGImage.
-    private static let frozenFrameContext = CIContext()
     /// Counter for time observer ticks to sample logging every ~5s (25 ticks at 0.2s interval)
     private var timeObserverTickCount: Int = 0
 
@@ -118,6 +115,13 @@ final class PlaybackController: ObservableObject {
     /// AVAssetImageGenerator here: every generation spins up a fresh decoder
     /// session whose mapped frame memory is never reclaimed (~7 MB per call,
     /// dozens of calls per scrub session).
+    ///
+    /// Conversion goes CVPixelBuffer → CGImage with plain CoreGraphics. Do NOT
+    /// use CoreImage (a shared CIContext builds up a software-renderer buffer
+    /// pool) or VideoToolbox's VTCreateCGImageFromCVPixelBuffer (it caches a
+    /// session): both leave ~140 MB resident in-process that malloc pressure
+    /// relief cannot reclaim. A direct CGContext over the locked buffer copies
+    /// the pixels and holds nothing.
     private func captureFrozenFrame() {
         let itemTime = player.currentTime()
         guard player.currentItem != nil,
@@ -127,13 +131,37 @@ final class PlaybackController: ObservableObject {
             Log.playback.debug("No pixel buffer available for frozen frame at itemTime=\(itemTime.seconds)")
             return
         }
-        let ciImage = CIImage(cvPixelBuffer: buffer)
-        guard let cgImage = Self.frozenFrameContext.createCGImage(ciImage, from: ciImage.extent) else {
+        guard let cgImage = Self.cgImage(from: buffer) else {
             Log.playback.error("Failed to create CGImage for frozen frame")
             return
         }
         frozenFrame = NSImage(cgImage: cgImage, size: .zero)
         showFrozenFrame = true
+    }
+
+    /// Copy a BGRA CVPixelBuffer into a standalone CGImage via CoreGraphics.
+    private static func cgImage(from buffer: CVPixelBuffer) -> CGImage? {
+        CVPixelBufferLockBaseAddress(buffer, .readOnly)
+        defer { CVPixelBufferUnlockBaseAddress(buffer, .readOnly) }
+
+        guard let baseAddress = CVPixelBufferGetBaseAddress(buffer) else { return nil }
+        let width = CVPixelBufferGetWidth(buffer)
+        let height = CVPixelBufferGetHeight(buffer)
+        let bytesPerRow = CVPixelBufferGetBytesPerRow(buffer)
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        let bitmapInfo = CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue
+
+        guard let context = CGContext(
+            data: baseAddress,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: bytesPerRow,
+            space: colorSpace,
+            bitmapInfo: bitmapInfo
+        ) else { return nil }
+
+        return context.makeImage()
     }
 
     /// Swap the player's current item, keeping the frozen-frame video output
@@ -176,6 +204,10 @@ final class PlaybackController: ObservableObject {
         frozenFrame = nil
         showFrozenFrame = false
         currentTime = Date().timeIntervalSince1970
+        // The player's decoder and the encode triggered by opening the timeline
+        // leave large buffers in malloc's cache; reclaim them promptly instead
+        // of waiting for the recording loop to drip them out over ~70s.
+        MemoryReclaimer.reclaimSoon()
         Log.playback.info("Playback resources released (timeline closed)")
     }
 

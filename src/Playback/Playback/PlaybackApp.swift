@@ -13,7 +13,6 @@ enum WindowOpener {
     @MainActor static var openWindow: OpenWindowAction?
 }
 
-@main
 struct PlaybackApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @StateObject private var timelineStore = TimelineStore()
