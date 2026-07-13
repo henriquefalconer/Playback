@@ -61,14 +61,6 @@ final class DateTimePickerUITests: XCTestCase {
         XCTAssertTrue(nextButton.exists, "Next month button should exist")
     }
 
-    func testDatePickerHasActionButtons() throws {
-        let cancelButton = app.buttons["datepicker.cancelButton"]
-        let jumpButton = app.buttons["datepicker.jumpButton"]
-
-        XCTAssertTrue(cancelButton.waitForExistence(timeout: 5.0), "Cancel button should exist")
-        XCTAssertTrue(jumpButton.exists, "Jump to Time button should exist")
-    }
-
     // MARK: - Today Button Tests
 
     func testTodayButtonExists() throws {
@@ -154,8 +146,7 @@ final class DateTimePickerUITests: XCTestCase {
     // MARK: - Day Selection Tests
 
     func testDayButtonsExist() throws {
-        // Day buttons have dynamic identifiers like "datepicker.dayButton.20260208"
-        // We'll check if any day buttons exist
+        // Day buttons have dynamic identifiers like "datepicker.dayButton.2026-02-08"
         let dayButtonsQuery = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'datepicker.dayButton.'"))
 
         // Wait a moment for day buttons to appear
@@ -165,158 +156,89 @@ final class DateTimePickerUITests: XCTestCase {
         XCTAssertGreaterThan(dayButtonsQuery.count, 0, "Day buttons should exist in calendar")
     }
 
-    func testDayButtonClick() throws {
-        // Find first available day button
+    func testDayButtonClickJumpsAndStaysOpen() throws {
+        // Find first enabled day button (days with recordings)
         let dayButtonsQuery = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'datepicker.dayButton.'"))
 
         sleep(1)
 
-        if dayButtonsQuery.count > 0 {
-            let firstDayButton = dayButtonsQuery.element(boundBy: 0)
-            XCTAssertTrue(firstDayButton.exists, "First day button should exist")
+        let enabledDays = dayButtonsQuery.matching(NSPredicate(format: "isEnabled == true"))
+        if enabledDays.count > 0 {
+            let firstDayButton = enabledDays.element(boundBy: 0)
+            XCTAssertTrue(firstDayButton.exists, "An enabled day button should exist")
 
-            // Click the day
+            // Clicking a day jumps to its first recording; the picker stays open
             firstDayButton.click()
-            sleep(1)
+            sleep(2)
 
-            // Verify date picker still exists
-            let jumpButton = app.buttons["datepicker.jumpButton"]
-            XCTAssertTrue(jumpButton.exists, "Date picker should remain open after selecting day")
+            let todayButton = app.buttons["datepicker.todayButton"]
+            XCTAssertTrue(todayButton.exists, "Date picker should stay open after clicking a day")
         }
     }
 
-    // MARK: - Time Selection Tests
+    // MARK: - Time Slot Tests
 
-    func testTimeButtonsExist() throws {
-        // Time buttons have identifiers like "datepicker.timeButton.0", "datepicker.timeButton.1", etc.
+    func testTimeSlotButtonsExist() throws {
+        // Time slot buttons have identifiers like "datepicker.timeButton.<unix timestamp>"
         let timeButtonsQuery = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'datepicker.timeButton.'"))
 
         sleep(1)
 
-        // Time buttons should exist
-        XCTAssertGreaterThan(timeButtonsQuery.count, 0, "Time buttons should exist")
+        // Time slot buttons should exist for a date with recordings
+        XCTAssertGreaterThan(timeButtonsQuery.count, 0, "Time slot buttons should exist")
     }
 
-    func testTimeButtonClick() throws {
-        // Find first time button
+    func testTimeSlotClickJumpsAndStaysOpen() throws {
         let timeButtonsQuery = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'datepicker.timeButton.'"))
 
         sleep(1)
 
         if timeButtonsQuery.count > 0 {
             let firstTimeButton = timeButtonsQuery.element(boundBy: 0)
-            XCTAssertTrue(firstTimeButton.exists, "First time button should exist")
+            XCTAssertTrue(firstTimeButton.exists, "First time slot button should exist")
 
-            // Click the time
+            // Clicking a time slot jumps to it; the picker stays open
             firstTimeButton.click()
             sleep(1)
 
-            // Verify jump button is enabled (selection should be complete)
-            let jumpButton = app.buttons["datepicker.jumpButton"]
-            XCTAssertTrue(jumpButton.exists, "Jump button should exist after time selection")
+            let todayButton = app.buttons["datepicker.todayButton"]
+            XCTAssertTrue(todayButton.exists, "Date picker should stay open after clicking a time slot")
         }
     }
 
-    // MARK: - Action Button Tests
-
-    func testCancelButtonExists() throws {
-        let cancelButton = app.buttons["datepicker.cancelButton"]
-        XCTAssertTrue(cancelButton.waitForExistence(timeout: 5.0), "Cancel button should exist")
-        XCTAssertTrue(cancelButton.isEnabled, "Cancel button should be enabled")
-    }
-
-    func testCancelButtonClick() throws {
-        let cancelButton = app.buttons["datepicker.cancelButton"]
-        XCTAssertTrue(cancelButton.waitForExistence(timeout: 5.0), "Cancel button should exist")
-
-        // Click cancel
-        cancelButton.click()
-        sleep(1)
-
-        // Date picker should close (cancel button should no longer exist)
-        XCTAssertFalse(cancelButton.exists, "Date picker should close after clicking cancel")
-    }
-
-    func testJumpButtonExists() throws {
-        let jumpButton = app.buttons["datepicker.jumpButton"]
-        XCTAssertTrue(jumpButton.waitForExistence(timeout: 5.0), "Jump button should exist")
-    }
-
-    func testJumpButtonClick() throws {
-        // First select a day and time
-        let dayButtonsQuery = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'datepicker.dayButton.'"))
-        sleep(1)
-
-        if dayButtonsQuery.count > 0 {
-            dayButtonsQuery.element(boundBy: 0).click()
-            sleep(1)
-        }
-
-        let timeButtonsQuery = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'datepicker.timeButton.'"))
-        if timeButtonsQuery.count > 0 {
-            timeButtonsQuery.element(boundBy: 0).click()
-            sleep(1)
-        }
-
-        // Now click jump button
-        let jumpButton = app.buttons["datepicker.jumpButton"]
-        XCTAssertTrue(jumpButton.exists, "Jump button should exist")
-
-        jumpButton.click()
-        sleep(1)
-
-        // Date picker should close after jump
-        XCTAssertFalse(jumpButton.exists, "Date picker should close after jumping to time")
-    }
-
-    // MARK: - Integration Tests
-
-    func testCompleteDateTimeSelectionWorkflow() throws {
-        // Complete workflow: navigate month -> select day -> select time -> jump
-
-        // 1. Navigate to previous month
-        let previousButton = app.buttons["datepicker.previousMonthButton"]
-        XCTAssertTrue(previousButton.waitForExistence(timeout: 5.0), "Previous button should exist")
-        previousButton.click()
-        sleep(1)
-
-        // 2. Return to today
+    func testClickOutsideClosesPicker() throws {
         let todayButton = app.buttons["datepicker.todayButton"]
-        todayButton.click()
+        XCTAssertTrue(todayButton.waitForExistence(timeout: 5.0), "Date picker should be open")
+
+        // Click on the dimmed area far from the modal
+        let window = app.windows.firstMatch
+        window.coordinate(withNormalizedOffset: CGVector(dx: 0.08, dy: 0.15)).click()
         sleep(1)
 
-        // 3. Select a day
-        let dayButtonsQuery = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'datepicker.dayButton.'"))
-        sleep(1)
-        if dayButtonsQuery.count > 0 {
-            dayButtonsQuery.element(boundBy: 0).click()
-            sleep(1)
-        }
+        XCTAssertFalse(todayButton.exists, "Date picker should close when clicking outside it")
+    }
 
-        // 4. Select a time
-        let timeButtonsQuery = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'datepicker.timeButton.'"))
-        if timeButtonsQuery.count > 0 {
-            timeButtonsQuery.element(boundBy: 0).click()
-            sleep(1)
-        }
+    // MARK: - Dismissal Tests
 
-        // 5. Verify jump button is enabled
-        let jumpButton = app.buttons["datepicker.jumpButton"]
-        XCTAssertTrue(jumpButton.exists, "Jump button should be enabled after full selection")
+    func testEscapeDismissesPickerButKeepsWindow() throws {
+        let todayButton = app.buttons["datepicker.todayButton"]
+        XCTAssertTrue(todayButton.waitForExistence(timeout: 5.0), "Date picker should be open")
 
-        // 6. Cancel instead of jumping (to keep test isolated)
-        let cancelButton = app.buttons["datepicker.cancelButton"]
-        cancelButton.click()
+        // ESC dismisses the modal without closing the timeline window
+        app.typeKey(.escape, modifierFlags: [])
         sleep(1)
 
-        XCTAssertFalse(cancelButton.exists, "Date picker should close")
+        XCTAssertFalse(todayButton.exists, "Date picker should close on ESC")
+
+        let timeBubbleButton = app.buttons["timeline.timeBubbleButton"]
+        XCTAssertTrue(timeBubbleButton.exists, "Timeline window should remain open after ESC dismisses the picker")
     }
 
     func testDatePickerCanBeOpenedMultipleTimes() throws {
-        // Close current date picker
-        let cancelButton = app.buttons["datepicker.cancelButton"]
-        XCTAssertTrue(cancelButton.waitForExistence(timeout: 5.0), "Cancel button should exist")
-        cancelButton.click()
+        // Close current date picker with ESC
+        let todayButton = app.buttons["datepicker.todayButton"]
+        XCTAssertTrue(todayButton.waitForExistence(timeout: 5.0), "Date picker should be open")
+        app.typeKey(.escape, modifierFlags: [])
         sleep(1)
 
         // Reopen date picker
@@ -326,9 +248,10 @@ final class DateTimePickerUITests: XCTestCase {
         sleep(1)
 
         // Verify date picker opened again
-        let todayButton = app.buttons["datepicker.todayButton"]
         XCTAssertTrue(todayButton.waitForExistence(timeout: 5.0), "Date picker should reopen")
     }
+
+    // MARK: - Integration Tests
 
     func testDatePickerNavigationAndSelection() throws {
         // Test complete navigation flow

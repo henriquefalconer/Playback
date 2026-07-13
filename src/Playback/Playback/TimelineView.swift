@@ -262,6 +262,7 @@ struct TimelineView: View {
                     .foregroundColor(.black)
                 }
                 .buttonStyle(.plain)
+                .pointerCursor()
                 .position(x: geo.size.width / 2, y: barY - 32)
                 .accessibilityIdentifier("timeline.timeBubbleButton")
             }

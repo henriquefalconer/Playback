@@ -94,6 +94,11 @@ struct PlaybackApp: App {
 }
 
 class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
+    /// With @NSApplicationDelegateAdaptor, NSApp.delegate is SwiftUI's internal
+    /// wrapper — casting it to AppDelegate always fails, so static members must
+    /// reach the real instance through this reference.
+    private static weak var shared: AppDelegate?
+
     private var statusItem: NSStatusItem?
     private let menuBarViewModel = MenuBarViewModel()
     private var iconObserver: AnyCancellable?
@@ -163,7 +168,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if policy == .accessory {
             // AppKit quirk: the status item stops receiving real mouse clicks after a
             // regular → accessory transition. Recreating it restores click handling.
-            (NSApp.delegate as? AppDelegate)?.rebuildStatusItem()
+            shared?.rebuildStatusItem()
         }
     }
 
@@ -177,6 +182,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        Self.shared = self
+
         // Clean up stale signal file from previous run
         let signalPath = Paths.timelineOpenSignalPath
         if FileManager.default.fileExists(atPath: signalPath.path) {

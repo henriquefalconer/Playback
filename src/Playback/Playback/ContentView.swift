@@ -63,6 +63,7 @@ struct ContentView: View {
         .simultaneousGesture(
             MagnificationGesture()
                 .onChanged { value in
+                    guard !showDatePicker else { return }
                     guard value.isFinite, value > 0 else { return }
 
                     if pinchBaseVisibleWindowSeconds == nil {
@@ -171,6 +172,7 @@ struct ContentView: View {
                 .transition(.opacity)
             }
         }
+        .animation(.easeInOut(duration: 0.15), value: showDatePicker)
     }
 
     @ViewBuilder
@@ -201,6 +203,17 @@ struct ContentView: View {
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [self] event in
             // keyCode 53 = ESC, 49 = Space, 123 = Left Arrow, 124 = Right Arrow
 
+            // While the date picker modal is open, ESC dismisses the modal and
+            // every other key is left for the modal to handle — playback
+            // shortcuts must not scrub the video behind it.
+            if showDatePicker {
+                if event.keyCode == 53 {
+                    showDatePicker = false
+                    return nil
+                }
+                return event
+            }
+
             switch event.keyCode {
             case 53:  // ESC - Close window
                 NSApp.keyWindow?.close()
@@ -229,6 +242,14 @@ struct ContentView: View {
 
         // Global scroll monitor to control video time without blocking clicks on timeline.
         scrollMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [self] event in
+            // While the date picker modal is open, let scroll events through
+            // untouched so its time list can scroll instead of scrubbing the
+            // timeline behind the modal.
+            if showDatePicker {
+                stopMomentum()
+                return event
+            }
+
             let rawDx = event.scrollingDeltaX
             let rawDy = event.scrollingDeltaY
 
