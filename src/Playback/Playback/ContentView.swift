@@ -16,7 +16,7 @@ struct ContentView: View {
     // the store's auto-refresh only picks up new segments every 5 seconds.
     @State private var latestDataLoaded = false
 
-    @State private var centerTime: TimeInterval = 0
+    @State private var centerTime: TimeInterval = Date().timeIntervalSince1970
     @State private var showDatePicker = false
     // Visible time window in timeline (in seconds).
     @State private var visibleWindowSeconds: TimeInterval = 60 * 1
@@ -54,10 +54,14 @@ struct ContentView: View {
             setupEventHandlers()
             timelineStore.resume()
             // If segments are already loaded when view appears,
-            // immediately position at the most recent instant.
+            // immediately position at the most recent instant; otherwise show
+            // "Now" until the data arrives.
             if let latest = timelineStore.latestTS {
                 centerTime = latest
                 playbackController.update(for: latest, store: timelineStore)
+            } else {
+                centerTime = Date().timeIntervalSince1970
+                playbackController.currentTime = centerTime
             }
         }
         .onDisappear {

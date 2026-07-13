@@ -64,6 +64,10 @@ final class ProcessingService: ObservableObject {
             var framesProcessed = 0
             self?.logMemory("cycle #\(trigger) start")
             self?.processAllPendingDays(segmentsCreated: &segmentsCreated, framesProcessed: &framesProcessed)
+            // Hand freed encode buffers back to the OS immediately — otherwise
+            // hundreds of MB linger as lazily-reclaimed dirty pages and the
+            // app looks bloated in Activity Monitor long after the cycle.
+            malloc_zone_pressure_relief(nil, 0)
             let elapsed = CFAbsoluteTimeGetCurrent() - cycleStart
             self?.logMemory("cycle #\(trigger) end")
             Log.processing.info("Processing cycle #\(trigger, privacy: .public) completed — segments=\(segmentsCreated, privacy: .public), frames=\(framesProcessed, privacy: .public), duration=\(String(format: "%.1f", elapsed), privacy: .public)s")
@@ -371,6 +375,13 @@ final class ProcessingService: ObservableObject {
         writer.startWriting()
         writer.startSession(atSourceTime: .zero)
 
+        // Cap in-flight pixel buffers. The writer accepts frames far faster
+        // than it encodes them, so without a threshold its queue balloons to
+        // dozens of full-screen buffers and the encode peak exceeds 400 MB.
+        let poolAuxAttributes = [
+            kCVPixelBufferPoolAllocationThresholdKey as String: 6
+        ] as CFDictionary
+
         let encodeLoopStart = CFAbsoluteTimeGetCurrent()
         for (index, frame) in frames.enumerated() {
             autoreleasepool {
@@ -387,7 +398,18 @@ final class ProcessingService: ObservableObject {
                     return
                 }
                 var pixelBuffer: CVPixelBuffer?
-                let poolStatus = CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault, pool, &pixelBuffer)
+                var poolStatus = CVPixelBufferPoolCreatePixelBufferWithAuxAttributes(
+                    kCFAllocatorDefault, pool, poolAuxAttributes, &pixelBuffer
+                )
+                // Threshold reached — wait for the encoder to drain a buffer.
+                var poolWaited = 0
+                while poolStatus == kCVReturnWouldExceedAllocationThreshold, poolWaited < 1000 {
+                    Thread.sleep(forTimeInterval: 0.01)
+                    poolWaited += 1
+                    poolStatus = CVPixelBufferPoolCreatePixelBufferWithAuxAttributes(
+                        kCFAllocatorDefault, pool, poolAuxAttributes, &pixelBuffer
+                    )
+                }
                 guard poolStatus == kCVReturnSuccess, let buffer = pixelBuffer else {
                     Log.processing.notice("Failed to get buffer from pool at frame \(index): \(poolStatus)")
                     return

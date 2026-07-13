@@ -25,7 +25,9 @@ final class PlaybackController: ObservableObject {
     weak var timelineStore: TimelineStore?
 
     @Published private(set) var currentSegment: Segment?
-    @Published var currentTime: TimeInterval = 0
+    /// Starts at "now" so the time bubble reads "Now" while the timeline
+    /// data is still loading, instead of rendering the epoch as a wall time.
+    @Published var currentTime: TimeInterval = Date().timeIntervalSince1970
     @Published var isPlaying: Bool = false
     @Published var playbackError: PlaybackError?
     /// Last "frozen" frame used as visual fallback while a new
@@ -173,6 +175,7 @@ final class PlaybackController: ObservableObject {
         currentSegment = nil
         frozenFrame = nil
         showFrozenFrame = false
+        currentTime = Date().timeIntervalSince1970
         Log.playback.info("Playback resources released (timeline closed)")
     }
 
