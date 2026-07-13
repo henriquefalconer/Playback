@@ -652,8 +652,13 @@ private final class IndicatorStreamDelegate: NSObject, SCStreamDelegate, SCStrea
                     if service.isPausedBySystem || service.isPausedByDisplayChange || service.isPausedByScreensaver {
                         Log.recording.debug("Termination cancelled — system pause, display change, or screensaver arrived during grace period")
                     } else {
-                        Log.recording.info("No system pause detected — quitting (user clicked Stop Presenting)")
-                        NSApplication.shared.terminate(nil)
+                        // User clicked Stop Presenting on the macOS recording indicator:
+                        // turn recording off but keep the menu bar app alive.
+                        Log.recording.info("No system pause detected — user stopped recording via macOS indicator")
+                        service.stop()
+                        var config = ConfigManager.shared.config
+                        config.recordingEnabled = false
+                        ConfigManager.shared.updateConfig(config)
                     }
                 }
             }

@@ -63,6 +63,7 @@ struct PlaybackApp: App {
         }
         .windowStyle(.hiddenTitleBar)
         .defaultLaunchBehavior(.suppressed)
+        .restorationBehavior(.disabled)
 
         Window("Settings", id: "settings") {
             SettingsView()
@@ -77,6 +78,7 @@ struct PlaybackApp: App {
         .windowResizability(.contentSize)
         .defaultPosition(.center)
         .defaultLaunchBehavior(.suppressed)
+        .restorationBehavior(.disabled)
         .commands {
             CommandGroup(replacing: .appSettings) {
                 Button("Settings…") {
@@ -98,11 +100,65 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var hotkeyManagerWrapper: GlobalHotkeyManagerWrapper?
     private var notificationObservers: [Any] = []
 
+    /// Recording lives with the menu bar item, not the Dock icon: only the menu bar
+    /// "Quit Playback" item (or a system logout/shutdown) may terminate the process.
+    static var isQuitAuthorized = false
+
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         if !flag {
             Self.openTimeline()
         }
         return false
+    }
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        if Self.isQuitAuthorized {
+            Log.session.info("Terminating — quit authorized via menu bar")
+            return .terminateNow
+        }
+        if isSystemInitiatedQuit() {
+            Log.session.info("Terminating — system-initiated quit (logout/shutdown/restart)")
+            return .terminateNow
+        }
+
+        // Quit from the Dock icon or Cmd+Q: close windows, drop the Dock icon,
+        // and keep the menu bar item + recording alive.
+        Log.session.info("Quit intercepted (Dock/Cmd+Q) — closing windows, recording continues")
+        for window in NSApp.windows where window.isVisible {
+            window.close()
+        }
+        Self.updateActivationPolicy()
+        return .terminateCancel
+    }
+
+    /// Detects quit Apple events carrying a logout/restart/shutdown reason,
+    /// so the app never blocks the user from logging out or shutting down.
+    private func isSystemInitiatedQuit() -> Bool {
+        guard let event = NSAppleEventManager.shared().currentAppleEvent,
+              event.eventClass == AEEventClass(kCoreEventClass),
+              event.eventID == AEEventID(kAEQuitApplication),
+              let reason = event.attributeDescriptor(forKeyword: AEKeyword(kAEQuitReason)) else {
+            return false
+        }
+        let systemReasons = [kAELogOut, kAEReallyLogOut, kAEShowRestartDialog, kAERestart, kAEShowShutdownDialog, kAEShutDown]
+        return systemReasons.map { OSType($0) }.contains(reason.enumCodeValue)
+    }
+
+    /// Show the Dock icon only while a timeline or settings window is visible;
+    /// otherwise run as a menu-bar-only accessory app.
+    static func updateActivationPolicy() {
+        let hasVisibleWindows = NSApp.windows.contains { window in
+            guard window.isVisible, let id = window.identifier?.rawValue else { return false }
+            return id.contains("timeline") || id.contains("settings")
+        }
+        let policy: NSApplication.ActivationPolicy = hasVisibleWindows ? .regular : .accessory
+        guard NSApp.activationPolicy() != policy else { return }
+        if policy == .accessory {
+            // Switching regular → accessory only takes effect reliably when inactive
+            NSApp.deactivate()
+        }
+        NSApp.setActivationPolicy(policy)
+        Log.session.info("Activation policy changed: \(policy == .regular ? "regular (Dock icon shown)" : "accessory (menu bar only)", privacy: .public)")
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -135,6 +191,24 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         Task {
             await ensureServicesRunning()
         }
+
+        // Opening the app by hand (Finder/Dock) means the user wants the rewind view;
+        // login-item launches stay in the background (menu bar only).
+        if !launchedAsLoginItem {
+            DispatchQueue.main.async {
+                Self.openTimeline()
+            }
+        }
+    }
+
+    /// True when this launch came from the SMAppService login item rather than user action.
+    private var launchedAsLoginItem: Bool {
+        guard let event = NSAppleEventManager.shared().currentAppleEvent,
+              event.eventID == AEEventID(kAEOpenApplication),
+              let propData = event.paramDescriptor(forKeyword: AEKeyword(keyAEPropData)) else {
+            return false
+        }
+        return propData.enumCodeValue == OSType(keyAELaunchedAsLogInItem)
     }
 
     private func registerGlobalHotkey() {
@@ -154,10 +228,19 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let settingsObserver = NotificationCenter.default.addObserver(
             forName: .openSettings, object: nil, queue: .main
         ) { _ in
+            NSApp.setActivationPolicy(.regular)
             NSApp.activate(ignoringOtherApps: true)
             WindowOpener.openWindow?(id: "settings")
         }
-        notificationObservers = [timelineObserver, settingsObserver]
+        // Drop back to accessory (no Dock icon) once the last timeline/settings window closes
+        let windowCloseObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.willCloseNotification, object: nil, queue: .main
+        ) { _ in
+            DispatchQueue.main.async {
+                Self.updateActivationPolicy()
+            }
+        }
+        notificationObservers = [timelineObserver, settingsObserver, windowCloseObserver]
     }
 
     static func openTimeline() {
@@ -165,6 +248,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             Log.hotkey.debug("Timeline already open — ignoring")
             return
         }
+        NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
         WindowOpener.openWindow?(id: "timeline")
     }

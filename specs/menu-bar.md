@@ -53,12 +53,24 @@ The menu bar provides an always-visible system tray icon for controlling Playbac
 - Closes all windows
 - Terminates the app
 
-## Quit Behavior
+## App Lifecycle
 
-- **ESC or Cmd+Q:** Closes timeline window only. App continues running, recording continues.
-- **"Quit Playback" from menu bar:** Stops everything and quits the app.
+Recording belongs to the menu bar item, not the Dock icon. The app is a menu-bar
+accessory app (`LSUIElement`): the Dock icon exists only while a timeline or
+settings window is visible, and disappears when the last one closes.
+
+- **Manual launch (Finder/Dock) or Option+Shift+Space:** Opens the rewind view
+  (showing the Dock icon while it is open).
+- **Login-item launch:** Stays in the background — menu bar item only, no windows.
+- **ESC, Cmd+Q, or quitting from the Dock icon:** Closes windows only. The app
+  drops back to menu-bar-only mode and recording continues.
+- **"Quit Playback" from menu bar:** Stops everything and quits the app. This is
+  the only user action that terminates the process.
+- **Logout / restart / shutdown:** Always allowed to terminate the app.
+- **"Stop Presenting" on the macOS recording indicator:** Turns recording off
+  (persisted to config) but keeps the menu bar app running.
 
 ## Source Files
 
-- `src/Playback/Playback/MenuBar/MenuBarView.swift` — UI layout
+- `src/Playback/Playback/PlaybackApp.swift` — Status item, menu, quit interception, activation policy
 - `src/Playback/Playback/MenuBar/MenuBarViewModel.swift` — State management

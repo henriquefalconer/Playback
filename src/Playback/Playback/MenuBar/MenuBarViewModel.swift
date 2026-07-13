@@ -127,6 +127,7 @@ final class MenuBarViewModel: ObservableObject {
         Log.menuBar.info("Quit requested: uptime=\(uptimeSeconds, privacy: .public)s, total_captures=\(self.recordingService.captureCount, privacy: .public)")
         recordingService.stop()
         ProcessingService.shared.stop()
+        AppDelegate.isQuitAuthorized = true
         NSApp.terminate(nil)
     }
 
