@@ -22,11 +22,14 @@ enum MemoryReclaimer {
         _ = malloc_zone_pressure_relief(nil, 0)
     }
 
-    /// Reclaim now and again over the next few seconds, to catch memory that
+    /// Reclaim now and again over the next several seconds, to catch memory that
     /// AVFoundation/VideoToolbox release asynchronously after an encode or a
-    /// player teardown.
+    /// player teardown. The later passes (8–15s) matter on timeline close: the
+    /// decode pipeline drains its buffers well after the window closes, and
+    /// without a late pass those freed pages sit in malloc's cache instead of
+    /// returning to the OS.
     static func reclaimSoon() {
-        let delays: [TimeInterval] = [0, 0.5, 1.5, 3.0, 5.0]
+        let delays: [TimeInterval] = [0, 0.5, 1.5, 3.0, 5.0, 8.0, 12.0, 15.0]
         for delay in delays {
             queue.asyncAfter(deadline: .now() + delay) {
                 _ = malloc_zone_pressure_relief(nil, 0)

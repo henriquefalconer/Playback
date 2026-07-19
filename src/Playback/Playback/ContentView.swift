@@ -70,6 +70,9 @@ struct ContentView: View {
             latestDataLoaded = false
             setupEventHandlers()
             timelineStore.resume()
+            // OCR search indexing runs ONLY while the timeline is open, so the
+            // background recording path never spends CPU on text recognition.
+            ProcessingService.shared.beginTimelineIndexing()
             // If segments are already loaded when view appears,
             // immediately position at the most recent instant; otherwise show
             // "Now" until the data arrives.
@@ -86,6 +89,9 @@ struct ContentView: View {
             playbackController.releaseResources()
             timelineStore.suspend()
             TimelineView.clearCaches()
+            // Stop indexing and kill any in-flight OCR helper the moment the
+            // timeline closes — no OCR CPU survives the window.
+            ProcessingService.shared.endTimelineIndexing()
             searchIndex.deactivate()
             showSearch = false
             revealVideo = false
@@ -577,7 +583,11 @@ struct ContentView: View {
         let width = box.width * dispW
         let height = box.height * dispH
         // Vision's y is bottom-up; flip to top-down screen coordinates.
-        let y = offY + (1 - box.origin.y - box.height) * dispH
+        // Vision's text boxes sit low relative to the rendered glyphs (they include
+        // descender padding), so nudge the highlight up. The offset is proportional
+        // to the box height, so it scales correctly with the text size.
+        let verticalNudge = height * 0.07
+        let y = offY + (1 - box.origin.y - box.height) * dispH - verticalNudge
         return CGRect(x: x, y: y, width: width, height: height)
     }
 

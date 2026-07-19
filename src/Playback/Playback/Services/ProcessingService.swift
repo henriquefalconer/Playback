@@ -22,10 +22,21 @@ final class ProcessingService: ObservableObject {
     private var timer: Timer?
     private var heartbeatTimer: Timer?
     private let queue = DispatchQueue(label: "com.falconer.Playback.processing", qos: .utility)
-    /// Low-priority worker that OCR-indexes already-encoded segments that predate
-    /// OCR (or whose index was lost), so search covers the entire recorded history.
-    private let backfillQueue = DispatchQueue(label: "com.falconer.Playback.backfill", qos: .background)
-    private var backfillStarted = false
+    /// Serial worker that OCR-indexes encoded segments for search. It runs ONLY
+    /// while the timeline window is open (started/stopped by `ContentView`), so
+    /// the background recording path never spends any CPU on text recognition.
+    private let indexQueue = DispatchQueue(label: "com.falconer.Playback.ocrindex", qos: .utility)
+    /// Guards `indexingActive` / `currentIndexProcess`, both touched from the main
+    /// actor (begin/end) and the index worker thread.
+    private let indexLock = NSLock()
+    private var indexingActive = false
+    /// Incremented on every `beginTimelineIndexing`. A worker captures its epoch
+    /// and stops the moment a newer one supersedes it, so a fast close→reopen can
+    /// never leave two workers running at once.
+    private var indexEpoch = 0
+    /// The in-flight `--ocr-segment` helper, so closing the timeline can kill it
+    /// mid-segment and reclaim its CPU immediately.
+    private var currentIndexProcess: Process?
     /// True while a processing cycle (screenshot → video encoding) is in flight.
     @Published private(set) var isRunning = false
     private var lastProcessingTime: Date?
@@ -48,7 +59,6 @@ final class ProcessingService: ObservableObject {
             Log.processing.info("Heartbeat — running=\(self.isRunning, privacy: .public), lastProcessing=\(self.lastProcessingTime?.description ?? "never", privacy: .public), totalSegmentsCreated=\(self.totalSegmentsCreated, privacy: .public)")
         }
         triggerProcessing()
-        startBackfill()
     }
 
     func stop() {
@@ -251,9 +261,8 @@ final class ProcessingService: ObservableObject {
         Log.processing.info("Video encoding started — segment=\(segmentId, privacy: .public), frames=\(frames.count, privacy: .public), \(width, privacy: .public)x\(height, privacy: .public), bitrate=\(bitrate, privacy: .public)")
 
         let encodeStart = CFAbsoluteTimeGetCurrent()
-        var ocrRows: [OCRSidecarRow] = []
         do {
-            ocrRows = try encodeVideo(frames: frames, outputURL: videoURL, width: width, height: height)
+            try encodeVideo(frames: frames, outputURL: videoURL, width: width, height: height)
             // 0600 — user-readable only (sensitive screen content)
             do {
                 try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: videoURL.path)
@@ -348,12 +357,10 @@ final class ProcessingService: ObservableObject {
             }
         }
 
-        // Insert encrypted OCR observations (best-effort; wrapped in a single
-        // transaction so 900 rows don't each hit WAL individually).
-        insertOCRRows(ocrRows, segmentId: segmentId, db: db)
-        // Mark this segment OCR-attempted so the backfill never re-processes it
-        // (even when it produced no text rows).
-        markSegmentOCRDone(segmentId, db: db)
+        // OCR is intentionally NOT run here. The search index is built lazily and
+        // only while the timeline is open (see `TimelineOCRIndexer`), so recording
+        // never spends CPU on text recognition. This segment stays absent from
+        // `ocr_frames` / `ocr_done` and the indexer will pick it up on next open.
 
         // Delete processed temp files after successful DB write
         var deletedCount = 0
@@ -377,22 +384,15 @@ final class ProcessingService: ObservableObject {
     /// encoder's large VideoToolbox/AVFoundation working set — which the OS
     /// keeps cached in-process and which malloc pressure relief cannot reclaim —
     /// dies with the subprocess, so the main app's footprint stays flat.
-    /// Encodes the frames and returns the encrypted OCR rows the helper produced
-    /// (empty on any OCR failure — the video is the primary artifact).
-    private func encodeVideo(frames: [FrameInfo], outputURL: URL, width: Int, height: Int) throws -> [OCRSidecarRow] {
-        let ocrOutputURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("ocr-\(UUID().uuidString).json")
-        defer { try? FileManager.default.removeItem(at: ocrOutputURL) }
-
-        let key = SearchCrypto.loadOrCreateKey()
+    /// Encodes the frames into `outputURL` via the helper subprocess. Pure video
+    /// encode — no OCR, no keys, no sidecar (search indexing happens later, only
+    /// while the timeline is open).
+    private func encodeVideo(frames: [FrameInfo], outputURL: URL, width: Int, height: Int) throws {
         let manifest = VideoEncoder.Manifest(
             outputPath: outputURL.path,
             width: width,
             height: height,
-            framePaths: frames.map { $0.url.path },
-            frameTimestamps: frames.map { $0.timestamp },
-            frameAppIds: frames.map { $0.appId },
-            ocrOutputPath: ocrOutputURL.path
+            framePaths: frames.map { $0.url.path }
         )
         let manifestURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("encode-\(UUID().uuidString).json")
@@ -412,13 +412,9 @@ final class ProcessingService: ObservableObject {
             throw ProcessingError.encodingSetupFailed
         }
 
-        // Hand the AES index key to the helper over stdin (a kernel pipe), so the
-        // plaintext key is never written to disk or exposed in argv/env.
-        let keyPipe = Pipe()
         let process = Process()
         process.executableURL = executableURL
         process.arguments = ["--encode-video", manifestURL.path]
-        process.standardInput = keyPipe
 
         do {
             try process.run()
@@ -427,23 +423,12 @@ final class ProcessingService: ObservableObject {
             throw ProcessingError.encodingSetupFailed
         }
 
-        let keyData = Data(SearchCrypto.exportBase64(key).utf8)
-        try? keyPipe.fileHandleForWriting.write(contentsOf: keyData)
-        try? keyPipe.fileHandleForWriting.close()
-
         process.waitUntilExit()
 
         guard process.terminationStatus == 0 else {
             Log.processing.error("Encoder subprocess exited with status \(process.terminationStatus)")
             throw ProcessingError.encodingFailed
         }
-
-        guard let data = FileManager.default.contents(atPath: ocrOutputURL.path),
-              let rows = try? JSONDecoder().decode([OCRSidecarRow].self, from: data) else {
-            Log.processing.notice("No OCR sidecar produced for \(outputURL.lastPathComponent, privacy: .public)")
-            return []
-        }
-        return rows
     }
 
     // MARK: - Database
@@ -622,9 +607,9 @@ final class ProcessingService: ObservableObject {
         _ = sqlite3_step(stmt)
     }
 
-    // MARK: - OCR Backfill
+    // MARK: - Timeline-gated OCR indexing
 
-    private struct BackfillSegment {
+    private struct IndexSegment {
         let id: String
         let startTS: Double
         let endTS: Double
@@ -632,28 +617,63 @@ final class ProcessingService: ObservableObject {
         let videoPath: String
     }
 
-    /// Kick off the one-time background pass that indexes every un-indexed
-    /// segment. Idempotent — safe to call on every `start()`.
-    func startBackfill() {
-        guard !backfillStarted else { return }
-        backfillStarted = true
-        backfillQueue.async { [weak self] in self?.runBackfill() }
+    /// Start indexing un-indexed segments for search. Called by `ContentView`
+    /// when the timeline window appears; the worker walks newest-first so the
+    /// content the user is most likely to search becomes searchable soonest.
+    /// Idempotent — a second call while already running is a no-op.
+    func beginTimelineIndexing() {
+        indexLock.lock()
+        if indexingActive { indexLock.unlock(); return }
+        indexingActive = true
+        indexEpoch += 1
+        let epoch = indexEpoch
+        indexLock.unlock()
+        Log.processing.info("OCR indexing started (timeline open)")
+        indexQueue.async { [weak self] in self?.runIndexer(epoch: epoch) }
     }
 
-    private func runBackfill() {
+    /// Stop indexing and reclaim CPU immediately. Called when the timeline window
+    /// disappears. Any in-flight `--ocr-segment` helper is terminated at once so
+    /// no OCR CPU survives the window closing.
+    func endTimelineIndexing() {
+        indexLock.lock()
+        indexingActive = false
+        let process = currentIndexProcess
+        indexLock.unlock()
+        if let process, process.isRunning {
+            // Vision OCR runs in-process in this helper (~0.4 GB working set); it
+            // is fully reclaimed when the subprocess dies here, so no OCR memory
+            // survives the timeline closing. (The main app's own player/decoder
+            // buffers are reclaimed by PlaybackController.releaseResources.)
+            process.terminate()
+            Log.processing.info("OCR indexing stopped (timeline closed) — killed in-flight helper")
+        } else {
+            Log.processing.info("OCR indexing stopped (timeline closed)")
+        }
+    }
+
+    /// True only while indexing is on AND this worker is still the current epoch.
+    private func isIndexingActive(epoch: Int) -> Bool {
+        indexLock.lock(); defer { indexLock.unlock() }
+        return indexingActive && indexEpoch == epoch
+    }
+
+    private func runIndexer(epoch: Int) {
         var processed = 0
-        while let segment = nextBackfillSegment() {
-            backfillOneSegment(segment)
+        while isIndexingActive(epoch: epoch), let segment = nextUnindexedSegment() {
+            indexOneSegment(segment, epoch: epoch)
             processed += 1
-            // Gentle throttle so backfill never competes hard with live recording.
-            Thread.sleep(forTimeInterval: 2.0)
+            // Brief yield between segments so the viewing UI stays responsive.
+            // (Each segment is heavy; the real responsiveness lever is that
+            // `endTimelineIndexing` kills the in-flight helper on close.)
+            if isIndexingActive(epoch: epoch) { Thread.sleep(forTimeInterval: 0.3) }
         }
         if processed > 0 {
-            Log.processing.info("OCR backfill finished — processed \(processed, privacy: .public) segment(s)")
+            Log.processing.info("OCR indexing pass ended — processed \(processed, privacy: .public) segment(s)")
         }
     }
 
-    private func nextBackfillSegment() -> BackfillSegment? {
+    private func nextUnindexedSegment() -> IndexSegment? {
         guard let db = openDatabase(Paths.databasePath.path) else { return nil }
         defer { sqlite3_close(db) }
         let sql = """
@@ -668,7 +688,7 @@ final class ProcessingService: ObservableObject {
         guard sqlite3_step(stmt) == SQLITE_ROW,
               let idC = sqlite3_column_text(stmt, 0),
               let pathC = sqlite3_column_text(stmt, 4) else { return nil }
-        return BackfillSegment(
+        return IndexSegment(
             id: String(cString: idC),
             startTS: sqlite3_column_double(stmt, 1),
             endTS: sqlite3_column_double(stmt, 2),
@@ -677,7 +697,7 @@ final class ProcessingService: ObservableObject {
         )
     }
 
-    private func backfillOneSegment(_ segment: BackfillSegment) {
+    private func indexOneSegment(_ segment: IndexSegment, epoch: Int) {
         let videoURL = Paths.baseDataDirectory.appendingPathComponent(segment.videoPath)
         // If the video is gone, mark done so we don't retry it forever.
         guard FileManager.default.fileExists(atPath: videoURL.path) else {
@@ -689,7 +709,7 @@ final class ProcessingService: ObservableObject {
         }
 
         let ocrOutputURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("ocr-backfill-\(UUID().uuidString).json")
+            .appendingPathComponent("ocr-index-\(UUID().uuidString).json")
         let manifestURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("ocrseg-\(UUID().uuidString).json")
         defer {
@@ -710,25 +730,47 @@ final class ProcessingService: ObservableObject {
             try manifestData.write(to: manifestURL)
             try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: manifestURL.path)
         } catch {
-            Log.processing.error("Backfill: failed to write manifest: \(error.localizedDescription)")
+            Log.processing.error("Indexing: failed to write manifest: \(error.localizedDescription)")
             return
         }
 
-        guard let executableURL = Bundle.main.executableURL else { return }
+        // Don't even launch if the timeline closed between segments.
+        guard isIndexingActive(epoch: epoch), let executableURL = Bundle.main.executableURL else { return }
         let keyPipe = Pipe()
         let process = Process()
         process.executableURL = executableURL
         process.arguments = ["--ocr-segment", manifestURL.path]
         process.standardInput = keyPipe
+
+        indexLock.lock()
+        // Re-check under lock so we never leave a running process unowned after a
+        // concurrent `endTimelineIndexing`.
+        guard indexingActive && indexEpoch == epoch else { indexLock.unlock(); return }
         do {
             try process.run()
         } catch {
-            Log.processing.error("Backfill: failed to launch helper: \(error.localizedDescription)")
+            indexLock.unlock()
+            Log.processing.error("Indexing: failed to launch helper: \(error.localizedDescription)")
             return
         }
+        currentIndexProcess = process
+        indexLock.unlock()
+
         try? keyPipe.fileHandleForWriting.write(contentsOf: Data(SearchCrypto.exportBase64(key).utf8))
         try? keyPipe.fileHandleForWriting.close()
         process.waitUntilExit()
+
+        indexLock.lock()
+        currentIndexProcess = nil
+        let stillActive = indexingActive && indexEpoch == epoch
+        indexLock.unlock()
+
+        // The timeline closed while we were decoding: the helper was terminated
+        // mid-segment. Leave the segment un-marked so it's retried on next open.
+        guard stillActive else {
+            Log.processing.info("Indexing: segment=\(segment.id, privacy: .public) interrupted by timeline close")
+            return
+        }
 
         let rows: [OCRSidecarRow]
         if process.terminationStatus == 0,
@@ -742,20 +784,19 @@ final class ProcessingService: ObservableObject {
         guard let db = openDatabase(Paths.databasePath.path) else { return }
         defer { sqlite3_close(db) }
 
-        // Guard against the (tiny) race where the normal encode path indexed this
-        // same segment while we were decoding — inserting again would duplicate.
+        // Guard against a race where another pass indexed this same segment
+        // while we were decoding — inserting again would duplicate.
         if segmentAlreadyIndexed(segment.id, db: db) {
             markSegmentOCRDone(segment.id, db: db)
-            Log.processing.info("Backfill skipped already-indexed segment=\(segment.id, privacy: .public)")
             return
         }
 
-        // Backfilled frames carry no app id (the video has none); recover it from
-        // the appsegments table so results still show the app they came from.
+        // Frames decoded from the video carry no app id; recover it from the
+        // appsegments table so results still show the app they came from.
         let enriched = enrichAppIds(rows, startTS: segment.startTS, endTS: segment.endTS, db: db)
         insertOCRRows(enriched, segmentId: segment.id, db: db)
         markSegmentOCRDone(segment.id, db: db)
-        Log.processing.info("Backfilled segment=\(segment.id, privacy: .public) — rows=\(rows.count, privacy: .public)")
+        Log.processing.info("Indexed segment=\(segment.id, privacy: .public) — rows=\(rows.count, privacy: .public)")
     }
 
     private func segmentAlreadyIndexed(_ segmentId: String, db: OpaquePointer) -> Bool {
