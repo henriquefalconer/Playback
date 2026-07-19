@@ -5,6 +5,7 @@ import Foundation
 import AVFoundation
 import CoreVideo
 import CoreGraphics
+import CryptoKit
 import ImageIO
 import os
 
@@ -29,24 +30,35 @@ enum VideoEncoder {
         let width: Int
         let height: Int
         let framePaths: [String]
+        // OCR indexing (optional). When present, the helper runs on-device OCR
+        // over each frame and writes an encrypted sidecar to `ocrOutputPath`.
+        // The arrays are parallel to `framePaths`.
+        var frameTimestamps: [Double]?
+        var frameAppIds: [String?]?
+        var ocrOutputPath: String?
     }
 
     // MARK: - Helper entry point
 
     /// Runs the encode described by the manifest file and returns a process exit
     /// code (0 = success). Called from `main.swift` in the helper subprocess.
+    ///
+    /// The AES index key is read from stdin (a kernel pipe), never from disk, so
+    /// the plaintext key is never persisted anywhere.
     static func runHelper(manifestPath: String) -> Int32 {
         guard let data = FileManager.default.contents(atPath: manifestPath),
               let manifest = try? JSONDecoder().decode(Manifest.self, from: data) else {
             Log.processing.error("Encoder helper: could not read manifest at \(manifestPath, privacy: .public)")
             return 1
         }
+        let keyB64 = String(data: FileHandle.standardInput.readDataToEndOfFile(), encoding: .utf8)
         do {
             try encode(
                 framePaths: manifest.framePaths,
                 outputPath: manifest.outputPath,
                 width: manifest.width,
-                height: manifest.height
+                height: manifest.height,
+                ocr: OCRPass(manifest: manifest, keyB64: keyB64)
             )
             return 0
         } catch {
@@ -55,9 +67,38 @@ enum VideoEncoder {
         }
     }
 
+    // MARK: - OCR pass configuration
+
+    /// Resolved OCR configuration for an encode run, or nil when the manifest
+    /// carried no OCR request (or no key arrived on stdin).
+    struct OCRPass {
+        let timestamps: [Double]
+        let appIds: [String?]
+        let key: SymmetricKey
+        let tokenKey: SymmetricKey
+        let outputPath: String
+
+        init?(manifest: Manifest, keyB64: String?) {
+            guard let timestamps = manifest.frameTimestamps,
+                  let appIds = manifest.frameAppIds,
+                  let outputPath = manifest.ocrOutputPath,
+                  let keyB64,
+                  let key = SearchCrypto.key(fromBase64: keyB64),
+                  timestamps.count == manifest.framePaths.count,
+                  appIds.count == manifest.framePaths.count else {
+                return nil
+            }
+            self.timestamps = timestamps
+            self.appIds = appIds
+            self.key = key
+            self.tokenKey = SearchCrypto.deriveTokenKey(key)
+            self.outputPath = outputPath
+        }
+    }
+
     // MARK: - Encode
 
-    static func encode(framePaths: [String], outputPath: String, width: Int, height: Int) throws {  // swiftlint:disable:this function_body_length
+    static func encode(framePaths: [String], outputPath: String, width: Int, height: Int, ocr: OCRPass? = nil) throws {  // swiftlint:disable:this function_body_length cyclomatic_complexity
         let outputURL = URL(fileURLWithPath: outputPath)
         do {
             try FileManager.default.removeItem(at: outputURL)
@@ -108,6 +149,9 @@ enum VideoEncoder {
             kCVPixelBufferPoolAllocationThresholdKey as String: 6
         ] as CFDictionary
 
+        var ocrRows: [OCRSidecarRow] = []
+        var lastFramePrint: OCRIndexer.FramePrint?
+
         let encodeLoopStart = CFAbsoluteTimeGetCurrent()
         for (index, framePath) in framePaths.enumerated() {
             autoreleasepool {
@@ -154,6 +198,26 @@ enum VideoEncoder {
                 let presentationTime = CMTime(value: CMTimeValue(index), timescale: 30)
                 adaptor.append(buffer, withPresentationTime: presentationTime)
 
+                // On-device OCR + preview thumbnail, indexed for search. Runs
+                // here (in the helper subprocess) so the recognizer's working
+                // set is reclaimed when the process exits. Pixel-identical
+                // consecutive frames (a static screen) reuse the previous
+                // frame's OCR + thumbnail instead of re-running Vision.
+                if let ocr, index < ocr.timestamps.count {
+                    let result = OCRIndexer.makeRow(
+                        cgImage: cgImage,
+                        timestamp: ocr.timestamps[index],
+                        appId: ocr.appIds[index],
+                        key: ocr.key,
+                        tokenKey: ocr.tokenKey,
+                        previous: lastFramePrint
+                    )
+                    lastFramePrint = result.print
+                    if let row = result.row {
+                        ocrRows.append(row)
+                    }
+                }
+
                 if (index + 1) % 100 == 0 {
                     let elapsed = CFAbsoluteTimeGetCurrent() - encodeLoopStart
                     Log.processing.info("Encoding progress — frame \(index + 1, privacy: .public)/\(framePaths.count, privacy: .public), elapsed=\(String(format: "%.1f", elapsed), privacy: .public)s")
@@ -169,6 +233,23 @@ enum VideoEncoder {
 
         if writer.status == .failed {
             throw writer.error ?? EncodeError.encodingFailed
+        }
+
+        if let ocr {
+            writeOCRSidecar(ocrRows, to: ocr.outputPath)
+        }
+    }
+
+    /// Persist the encrypted OCR rows for the parent process to ingest. Failure
+    /// to write the sidecar must never fail the encode — the video is the
+    /// primary artifact; the search index is best-effort.
+    private static func writeOCRSidecar(_ rows: [OCRSidecarRow], to path: String) {
+        do {
+            let data = try JSONEncoder().encode(rows)
+            try data.write(to: URL(fileURLWithPath: path))
+            Log.processing.info("OCR sidecar written — rows=\(rows.count, privacy: .public)")
+        } catch {
+            Log.processing.error("Failed to write OCR sidecar: \(error.localizedDescription)")
         }
     }
 

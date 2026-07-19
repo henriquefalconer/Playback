@@ -13,4 +13,5 @@ enum Log {
     static let session     = Logger(subsystem: "com.falconer.Playback", category: "Session")
     static let settings    = Logger(subsystem: "com.falconer.Playback", category: "Settings")
     static let datepicker  = Logger(subsystem: "com.falconer.Playback", category: "DatePicker")
+    static let search      = Logger(subsystem: "com.falconer.Playback", category: "Search")
 }

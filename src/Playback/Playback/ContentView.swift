@@ -3,6 +3,13 @@ import AVKit
 import AppKit
 import os
 
+/// A clicked result's matched-word boxes (normalized Vision coords) tied to the
+/// timestamp they belong to, so they can be cleared once the user scrubs away.
+struct MatchHighlight: Equatable {
+    let ts: TimeInterval
+    let rects: [CGRect]
+}
+
 struct ContentView: View {
     @EnvironmentObject var timelineStore: TimelineStore
     @EnvironmentObject var playbackController: PlaybackController
@@ -15,6 +22,16 @@ struct ContentView: View {
     // encoding — revealing before this shows a stale "latest" frame, because
     // the store's auto-refresh only picks up new segments every 5 seconds.
     @State private var latestDataLoaded = false
+
+    @StateObject private var searchIndex = SearchIndex()
+    @State private var showSearch = false
+    // Incremented to ask the open search panel to (re)focus its field.
+    @State private var focusSearchTrigger = 0
+    // The clicked search result's match location(s), highlighted on the frame.
+    @State private var matchHighlight: MatchHighlight?
+    // True while the pointer is over the search panel, so scroll wheel events
+    // scroll the results list instead of scrubbing the timeline behind it.
+    @State private var pointerInSearchPanel = false
 
     @State private var centerTime: TimeInterval = Date().timeIntervalSince1970
     @State private var showDatePicker = false
@@ -69,8 +86,35 @@ struct ContentView: View {
             playbackController.releaseResources()
             timelineStore.suspend()
             TimelineView.clearCaches()
+            searchIndex.deactivate()
+            showSearch = false
             revealVideo = false
             latestDataLoaded = false
+        }
+        // Load/decrypt the OCR index into memory only while the search modal is
+        // open; drop it again the moment it closes.
+        .onChange(of: showSearch) { _, isOpen in
+            if isOpen {
+                searchIndex.activate()
+            } else {
+                searchIndex.deactivate()
+                pointerInSearchPanel = false
+                matchHighlight = nil
+            }
+        }
+        // Clear the match highlight once the user scrubs away from the moment it
+        // belongs to (centerTime is the canonical scrub position, set exactly on
+        // jump, so this never fires on the jump itself).
+        .onChange(of: centerTime) { _, center in
+            if let highlight = matchHighlight, abs(center - highlight.ts) > 0.5 {
+                withAnimation(.easeOut(duration: 0.15)) { matchHighlight = nil }
+            }
+        }
+        // Playback advances past the highlighted frame — drop the now-stale box.
+        .onChange(of: playbackController.isPlaying) { _, playing in
+            if playing, matchHighlight != nil {
+                withAnimation(.easeOut(duration: 0.15)) { matchHighlight = nil }
+            }
         }
         // Whenever segment count changes (initial load or reload),
         // reposition centerTime to the latest available timestamp.
@@ -171,6 +215,30 @@ struct ContentView: View {
                     .transition(.opacity.animation(.easeInOut(duration: 0.2)))
             }
 
+            // Yellow highlight over the exact spot the search match sits on the
+            // frame, mapped from Vision's normalized boxes into the aspect-fit
+            // video rect.
+            if revealVideo, let highlight = matchHighlight, !highlight.rects.isEmpty,
+               let segment = playbackController.currentSegment, segment.width > 0, segment.height > 0 {
+                GeometryReader { geo in
+                    let aspect = CGFloat(segment.width) / CGFloat(segment.height)
+                    ForEach(Array(highlight.rects.enumerated()), id: \.offset) { _, box in
+                        let rect = Self.screenRect(for: box, videoAspect: aspect, in: geo.size)
+                        RoundedRectangle(cornerRadius: 3, style: .continuous)
+                            .fill(Color.yellow.opacity(0.4))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 3, style: .continuous)
+                                    .strokeBorder(Color.yellow.opacity(0.9), lineWidth: 1.5)
+                            )
+                            .frame(width: rect.width, height: rect.height)
+                            .position(x: rect.midX, y: rect.midY)
+                    }
+                }
+                .allowsHitTesting(false)
+                .ignoresSafeArea()
+                .transition(.opacity)
+            }
+
             // Subtle bottom gradient in gray-blue tones
             VStack {
                 Spacer()
@@ -222,8 +290,32 @@ struct ContentView: View {
                 .environmentObject(timelineStore)
                 .transition(.opacity)
             }
+
+            // Top-right search modal. No background dimming — the timeline stays
+            // fully visible behind it.
+            if showSearch {
+                // Transparent catcher: a click anywhere outside the panel closes
+                // the modal. It doesn't tint the background, so the timeline
+                // stays fully visible.
+                Color.clear
+                    .contentShape(Rectangle())
+                    .ignoresSafeArea()
+                    .onTapGesture { showSearch = false }
+                    .zIndex(9)
+
+                SearchOverlayView(index: searchIndex, focusTrigger: focusSearchTrigger) { ts, id, query in
+                    jumpToMoment(ts, id: id, query: query)
+                }
+                .onHover { pointerInSearchPanel = $0 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                .padding(.top, 28)
+                .padding(.trailing, 28)
+                .transition(.opacity.combined(with: .move(edge: .top)))
+                .zIndex(10)
+            }
         }
         .animation(.easeInOut(duration: 0.15), value: showDatePicker)
+        .animation(.easeInOut(duration: 0.18), value: showSearch)
     }
 
     @ViewBuilder
@@ -254,6 +346,25 @@ struct ContentView: View {
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [self] event in
             // keyCode 53 = ESC, 49 = Space, 123 = Left Arrow, 124 = Right Arrow
 
+            let isCmdF = event.modifierFlags.contains(.command)
+                && event.charactersIgnoringModifiers?.lowercased() == "f"
+
+            // While the search modal is open it owns the keyboard: ESC closes it,
+            // CMD+F just re-focuses the field, and everything else (typing, arrows
+            // to move the caret) flows to the search field instead of scrubbing
+            // the timeline behind it.
+            if showSearch {
+                if event.keyCode == 53 {
+                    showSearch = false
+                    return nil
+                }
+                if isCmdF {
+                    focusSearchTrigger += 1
+                    return nil
+                }
+                return event
+            }
+
             // While the date picker modal is open, ESC dismisses the modal and
             // every other key is left for the modal to handle — playback
             // shortcuts must not scrub the video behind it.
@@ -263,6 +374,11 @@ struct ContentView: View {
                     return nil
                 }
                 return event
+            }
+
+            if isCmdF {
+                showSearch = true
+                return nil
             }
 
             switch event.keyCode {
@@ -293,6 +409,13 @@ struct ContentView: View {
 
         // Global scroll monitor to control video time without blocking clicks on timeline.
         scrollMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [self] event in
+            // When the pointer is over the search panel, let the scroll wheel
+            // reach its results list instead of scrubbing the timeline behind it.
+            if showSearch && pointerInSearchPanel {
+                stopMomentum()
+                return event
+            }
+
             // While the date picker modal is open, let scroll events through
             // untouched so its time list can scroll instead of scrubbing the
             // timeline behind the modal.
@@ -412,6 +535,50 @@ struct ContentView: View {
 
     private func togglePlayPause() {
         playbackController.togglePlayPause()
+    }
+
+    /// Jump the timeline to the moment behind a search result. Keeps the search
+    /// modal open and does not steal focus from the search field. Then highlights
+    /// exactly where the matched text sits on the frame.
+    private func jumpToMoment(_ ts: TimeInterval, id: String, query: String) {
+        var target = ts
+        if let start = timelineStore.timelineStart { target = max(start, target) }
+        if let end = timelineStore.timelineEnd { target = min(end, target) }
+        matchHighlight = nil
+        centerTime = target
+        // Pause first so scrub won't auto-resume playback — the highlight is for
+        // this exact frame and would go stale the moment the video advances.
+        playbackController.pause()
+        playbackController.scrub(to: target, store: timelineStore)
+        Log.ui.info("Search jump to ts=\(target, privacy: .public)")
+        Task {
+            let rects = await searchIndex.highlightRects(for: id, query: query)
+            guard !rects.isEmpty else { return }
+            withAnimation(.easeOut(duration: 0.2)) {
+                matchHighlight = MatchHighlight(ts: target, rects: rects)
+            }
+        }
+    }
+
+    /// Map a normalized Vision box (bottom-left origin) into the on-screen rect of
+    /// the aspect-fit video within `size`.
+    private static func screenRect(for box: CGRect, videoAspect: CGFloat, in size: CGSize) -> CGRect {
+        guard videoAspect > 0, size.width > 0, size.height > 0 else { return .zero }
+        let windowAspect = size.width / size.height
+        let dispW: CGFloat, dispH: CGFloat, offX: CGFloat, offY: CGFloat
+        if windowAspect > videoAspect {
+            dispH = size.height; dispW = dispH * videoAspect
+            offX = (size.width - dispW) / 2; offY = 0
+        } else {
+            dispW = size.width; dispH = dispW / videoAspect
+            offX = 0; offY = (size.height - dispH) / 2
+        }
+        let x = offX + box.origin.x * dispW
+        let width = box.width * dispW
+        let height = box.height * dispH
+        // Vision's y is bottom-up; flip to top-down screen coordinates.
+        let y = offY + (1 - box.origin.y - box.height) * dispH
+        return CGRect(x: x, y: y, width: width, height: height)
     }
 
     /// Lift the black initial-load cover once the opening backlog is encoded,

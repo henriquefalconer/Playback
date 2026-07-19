@@ -14,4 +14,10 @@ if CommandLine.arguments.count >= 3, CommandLine.arguments[1] == "--encode-video
     exit(exitCode)
 }
 
+// Backfill OCR for an already-encoded segment (see OCRBackfill / ProcessingService).
+if CommandLine.arguments.count >= 3, CommandLine.arguments[1] == "--ocr-segment" {
+    let exitCode = OCRBackfill.runHelper(manifestPath: CommandLine.arguments[2])
+    exit(exitCode)
+}
+
 PlaybackApp.main()

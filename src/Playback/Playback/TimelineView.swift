@@ -94,25 +94,26 @@ struct TimelineView: View {
     private func formattedTimestamp(_ time: TimeInterval) -> String {
         let now = Date().timeIntervalSince1970
         let delta = max(0, now - time)
+        let date = Date(timeIntervalSince1970: time)
 
-        if delta < 1 {
-            return "Now"
-        } else if delta < 60 {
-            let seconds = Int(delta)
-            return seconds == 1 ? "1 second ago" : "\(seconds) seconds ago"
-        } else if delta < 3600 {
-            let minutes = Int(delta / 60)
-            return minutes == 1 ? "1 minute ago" : "\(minutes) minutes ago"
-        } else if delta < 24 * 3600 {
+        // Only use relative ("Now", "X ago") phrasing while we're still on today's
+        // calendar date — once the viewed moment is on another day, show the date
+        // explicitly so it's clear you're no longer looking at today.
+        if Calendar.current.isDateInToday(date) {
+            if delta < 1 {
+                return "Now"
+            } else if delta < 60 {
+                let seconds = Int(delta)
+                return seconds == 1 ? "1 second ago" : "\(seconds) seconds ago"
+            } else if delta < 3600 {
+                let minutes = Int(delta / 60)
+                return minutes == 1 ? "1 minute ago" : "\(minutes) minutes ago"
+            }
             let hours = Int(delta / 3600)
             return hours == 1 ? "1 hour ago" : "\(hours) hours ago"
         }
 
-        let date = Date(timeIntervalSince1970: time)
-        let formatter = DateFormatter()
-        formatter.dateStyle = .none
-        formatter.timeStyle = .medium
-        return formatter.string(from: date)
+        return DateDisplay.absolute(date)
     }
 
     private static var appNameCache: [String: String] = [:]

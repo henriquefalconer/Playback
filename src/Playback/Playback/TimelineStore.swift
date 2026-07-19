@@ -17,6 +17,8 @@ struct Segment: Identifiable {
     let frameCount: Int
     let fps: Double?
     let videoURL: URL
+    let width: Int
+    let height: Int
 
     var duration: TimeInterval {
         max(0, endTS - startTS)
@@ -207,7 +209,7 @@ final class TimelineStore: ObservableObject {
         defer { sqlite3_close(db) }
 
         let query = """
-        SELECT id, start_ts, end_ts, frame_count, fps, video_path
+        SELECT id, start_ts, end_ts, frame_count, fps, video_path, width, height
         FROM segments
         ORDER BY start_ts ASC;
         """
@@ -246,6 +248,8 @@ final class TimelineStore: ObservableObject {
             let fpsValue = sqlite3_column_double(stmt, 4)
             let fps: Double? = fpsValue > 0 ? fpsValue : nil
             let videoPath = String(cString: videoPathC)
+            let width = Int(sqlite3_column_int(stmt, 6))
+            let height = Int(sqlite3_column_int(stmt, 7))
 
             // Skip rows with impossible timestamps (end before start, or end in
             // the future) — a single corrupt span that overlaps the whole
@@ -264,7 +268,9 @@ final class TimelineStore: ObservableObject {
                     endTS: endTS,
                     frameCount: frameCount,
                     fps: fps,
-                    videoURL: url
+                    videoURL: url,
+                    width: width,
+                    height: height
                 )
             )
         }
