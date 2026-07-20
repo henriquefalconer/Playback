@@ -37,8 +37,14 @@ struct SearchTimelineRuler: View {
     private let minorBaseWidth: CGFloat = 6
     private let minorMaxWidthExtra: CGFloat = 16
     private let minorBaseHeight: CGFloat = 1.5
-    private let minorMaxHeightExtra: CGFloat = 9
-    private let maxMinorTicks = 200
+    private let minorMaxHeightExtra: CGFloat = 8
+    /// Resting centre-to-centre spacing of minor ticks. The number of ticks is
+    /// derived from this and the ruler height (results are sampled to fit), so
+    /// ticks never overlap however many results there are: the warp only ever
+    /// *expands* spacing (its slope is ≥ 1 everywhere), so as long as the resting
+    /// pitch clears the base height and the max magnified growth stays within the
+    /// warp's peak expansion of the pitch, magnified ticks stay separated too.
+    private let minorPitch: CGFloat = 4.5
 
     private struct DateMarker: Identifiable {
         let id: Int          // result index
@@ -109,8 +115,10 @@ struct SearchTimelineRuler: View {
         let right = size.width
         let majorIndices = Set(markers.map { $0.id })
 
-        // Minor ticks (sampled): grow in width + height and warp with proximity.
-        let step = max(1, results.count / maxMinorTicks)
+        // Minor ticks: sampled so their resting pitch is at least `minorPitch`,
+        // then grown in width + height and warped with proximity.
+        let maxTicks = max(1, Int(height / minorPitch))
+        let step = max(1, Int((Double(results.count) / Double(maxTicks)).rounded(.up)))
         var i = 0
         while i < results.count {
             if !majorIndices.contains(i) {
