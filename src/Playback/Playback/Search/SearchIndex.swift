@@ -226,13 +226,14 @@ final class SearchIndex: ObservableObject {
     /// Open the search session; nothing to preload.
     func activate() {}
 
-    /// Re-run the current query ~every 1.5s while indexing progresses. Silent: it
-    /// never clears the visible rows or flashes the empty-state spinner (the
-    /// list's footer already signals "Loading results…").
+    /// Re-run the current query shortly after each indexing batch finishes, so a
+    /// just-OCR'd frame's match appears almost immediately. Coalesced so a burst of
+    /// per-batch notifications triggers one refresh. Silent: it never clears the
+    /// visible rows or flashes the empty-state spinner.
     private func scheduleIndexRefresh() {
         guard hasQuery, !refreshScheduled else { return }
         refreshScheduled = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
             guard let self else { return }
             self.refreshScheduled = false
             guard self.hasQuery else { return }

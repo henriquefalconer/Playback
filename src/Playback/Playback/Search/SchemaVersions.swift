@@ -15,6 +15,9 @@ enum SchemaComponent: String, CaseIterable {
     case ocr
     case segments
     case appsegments
+    /// Frame-level OCR progress (`ocr_frame_progress`) — a segment is indexed a
+    /// frame-batch at a time, newest frames first, rather than atomically.
+    case ocrFrameProgress
 
     /// The version this build writes and expects.
     ///
@@ -25,9 +28,10 @@ enum SchemaComponent: String, CaseIterable {
     ///       thumbnails/boxes (re-derived from video), DEFLATE-then-sealed text.
     var current: Int {
         switch self {
-        case .ocr:         return 2
-        case .segments:    return 1
-        case .appsegments: return 1
+        case .ocr:              return 2
+        case .segments:         return 1
+        case .appsegments:      return 1
+        case .ocrFrameProgress: return 1
         }
     }
 }
@@ -83,6 +87,19 @@ enum SchemaVersions {
         if version(.appsegments, db: db) == 0 { set(.appsegments, to: SchemaComponent.appsegments.current, db: db) }
         if version(.ocr, db: db) == 0, !ocrIsLegacy(db: db) {
             set(.ocr, to: SchemaComponent.ocr.current, db: db)
+        }
+        if version(.ocrFrameProgress, db: db) == 0 {
+            // Seed frame tracking for segments already fully OCR'd under the old
+            // atomic model as "all frames done" (empty bit blob = collapsed done
+            // form, done_count = frame_count), so the frame-batch indexer only picks
+            // up genuinely new/pending frames.
+            sqlite3_exec(db, """
+                INSERT OR IGNORE INTO ocr_frame_bitmap (segment_id, bits, done_count)
+                SELECT id, x'', frame_count FROM segments
+                WHERE id IN (SELECT DISTINCT segment_id FROM ocr_frames)
+                   OR id IN (SELECT segment_id FROM ocr_done);
+                """, nil, nil, nil)
+            set(.ocrFrameProgress, to: SchemaComponent.ocrFrameProgress.current, db: db)
         }
     }
 

@@ -70,6 +70,10 @@ struct ContentView: View {
             latestDataLoaded = false
             setupEventHandlers()
             timelineStore.resume()
+            // Flush any just-recorded frames into a segment right now (instead of
+            // waiting up to 5 min for the next processing cycle), so the newest
+            // content is immediately indexable — then index, newest-first.
+            ProcessingService.shared.triggerProcessing(source: "timeline-open")
             // OCR search indexing runs ONLY while the timeline is open, so the
             // background recording path never spends CPU on text recognition.
             ProcessingService.shared.beginTimelineIndexing()

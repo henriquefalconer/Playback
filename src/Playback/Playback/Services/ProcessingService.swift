@@ -551,6 +551,11 @@ final class ProcessingService: ObservableObject {
             CREATE TABLE IF NOT EXISTS ocr_done (
                 segment_id TEXT PRIMARY KEY
             );
+            CREATE TABLE IF NOT EXISTS ocr_frame_bitmap (
+                segment_id TEXT PRIMARY KEY,
+                bits BLOB NOT NULL,
+                done_count INTEGER NOT NULL
+            ) WITHOUT ROWID;
             """
         var errMsg: UnsafeMutablePointer<CChar>?
         if sqlite3_exec(db, initSQL, nil, nil, &errMsg) != SQLITE_OK {
@@ -566,9 +571,10 @@ final class ProcessingService: ObservableObject {
         return db
     }
 
-    private func insertOCRRows(_ rows: [OCRSidecarRow], segmentId: String, db: OpaquePointer) {
-        guard !rows.isEmpty else { return }
-
+    /// Insert a batch's OCR rows + posting updates and flip the `processed` frame
+    /// bits, all in one transaction. A batch with no text still marks its frames
+    /// processed (they were OCR'd, just empty).
+    private func insertOCRRows(_ rows: [OCRSidecarRow], segmentId: String, frameCount: Int, processed: Range<Int>, db: OpaquePointer) {
         sqlite3_exec(db, "BEGIN TRANSACTION;", nil, nil, nil)
         var inserted = 0
         // Accumulate every new (token → [fid]) posting for this whole batch, then
@@ -610,6 +616,7 @@ final class ProcessingService: ObservableObject {
             }
         }
         upsertPostings(batchPostings, db: db)
+        markFramesProcessed(segmentId, frameCount: frameCount, range: processed, db: db)
         sqlite3_exec(db, "COMMIT;", nil, nil, nil)
         Log.processing.info("OCR rows indexed — segment=\(segmentId, privacy: .public), inserted=\(inserted, privacy: .public)/\(rows.count, privacy: .public)")
     }
@@ -661,21 +668,27 @@ final class ProcessingService: ObservableObject {
         }
     }
 
-    private func markSegmentOCRDone(_ segmentId: String, db: OpaquePointer) {
-        guard let stmt = prepareStatement(db, sql: "INSERT OR IGNORE INTO ocr_done (segment_id) VALUES (?);") else { return }
-        defer { sqlite3_finalize(stmt) }
-        sqlite3_bind_text(stmt, 1, segmentId, -1, SQLITE_TRANSIENT)
-        _ = sqlite3_step(stmt)
-    }
 
     // MARK: - Timeline-gated OCR indexing
 
-    private struct IndexSegment {
+    /// Frames per OCR helper invocation. Small so a large segment streams its
+    /// matches every few seconds and workers free up quickly to pick up just-recorded
+    /// frames (newest-first), while still amortizing helper launch + Vision init and
+    /// preserving perceptual dedup across the batch.
+    static let ocrFrameBatch = 10
+
+    /// One unit of OCR work: the frame range `[lo, hi)` a helper will process. The
+    /// range is chosen by the `FrameBitmap` status layer (newest pending run), so
+    /// which frames are pending is tracked per frame, not by a segment high-water.
+    private struct FrameBatch {
         let id: String
         let startTS: Double
         let endTS: Double
         let frameCount: Int
+        let fps: Double
         let videoPath: String
+        let lo: Int
+        let hi: Int
     }
 
     /// Start indexing un-indexed segments for search. Called by `ContentView`
@@ -686,7 +699,27 @@ final class ProcessingService: ObservableObject {
     /// Idempotent — a second call while already running is a no-op.
     func beginTimelineIndexing() {
         indexLock.lock()
-        if indexingActive { indexLock.unlock(); return }
+        if indexingActive {
+            // Already open. If the pool has drained (all workers exited) but new
+            // segments were recorded since, re-fan-out so the latest content gets
+            // indexed — newest-first — instead of no-op'ing until a full close/open.
+            if activeIndexWorkers == 0, let key = indexKey {
+                _ = key
+                let epoch = indexEpoch
+                let workers = indexConcurrency
+                activeIndexWorkers = workers
+                indexLock.unlock()
+                setIndexingInProgress(true)
+                Log.processing.info("OCR indexing re-fanned-out on timeline show — \(workers, privacy: .public) worker(s)")
+                for _ in 0..<workers { indexQueue.async { self.runIndexer(epoch: epoch) } }
+                return
+            }
+            let activeWorkers = activeIndexWorkers
+            indexLock.unlock()
+            Log.processing.debug("beginTimelineIndexing: already active with \(activeWorkers, privacy: .public) worker(s) — no-op")
+            return
+        }
+        Log.processing.info("beginTimelineIndexing: starting fresh")
         indexingActive = true
         indexEpoch += 1
         let epoch = indexEpoch
@@ -705,9 +738,15 @@ final class ProcessingService: ObservableObject {
             guard let self else { return }
             // Publish the starting percentage even while the key load is pending.
             self.recomputeIndexingProgress()
+            Log.processing.info("beginTimelineIndexing: loading key…")
             let key = SearchCrypto.loadOrCreateKey()
+            Log.processing.info("beginTimelineIndexing: key loaded, fanning out")
             self.indexLock.lock()
-            guard self.indexingActive, self.indexEpoch == epoch else { self.indexLock.unlock(); return }
+            guard self.indexingActive, self.indexEpoch == epoch else {
+                self.indexLock.unlock()
+                Log.processing.info("beginTimelineIndexing: aborted after key load (epoch/active changed)")
+                return
+            }
             self.indexKey = key
             self.activeIndexWorkers = workers
             self.indexLock.unlock()
@@ -735,12 +774,14 @@ final class ProcessingService: ObservableObject {
     private func recomputeIndexingProgress() {
         guard let db = openDatabase(Paths.databasePath.path) else { return }
         defer { sqlite3_close(db) }
+        // Frame-level: done frames = the per-segment processed bit count. Ticks up
+        // per batch, not per segment.
         let sql = """
             SELECT
-              COALESCE((SELECT SUM(frame_count) FROM segments
-                        WHERE id IN (SELECT DISTINCT segment_id FROM ocr_frames)
-                           OR id IN (SELECT segment_id FROM ocr_done)), 0),
-              COALESCE((SELECT SUM(frame_count) FROM segments), 0);
+              COALESCE(SUM(COALESCE(
+                (SELECT done_count FROM ocr_frame_bitmap b WHERE b.segment_id = s.id), 0)), 0),
+              COALESCE(SUM(s.frame_count), 0)
+            FROM segments s;
             """
         var stmt: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else { return }
@@ -796,16 +837,21 @@ final class ProcessingService: ObservableObject {
 
     private func runIndexer(epoch: Int) {
         var processed = 0
-        while isIndexingActive(epoch: epoch), let segment = claimNextUnindexedSegment(epoch: epoch) {
-            indexOneSegment(segment, epoch: epoch)
-            releaseSegmentClaim(segment.id)
+        while isIndexingActive(epoch: epoch) {
+            guard let batch = claimNextFrameBatch(epoch: epoch) else {
+                Log.processing.info("OCR worker exiting: no more pending frames (processed \(processed, privacy: .public) batch(es))")
+                break
+            }
+            indexFrameBatch(batch, epoch: epoch)
+            releaseSegmentClaim(batch.id)
             processed += 1
-            // Update the percentage, then tell any open search fresh matches exist.
+            // Update the percentage, then tell any open search fresh matches exist —
+            // per batch, so a just-OCR'd frame's match surfaces almost immediately.
             recomputeIndexingProgress()
             NotificationCenter.default.post(name: .ocrIndexProgressed, object: nil)
         }
         if processed > 0 {
-            Log.processing.info("OCR indexing worker ended — processed \(processed, privacy: .public) segment(s)")
+            Log.processing.info("OCR indexing worker ended — processed \(processed, privacy: .public) batch(es)")
         }
         // Last worker out drains the backlog: clear the "still loading" state.
         indexLock.lock()
@@ -815,27 +861,27 @@ final class ProcessingService: ObservableObject {
         if drained { setIndexingInProgress(false) }
     }
 
-    /// Atomically pick the newest un-indexed segment and mark it claimed, so
-    /// concurrent workers never decode the same segment. Claiming is serialized
-    /// under `indexLock`; the claim is in-memory only (a killed worker's segment
-    /// is simply re-eligible next time, never wrongly marked done).
-    private func claimNextUnindexedSegment(epoch: Int) -> IndexSegment? {
+    /// Atomically claim the newest batch of pending frames. Picks the newest segment
+    /// with frames still to do (`done_from > 0`), excluding segments a worker is
+    /// mid-flight on, and returns its top pending batch `[done_from-N, done_from)`.
+    /// Claims are in-memory (a killed worker's segment is simply re-eligible; its
+    /// `done_from` never advanced, so nothing is lost or double-counted).
+    private func claimNextFrameBatch(epoch: Int) -> FrameBatch? {
         indexLock.lock()
         defer { indexLock.unlock() }
         guard indexingActive, indexEpoch == epoch else { return nil }
         guard let db = openDatabase(Paths.databasePath.path) else { return nil }
         defer { sqlite3_close(db) }
 
-        // Exclude segments another worker is mid-flight on. The set is at most
-        // `indexConcurrency` ids, so the NOT IN list is tiny.
+        // Scheduling layer: newest segment that still has unprocessed frames
+        // (done_count < frame_count), excluding segments a worker is mid-flight on.
         let inFlight = Array(indexingSegmentIDs)
-        let placeholders = inFlight.isEmpty ? "" : "AND id NOT IN (\(inFlight.map { _ in "?" }.joined(separator: ",")))"
+        let placeholders = inFlight.isEmpty ? "" : "AND s.id NOT IN (\(inFlight.map { _ in "?" }.joined(separator: ",")))"
         let sql = """
-            SELECT id, start_ts, end_ts, frame_count, video_path FROM segments
-            WHERE id NOT IN (SELECT DISTINCT segment_id FROM ocr_frames)
-              AND id NOT IN (SELECT segment_id FROM ocr_done)
-              \(placeholders)
-            ORDER BY start_ts DESC LIMIT 1;
+            SELECT s.id, s.start_ts, s.end_ts, s.frame_count, COALESCE(s.fps, 1.0), s.video_path, b.bits
+            FROM segments s LEFT JOIN ocr_frame_bitmap b ON b.segment_id = s.id
+            WHERE COALESCE(b.done_count, 0) < s.frame_count AND s.frame_count > 0 \(placeholders)
+            ORDER BY s.start_ts DESC LIMIT 1;
             """
         var stmt: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else { return nil }
@@ -845,16 +891,23 @@ final class ProcessingService: ObservableObject {
         }
         guard sqlite3_step(stmt) == SQLITE_ROW,
               let idC = sqlite3_column_text(stmt, 0),
-              let pathC = sqlite3_column_text(stmt, 4) else { return nil }
+              let pathC = sqlite3_column_text(stmt, 5) else { return nil }
         let id = String(cString: idC)
+        let frameCount = Int(sqlite3_column_int(stmt, 3))
+        // Status layer decides which frames are next (newest pending contiguous run).
+        let bits = sqlite3_column_blob(stmt, 6).map { Data(bytes: $0, count: Int(sqlite3_column_bytes(stmt, 6))) }
+        let bitmap = FrameBitmap(count: frameCount, blob: bits)
+        guard let run = bitmap.newestPendingRun(maxLen: Self.ocrFrameBatch) else { return nil }
         indexingSegmentIDs.insert(id)
-        Log.processing.debug("OCR claim (newest-first) segment=\(id, privacy: .public) started=\(sqlite3_column_double(stmt, 1), privacy: .public)")
-        return IndexSegment(
+        Log.processing.debug("OCR claim segment=\(id, privacy: .public) frames [\(run.lowerBound, privacy: .public),\(run.upperBound, privacy: .public)) of \(frameCount, privacy: .public)")
+        return FrameBatch(
             id: id,
             startTS: sqlite3_column_double(stmt, 1),
             endTS: sqlite3_column_double(stmt, 2),
-            frameCount: Int(sqlite3_column_int(stmt, 3)),
-            videoPath: String(cString: pathC)
+            frameCount: frameCount,
+            fps: sqlite3_column_double(stmt, 4),
+            videoPath: String(cString: pathC),
+            lo: run.lowerBound, hi: run.upperBound
         )
     }
 
@@ -864,12 +917,12 @@ final class ProcessingService: ObservableObject {
         indexLock.unlock()
     }
 
-    private func indexOneSegment(_ segment: IndexSegment, epoch: Int) {
-        let videoURL = Paths.baseDataDirectory.appendingPathComponent(segment.videoPath)
-        // If the video is gone, mark done so we don't retry it forever.
+    private func indexFrameBatch(_ batch: FrameBatch, epoch: Int) {
+        let videoURL = Paths.baseDataDirectory.appendingPathComponent(batch.videoPath)
+        // Video gone (pruned by retention): mark every frame processed, don't retry.
         guard FileManager.default.fileExists(atPath: videoURL.path) else {
             if let db = openDatabase(Paths.databasePath.path) {
-                markSegmentOCRDone(segment.id, db: db)
+                markFramesProcessed(batch.id, frameCount: batch.frameCount, range: 0..<batch.frameCount, db: db)
                 sqlite3_close(db)
             }
             return
@@ -879,7 +932,6 @@ final class ProcessingService: ObservableObject {
             .appendingPathComponent("ocr-index-\(UUID().uuidString).json")
         let manifestURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("ocrseg-\(UUID().uuidString).json")
-        // Shield both from the orphan sweep for as long as this helper runs.
         registerTempFile(ocrOutputURL)
         registerTempFile(manifestURL)
         defer {
@@ -896,9 +948,12 @@ final class ProcessingService: ObservableObject {
         guard let key = sessionKey else { return }
         let manifest = OCRBackfill.Manifest(
             videoPath: videoURL.path,
-            startTS: segment.startTS,
-            endTS: segment.endTS,
-            frameCount: segment.frameCount,
+            startTS: batch.startTS,
+            endTS: batch.endTS,
+            frameCount: batch.frameCount,
+            fps: batch.fps,
+            loFrame: batch.lo,
+            hiFrame: batch.hi,
             ocrOutputPath: ocrOutputURL.path
         )
         guard let manifestData = try? JSONEncoder().encode(manifest) else { return }
@@ -910,7 +965,6 @@ final class ProcessingService: ObservableObject {
             return
         }
 
-        // Don't even launch if the timeline closed between segments.
         guard isIndexingActive(epoch: epoch), let executableURL = Bundle.main.executableURL else { return }
         let keyPipe = Pipe()
         let process = Process()
@@ -919,8 +973,6 @@ final class ProcessingService: ObservableObject {
         process.standardInput = keyPipe
 
         indexLock.lock()
-        // Re-check under lock so we never leave a running process unowned after a
-        // concurrent `endTimelineIndexing`.
         guard indexingActive && indexEpoch == epoch else { indexLock.unlock(); return }
         do {
             try process.run()
@@ -941,18 +993,12 @@ final class ProcessingService: ObservableObject {
         let stillActive = indexingActive && indexEpoch == epoch
         indexLock.unlock()
 
-        // The timeline closed while we were decoding: the helper was terminated
-        // mid-segment. Leave the segment un-marked so it's retried on next open.
-        guard stillActive else {
-            Log.processing.info("Indexing: segment=\(segment.id, privacy: .public) interrupted by timeline close")
-            return
-        }
-
-        // A non-zero exit means the helper failed (e.g. a decode error). Leave the
-        // segment un-done so it's retried on the next pass — never mark a failed
-        // segment done-but-empty, which would drop it from search forever.
+        // Timeline closed mid-batch: the helper was terminated. Leave done_from
+        // unchanged so this batch is retried cleanly on next open.
+        guard stillActive else { return }
+        // Helper failed (decode error): leave for retry rather than skipping frames.
         guard process.terminationStatus == 0 else {
-            Log.processing.error("Indexing: helper failed for segment=\(segment.id, privacy: .public) (status \(process.terminationStatus, privacy: .public)) — leaving for retry")
+            Log.processing.error("Indexing: helper failed for segment=\(batch.id, privacy: .public) frames [\(batch.lo, privacy: .public),\(batch.hi, privacy: .public)) (status \(process.terminationStatus, privacy: .public)) — leaving for retry")
             return
         }
 
@@ -967,26 +1013,44 @@ final class ProcessingService: ObservableObject {
         guard let db = openDatabase(Paths.databasePath.path) else { return }
         defer { sqlite3_close(db) }
 
-        // Guard against a race where another pass indexed this same segment
-        // while we were decoding — inserting again would duplicate.
-        if segmentAlreadyIndexed(segment.id, db: db) {
-            markSegmentOCRDone(segment.id, db: db)
-            return
-        }
-
         // Frames decoded from the video carry no app id; recover it from the
         // appsegments table so results still show the app they came from.
-        let enriched = enrichAppIds(rows, startTS: segment.startTS, endTS: segment.endTS, db: db)
-        insertOCRRows(enriched, segmentId: segment.id, db: db)
-        markSegmentOCRDone(segment.id, db: db)
-        Log.processing.info("Indexed segment=\(segment.id, privacy: .public) — rows=\(rows.count, privacy: .public)")
+        let enriched = enrichAppIds(rows, startTS: batch.startTS, endTS: batch.endTS, db: db)
+        // Insert this batch's rows and flip its frame bits in the SAME transaction,
+        // so the batch is durably indexed exactly once (a crash between the two
+        // would otherwise re-insert on retry).
+        insertOCRRows(enriched, segmentId: batch.id, frameCount: batch.frameCount,
+                      processed: batch.lo..<batch.hi, db: db)
+        Log.processing.info("Indexed segment=\(batch.id, privacy: .public) frames [\(batch.lo, privacy: .public),\(batch.hi, privacy: .public)) — rows=\(rows.count, privacy: .public)")
     }
 
-    private func segmentAlreadyIndexed(_ segmentId: String, db: OpaquePointer) -> Bool {
-        guard let stmt = prepareStatement(db, sql: "SELECT 1 FROM ocr_frames WHERE segment_id = ? LIMIT 1;") else { return false }
+    /// Persistence layer: flip the bits for `range` in a segment's frame bitmap,
+    /// collapsing to an empty blob once every frame is done (smallest "done" form).
+    private func markFramesProcessed(_ segmentId: String, frameCount: Int, range: Range<Int>, db: OpaquePointer) {
+        var bitmap = loadFrameBitmap(segmentId, frameCount: frameCount, db: db)
+        bitmap.markProcessed(range)
+        guard let stmt = prepareStatement(db, sql: "INSERT OR REPLACE INTO ocr_frame_bitmap (segment_id, bits, done_count) VALUES (?, ?, ?);") else { return }
+        defer { sqlite3_finalize(stmt) }
+        let blob = bitmap.storageBlob
+        sqlite3_bind_text(stmt, 1, segmentId, -1, SQLITE_TRANSIENT)
+        blob.withUnsafeBytes { raw in
+            sqlite3_bind_blob(stmt, 2, raw.baseAddress, Int32(blob.count), SQLITE_TRANSIENT)
+        }
+        sqlite3_bind_int(stmt, 3, Int32(bitmap.processedCount))
+        _ = sqlite3_step(stmt)
+    }
+
+    private func loadFrameBitmap(_ segmentId: String, frameCount: Int, db: OpaquePointer) -> FrameBitmap {
+        guard let stmt = prepareStatement(db, sql: "SELECT bits FROM ocr_frame_bitmap WHERE segment_id = ?;") else {
+            return FrameBitmap(count: frameCount)
+        }
         defer { sqlite3_finalize(stmt) }
         sqlite3_bind_text(stmt, 1, segmentId, -1, SQLITE_TRANSIENT)
-        return sqlite3_step(stmt) == SQLITE_ROW
+        var blob: Data?
+        if sqlite3_step(stmt) == SQLITE_ROW, let ptr = sqlite3_column_blob(stmt, 0) {
+            blob = Data(bytes: ptr, count: Int(sqlite3_column_bytes(stmt, 0)))
+        }
+        return FrameBitmap(count: frameCount, blob: blob)
     }
 
     /// Fill in each row's app id from the appsegments covering its timestamp.

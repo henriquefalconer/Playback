@@ -91,6 +91,51 @@ final class OCRCompactionTests: XCTestCase {
         XCTAssertLessThan(SearchCompression.compress(data).count, data.count / 2)
     }
 
+    // MARK: - Per-frame bitmap (frame status layer)
+
+    func testBitmapDrainCoversEveryFrameExactlyOnceNewestFirst() {
+        var rng = SplitMix64(seed: 0xBA7C4)
+        for _ in 0..<600 {
+            let count = Int(rng.next() % 2000)
+            let maxLen = Int(1 + rng.next() % 100)
+            var bitmap = FrameBitmap(count: count)
+            var runs: [Range<Int>] = []
+            // Drain the bitmap the way the scheduler does: newest pending run each step.
+            while let run = bitmap.newestPendingRun(maxLen: maxLen) {
+                XCTAssertFalse(run.isEmpty)
+                XCTAssertLessThanOrEqual(run.count, maxLen)
+                if let last = runs.last { XCTAssertLessThanOrEqual(run.upperBound, last.lowerBound, "newest-first, descending") }
+                runs.append(run)
+                bitmap.markProcessed(run)
+            }
+            XCTAssertTrue(bitmap.allProcessed)
+            XCTAssertTrue(bitmap.storageBlob.isEmpty, "done bitmap collapses to empty blob")
+            let covered = runs.flatMap { Array($0) }.sorted()
+            XCTAssertEqual(covered, Array(0..<count), "every frame processed exactly once")
+        }
+    }
+
+    func testBitmapFrameIndependenceAndGaps() {
+        var bitmap = FrameBitmap(count: 50)
+        // Mark an arbitrary, non-contiguous set — each frame independent of the rest.
+        for i in [3, 4, 5, 40, 41, 49] { bitmap.markProcessed(i..<(i + 1)) }
+        XCTAssertEqual(bitmap.processedCount, 6)
+        for i in 0..<50 { XCTAssertEqual(bitmap.isProcessed(i), [3, 4, 5, 40, 41, 49].contains(i)) }
+        // Newest pending run skips the processed frame 49, ends just below it.
+        XCTAssertEqual(bitmap.newestPendingRun(maxLen: 100), 42..<49)
+        // Round-trips through its on-disk blob (still in progress → non-empty).
+        let restored = FrameBitmap(count: 50, blob: bitmap.storageBlob)
+        XCTAssertEqual(restored, bitmap)
+    }
+
+    func testBitmapDegenerate() {
+        XCTAssertNil(FrameBitmap(count: 0).newestPendingRun(maxLen: 24))
+        XCTAssertNil(FrameBitmap(count: 10).newestPendingRun(maxLen: 0))
+        XCTAssertEqual(FrameBitmap(count: 5).newestPendingRun(maxLen: 24), 0..<5)
+        XCTAssertEqual(FrameBitmap(count: 50).newestPendingRun(maxLen: 20), 30..<50)
+        XCTAssertTrue(FrameBitmap(count: 0).allProcessed)
+    }
+
     // MARK: - Migration (legacy → compact)
 
     func testMigrationConvertsLegacyIndex() throws {

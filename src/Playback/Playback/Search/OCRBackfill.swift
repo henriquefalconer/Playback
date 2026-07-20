@@ -16,12 +16,17 @@ import os
 /// decoder's and recognizer's working sets die with the process. The AES key
 /// arrives on stdin, never on disk.
 enum OCRBackfill {
-    /// Instructions written by the parent, read by the helper.
+    /// Instructions written by the parent, read by the helper. The helper OCRs only
+    /// the frame range `[loFrame, hiFrame)` so a large segment is processed — and
+    /// its matches surfaced — a batch at a time, newest frames first.
     struct Manifest: Codable {
         let videoPath: String
         let startTS: Double
         let endTS: Double
         let frameCount: Int
+        let fps: Double
+        let loFrame: Int
+        let hiFrame: Int
         let ocrOutputPath: String
     }
 
@@ -70,33 +75,42 @@ enum OCRBackfill {
         output.alwaysCopiesSampleData = false
         guard reader.canAdd(output) else { throw BackfillError.readerFailed }
         reader.add(output)
-        guard reader.startReading() else { throw reader.error ?? BackfillError.readerFailed }
 
         let span = manifest.endTS - manifest.startTS
         let frameCount = max(1, manifest.frameCount)
+        let fps = manifest.fps > 0 ? manifest.fps : Double(frameCount) / max(0.001, span)
+        let lo = max(0, manifest.loFrame)
+        let hi = min(frameCount, manifest.hiFrame)
+
+        // Seek straight to the batch instead of decoding from the start — as cheap
+        // as a segment decode for this range. A little slack on each side absorbs
+        // keyframe snapping; frames outside [lo, hi) are dropped by their index.
+        let slack = 2.0 / fps
+        reader.timeRange = CMTimeRange(
+            start: CMTime(seconds: max(0, Double(lo) / fps - slack), preferredTimescale: 600),
+            duration: CMTime(seconds: Double(hi - lo) / fps + 2 * slack, preferredTimescale: 600)
+        )
+        guard reader.startReading() else { throw reader.error ?? BackfillError.readerFailed }
 
         var rows: [OCRSidecarRow] = []
         var lastPrint: OCRIndexer.FramePrint?
-        var index = 0
 
         while let sample = output.copyNextSampleBuffer() {
             autoreleasepool {
-                defer { index += 1 }
                 guard let pixelBuffer = CMSampleBufferGetImageBuffer(sample),
                       let cgImage = Self.cgImage(from: pixelBuffer) else { return }
+                // Index the frame by its presentation time — robust to keyframe
+                // snapping — and keep only those inside the requested batch.
+                let pts = CMSampleBufferGetPresentationTimeStamp(sample).seconds
+                let index = Int((pts * fps).rounded())
+                guard index >= lo, index < hi else { return }
 
-                // Map this frame's position to its absolute timeline timestamp
-                // (linear over the segment, matching how playback maps offsets).
-                let ratio = Double(index) / Double(frameCount)
-                let ts = manifest.startTS + ratio * span
-
+                // Absolute timeline timestamp (linear over the segment, matching
+                // how playback maps offsets).
+                let ts = manifest.startTS + (Double(index) / Double(frameCount)) * span
                 let result = OCRIndexer.makeRow(
-                    cgImage: cgImage,
-                    timestamp: ts,
-                    appId: nil,
-                    key: key,
-                    tokenKey: tokenKey,
-                    previous: lastPrint
+                    cgImage: cgImage, timestamp: ts, appId: nil,
+                    key: key, tokenKey: tokenKey, previous: lastPrint
                 )
                 lastPrint = result.print
                 if let row = result.row { rows.append(row) }
