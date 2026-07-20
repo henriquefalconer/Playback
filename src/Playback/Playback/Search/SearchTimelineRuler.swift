@@ -58,38 +58,43 @@ struct SearchTimelineRuler: View {
             let markerYs = markerRestingYs(markers, height: h)
 
             ZStack(alignment: .topLeading) {
-                Canvas { ctx, size in
-                    draw(ctx, size: size, height: h, markers: markers, markerYs: markerYs)
-                }
+                // Ticks + date labels. Clipped to the container so ticks warped into
+                // the reserved 10% margins slide off-screen (like Time Machine).
+                ZStack(alignment: .topLeading) {
+                    Canvas { ctx, size in
+                        draw(ctx, size: size, height: h, markers: markers, markerYs: markerYs)
+                    }
 
-                // Major date labels, right-aligned just left of their (warped) tick.
-                ForEach(markers) { marker in
-                    let labelWidth = max(0, geo.size.width - majorTickLength - 8)
-                    Text(marker.label)
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .frame(width: labelWidth, alignment: .trailing)
-                        .position(x: labelWidth / 2,
-                                  y: warp(markerYs[marker.id] ?? baseY(marker.id, height: h), height: h))
-                        .allowsHitTesting(false)
+                    // Major date labels, right-aligned just left of their (warped) tick.
+                    ForEach(markers) { marker in
+                        let labelWidth = max(0, geo.size.width - majorTickLength - 8)
+                        Text(marker.label)
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .frame(width: labelWidth, alignment: .trailing)
+                            .position(x: labelWidth / 2,
+                                      y: warp(markerYs[marker.id] ?? baseY(marker.id, height: h), height: h))
+                            .allowsHitTesting(false)
+                    }
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .clipped()
 
-                // Hover tooltip: "Today at 14:30" for the nearest match, pinned at
-                // the cursor, floating left of the tick column.
+                // Hover tooltip: "Yesterday at 23:59" for the nearest match. Its
+                // right edge is pinned just left of the tick column and it grows
+                // leftward, floating over the results list. It sits outside the clip
+                // above and is allowed to overflow the ruler, so it's always fully
+                // visible however long the label.
                 if let hoverY, let focus = nearestResult(toY: hoverY, height: h) {
+                    let anchorWidth = max(0, geo.size.width - majorTickLength - 6)
                     tooltip(text: timeLabel(for: focus.ts))
-                        .position(
-                            x: (geo.size.width - majorTickLength) / 2,
-                            y: min(max(hoverY, 12), h - 12)
-                        )
+                        .frame(width: anchorWidth, alignment: .trailing)
+                        .position(x: anchorWidth / 2, y: min(max(hoverY, 12), h - 12))
                         .allowsHitTesting(false)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            // Clip to the container so ticks warped into the reserved 10% zones
-            // (which sit outside these bounds) are not visible.
-            .clipped()
             .contentShape(Rectangle())
             .onContinuousHover { phase in
                 switch phase {
