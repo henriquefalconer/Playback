@@ -63,8 +63,14 @@ struct SearchOverlayView: View {
 
     /// Drag the whole panel by its header, freeing it from the top-right corner
     /// so it can be repositioned anywhere inside the app view.
+    ///
+    /// The translation is measured in `.global` space, not the gesture's default
+    /// `.local` space: the panel's own `.offset` moves the view — and with it a
+    /// `.local` reference frame — every frame, which feeds the offset back into
+    /// the reported translation (yielding half the mouse distance plus jitter).
+    /// Global space is fixed to the window, so it stays a stable reference.
     private var dragGesture: some Gesture {
-        DragGesture()
+        DragGesture(minimumDistance: 0, coordinateSpace: .global)
             .onChanged { dragOffset = $0.translation }
             .onEnded { value in
                 committedOffset.width += value.translation.width
