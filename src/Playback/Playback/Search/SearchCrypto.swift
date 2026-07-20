@@ -13,10 +13,14 @@ import os
 /// is sealed with AES-GCM (256-bit) before it reaches SQLite, and opened only in
 /// memory while the timeline window is open.
 ///
-/// The key lives in the login keychain (`kSecClassGenericPassword`). The encoder
-/// helper subprocess receives the key as a base64 string in its manifest (a
-/// short-lived temp file) so it can seal OCR results directly — the main app is
-/// the only component that touches the keychain.
+/// The key lives in the login keychain (`kSecClassGenericPassword`). Access is
+/// granted silently across rebuilds because the app is signed by the
+/// `macos-codesigning` certificate, which is marked trusted on this machine — so
+/// the keychain's "Always Allow" grant binds to the app's stable designated
+/// requirement rather than a per-build cdhash. The encoder helper subprocess
+/// receives the key as a base64 string in its manifest (a short-lived temp file)
+/// so it can seal OCR results directly — the main app is the only component that
+/// touches the keychain.
 enum SearchCrypto {
     private static let service = "com.falconer.Playback.search"
     private static let account = "ocr-index-key"

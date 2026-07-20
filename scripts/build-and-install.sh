@@ -33,6 +33,41 @@ pkill -9 Playback 2>/dev/null || true
 launchctl unload ~/Library/LaunchAgents/com.playback.*.plist 2>/dev/null || true
 sleep 1
 
+# 1b. Ensure the self-signed macos-codesigning cert is trusted for code signing.
+#
+# The app stores the OCR search-index encryption key in the login keychain. A
+# keychain "Always Allow" grant only sticks across rebuilds if the signing cert
+# is trusted: then the grant binds to the app's stable designated requirement
+# (identifier + cert leaf). If the cert is untrusted (CSSMERR_TP_NOT_TRUSTED),
+# the grant instead binds to the per-build cdhash, so every rebuild re-triggers
+# the "Playback wants to access com.falconer.Playback.search" prompt.
+#
+# Idempotent: only prompts for authorization the first time.
+if [ "$AUTO_SIGNING" = false ]; then
+    # Silent when already trusted; only speaks up when it changes state or fails.
+    if ! security find-identity -v -p codesigning 2>/dev/null | grep -q "macos-codesigning"; then
+        TRUST_CERT=$(mktemp -t macos-codesigning).pem
+        if security find-certificate -c "macos-codesigning" -p > "$TRUST_CERT" 2>/dev/null && [ -s "$TRUST_CERT" ]; then
+            if security add-trusted-cert -r trustRoot -p codeSign \
+                -k "$HOME/Library/Keychains/login.keychain-db" "$TRUST_CERT" 2>/dev/null; then
+                echo ""
+                echo "✅ Certificate marked as trusted. The keychain prompt will appear one"
+                echo "   last time on next launch — click Always Allow, and it will persist"
+                echo "   across all future rebuilds."
+            else
+                echo ""
+                echo "⚠️  Could not add trust automatically. Run manually:"
+                echo "   security add-trusted-cert -r trustRoot -p codeSign \\"
+                echo "     -k ~/Library/Keychains/login.keychain-db <cert.pem>"
+            fi
+        else
+            echo ""
+            echo "⚠️  macos-codesigning certificate not found in keychain; skipping trust."
+        fi
+        rm -f "$TRUST_CERT"
+    fi
+fi
+
 # 2. Build Release configuration
 echo ""
 echo "2. Building Release configuration..."
