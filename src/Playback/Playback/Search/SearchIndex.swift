@@ -20,14 +20,6 @@ struct SearchResult: Identifiable, Sendable {
     let snippet: AttributedString
 }
 
-/// The whole result set for a query, sampled to span the full history.
-struct OCRSearchPage: Sendable {
-    let results: [SearchResult]
-    /// True when there were more matches than the cap, so results were downsampled
-    /// (one representative per time bucket) rather than shown exhaustively. Every
-    /// date is still spanned — only the density within each period is thinned.
-    let didDownsample: Bool
-}
 
 /// Thread-safe reader over the encrypted index. Each query is a single indexed
 /// lookup on the on-disk blind (trigram) index that decrypts only the handful of
@@ -65,23 +57,15 @@ actor OCRStore {
         return (key, tokenKey)
     }
 
-    /// Fetch the match set for a query, sampled to span the *entire* history rather
-    /// than a dense slice of the most recent moments.
-    ///
-    /// A ubiquitous word ("the") matches nearly every frame, so a plain newest-first
-    /// `LIMIT n` fills the cap within the last couple of hours and never reaches
-    /// older days. Instead we split the full time range of the matches into
-    /// `maxResults` equal buckets and keep the newest match in each — one
-    /// representative per time slice. The result set therefore covers every date,
-    /// densest where activity is densest, and stays bounded by `maxResults`. Fewer
-    /// matches than the cap skip bucketing and return exhaustively. Each kept row is
-    /// decrypted and exact-substring verified before inclusion.
-    func search(_ rawQuery: String, maxResults: Int) -> OCRSearchPage {
+    /// Fetch *every* match for a query, newest-first, spanning the full history —
+    /// no cap. A ubiquitous word ("the") matches many frames across every recorded
+    /// day and they all come back, so the list is complete and the ruler (which
+    /// thins the view by snapping onto its fixed slot grid) can reach any date.
+    /// Each candidate is decrypted and exact-substring verified before inclusion.
+    func search(_ rawQuery: String) -> [SearchResult] {
         let normalizedQuery = Trigrams.normalize(rawQuery)
         let shingles = Trigrams.shingles(normalizedQuery)
-        guard !shingles.isEmpty, maxResults > 0, let db = openIfNeeded() else {
-            return OCRSearchPage(results: [], didDownsample: false)
-        }
+        guard !shingles.isEmpty, let db = openIfNeeded() else { return [] }
 
         let (key, tokenKey) = keys()
         // Cap the number of trigram filters so a very long query can't blow past
@@ -95,41 +79,15 @@ actor OCRStore {
         // packed; decoding + intersecting happens in memory.
         let lists = tokens.map { postingFids(for: $0, db: db) }
         let candidates = PostingCodec.intersect(lists)
-        guard !candidates.isEmpty, loadCandidates(candidates, db: db) else {
-            return OCRSearchPage(results: [], didDownsample: false)
-        }
+        guard !candidates.isEmpty, loadCandidates(candidates, db: db) else { return [] }
 
-        let didDownsample = candidates.count > maxResults
-        // Under the cap: return every match, newest-first. Over it: keep only the
-        // newest match per time bucket (rn = 1) so the set spans the full range.
-        // Both decrypt at most ~maxResults rows.
-        let sql: String
-        if didDownsample, let (minTS, maxTS) = candidateTSRange(db: db), maxTS > minTS {
-            let width = (maxTS - minTS) / Double(maxResults)
-            sql = """
-                WITH bucketed AS (
-                    SELECT f.id AS id, f.ts AS ts, f.app_id AS app_id, f.text_cipher AS cipher,
-                           ROW_NUMBER() OVER (
-                               PARTITION BY CAST((f.ts - \(minTS)) / \(width) AS INTEGER)
-                               ORDER BY f.ts DESC
-                           ) AS rn
-                    FROM ocr_frames f JOIN _cand c ON f.rowid = c.fid
-                )
-                SELECT id, ts, app_id, cipher FROM bucketed WHERE rn = 1 ORDER BY ts DESC;
-                """
-        } else {
-            sql = """
-                SELECT f.id, f.ts, f.app_id, f.text_cipher
-                FROM ocr_frames f JOIN _cand c ON f.rowid = c.fid
-                ORDER BY f.ts DESC
-                LIMIT \(maxResults);
-                """
-        }
-
+        let sql = """
+            SELECT f.id, f.ts, f.app_id, f.text_cipher
+            FROM ocr_frames f JOIN _cand c ON f.rowid = c.fid
+            ORDER BY f.ts DESC;
+            """
         var stmt: OpaquePointer?
-        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else {
-            return OCRSearchPage(results: [], didDownsample: false)
-        }
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else { return [] }
         defer { sqlite3_finalize(stmt) }
 
         var results: [SearchResult] = []
@@ -151,18 +109,7 @@ actor OCRStore {
                 snippet: SnippetBuilder.make(text, query: normalizedQuery)
             ))
         }
-        return OCRSearchPage(results: results, didDownsample: didDownsample)
-    }
-
-    /// Min/max timestamp across the loaded candidate frames — the bounds we bucket.
-    private func candidateTSRange(db: OpaquePointer) -> (min: TimeInterval, max: TimeInterval)? {
-        let sql = "SELECT MIN(f.ts), MAX(f.ts) FROM ocr_frames f JOIN _cand c ON f.rowid = c.fid;"
-        var stmt: OpaquePointer?
-        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else { return nil }
-        defer { sqlite3_finalize(stmt) }
-        guard sqlite3_step(stmt) == SQLITE_ROW,
-              sqlite3_column_type(stmt, 0) != SQLITE_NULL else { return nil }
-        return (sqlite3_column_double(stmt, 0), sqlite3_column_double(stmt, 1))
+        return results
     }
 
     /// Decode one token's posting list into its ascending frame ids.
@@ -214,27 +161,20 @@ final class SearchIndex: ObservableObject {
     /// True while a query is loading — so the UI shows a loading state instead of
     /// prematurely reading empty results as "No matches".
     @Published private(set) var isSearching = false
-    /// True when there were more matches than `resultCap`, so the set was
-    /// downsampled to one-per-time-bucket. Every date is still spanned — only the
-    /// density within each period is thinned.
-    @Published private(set) var didDownsample = false
 
     private let store: OCRStore
     /// Re-derives result previews and highlight boxes from the video on demand.
     private let extractor: FrameExtractor
     private let thumbCache = NSCache<NSString, NSImage>()
-    /// Every match is loaded in one pass so the list shows them all and the ruler —
-    /// which alone thins the view, by snapping results onto its fixed slot grid —
-    /// spans every date. This cap is only a memory/time safety valve set well above
-    /// realistic match counts; if it's ever exceeded the overflow is downsampled to
-    /// one-per-time-bucket, so even then the set still spans the full history rather
-    /// than collapsing to the most recent moments.
-    private let resultCap = 50_000
     private var searchTask: Task<Void, Never>?
 
     private var currentQuery = ""
-    /// Coalesces the burst of index-progress notifications into one refresh.
+    /// A refresh timer is pending (waiting out the coalescing window).
     private var refreshScheduled = false
+    /// A refresh search is decrypting right now — never run two at once.
+    private var refreshInFlight = false
+    /// Progress arrived; another refresh is wanted once the current one settles.
+    private var refreshPending = false
 
     init() {
         self.store = OCRStore(path: Paths.databasePath.path)
@@ -252,25 +192,45 @@ final class SearchIndex: ObservableObject {
     /// Open the search session; nothing to preload.
     func activate() {}
 
-    /// Re-run the current query shortly after each indexing batch finishes, so a
-    /// just-OCR'd frame's match appears almost immediately. Coalesced so a burst of
-    /// per-batch notifications triggers one refresh. Silent: it never clears the
-    /// visible rows or flashes the empty-state spinner.
+    /// Re-run the current query a beat after indexing batches finish, so a just-OCR'd
+    /// frame's match appears without retyping. Silent: it never clears the visible
+    /// rows or flashes the empty-state spinner.
+    ///
+    /// Since a query with no cap can match thousands of frames — each decrypted every
+    /// refresh — this is deliberately frugal: batches are coalesced into one refresh
+    /// per second, two refreshes never decrypt at once (a burst just sets a pending
+    /// flag that runs one trailing refresh), and the published list is replaced only
+    /// when it actually changed, so we don't rebuild a huge row list for nothing.
     private func scheduleIndexRefresh() {
-        guard hasQuery, !refreshScheduled else { return }
+        guard hasQuery else { return }
+        refreshPending = true
+        guard !refreshScheduled, !refreshInFlight else { return }
         refreshScheduled = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+            self?.runIndexRefresh()
+        }
+    }
+
+    private func runIndexRefresh() {
+        refreshScheduled = false
+        guard hasQuery, refreshPending, !refreshInFlight else { return }
+        refreshPending = false
+        refreshInFlight = true
+        let query = currentQuery
+        Task { [weak self] in
             guard let self else { return }
-            self.refreshScheduled = false
-            guard self.hasQuery else { return }
-            let query = self.currentQuery
-            Task { [weak self] in
-                guard let self else { return }
-                let page = await self.store.search(query, maxResults: self.resultCap)
-                if query != self.currentQuery { return }
-                self.results = page.results
-                self.didDownsample = page.didDownsample
+            let fresh = await self.store.search(query)
+            self.refreshInFlight = false
+            guard query == self.currentQuery else { return }
+            // Replacing the @Published array re-diffs the whole row list, so only do
+            // it when the match set's size or endpoints actually moved.
+            if fresh.count != self.results.count
+                || fresh.first?.id != self.results.first?.id
+                || fresh.last?.id != self.results.last?.id {
+                self.results = fresh
             }
+            // More progress landed while we were decrypting — run one more pass.
+            if self.refreshPending { self.scheduleIndexRefresh() }
         }
     }
 
@@ -280,8 +240,8 @@ final class SearchIndex: ObservableObject {
         results = []
         hasQuery = false
         isSearching = false
-        didDownsample = false
         currentQuery = ""
+        refreshPending = false
         thumbCache.removeAllObjects()
         extractor.close()
         Task { [store] in await store.close() }
@@ -294,7 +254,6 @@ final class SearchIndex: ObservableObject {
         guard hasQuery else {
             results = []
             isSearching = false
-            didDownsample = false
             return
         }
         // Show the loading state immediately (covers the debounce + fetch) so an
@@ -309,10 +268,9 @@ final class SearchIndex: ObservableObject {
             if Task.isCancelled { return }
             // One indexed scan pulls the entire match set, spanning every date, so
             // the list shows them all and the ruler can scroll to any of them.
-            let page = await store.search(rawQuery, maxResults: resultCap)
+            let fresh = await store.search(rawQuery)
             if Task.isCancelled || rawQuery != self.currentQuery { return }
-            self.results = page.results
-            self.didDownsample = page.didDownsample
+            self.results = fresh
             self.isSearching = false
         }
     }
@@ -324,6 +282,18 @@ final class SearchIndex: ObservableObject {
         let needle = Trigrams.normalize(query).lowercased()
         guard needle.count >= Trigrams.minLength,
               let cgImage = await extractor.exactImage(at: ts) else { return [] }
+        // Vision text recognition is a heavy synchronous call. Run it on a detached
+        // task so it executes on the global executor, never the main thread — this
+        // type is `@MainActor`, so doing it inline would freeze the UI for a
+        // second-plus after every result click.
+        return await Task.detached(priority: .userInitiated) {
+            Self.matchRects(in: cgImage, needle: needle)
+        }.value
+    }
+
+    /// OCR `cgImage`, then collect the bounding boxes of every word overlapping the
+    /// `needle` match. Pure and off-actor — safe to run on a background executor.
+    private nonisolated static func matchRects(in cgImage: CGImage, needle: String) -> [CGRect] {
         let words = OCRIndexer.recognizeWords(in: cgImage)
         guard !words.isEmpty else { return [] }
 
@@ -355,6 +325,13 @@ final class SearchIndex: ObservableObject {
     /// screen the task is cancelled and its decode stops, so effort stays focused on
     /// the rows actually visible. Concurrent calls (one per visible row) decode in
     /// parallel across videos.
+    /// The already-decoded preview for a result, if it's in the session cache — a
+    /// synchronous peek so a row can show its thumbnail on first render (and across
+    /// table-cell reuse) without a flash of empty placeholder.
+    func cachedThumbnail(for result: SearchResult) -> NSImage? {
+        thumbCache.object(forKey: result.id as NSString)
+    }
+
     func thumbnail(for result: SearchResult) async -> NSImage? {
         if let cached = thumbCache.object(forKey: result.id as NSString) { return cached }
         guard let cgImage = await extractor.thumbnail(at: result.ts), !Task.isCancelled,

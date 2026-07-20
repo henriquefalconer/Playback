@@ -23,8 +23,8 @@ import SwiftUI
 /// does nothing once search (and the timeline) closes.
 struct SearchTimelineRuler: View {
     let results: [SearchResult]
-    /// Scroll the list so the result with this id is at the top.
-    let onSeek: (String) -> Void
+    /// Scroll the list so the result at this index is at the top.
+    let onSeek: (Int) -> Void
 
     @State private var hoverY: CGFloat?
 
@@ -64,10 +64,41 @@ struct SearchTimelineRuler: View {
         let majorLabel: [Int: String]    // slot → date label, for major slots only
     }
 
+    /// What the layout depends on. Hovering (which changes only `hoverY`) is
+    /// deliberately absent, so a hover never invalidates the cache.
+    private struct LayoutKey: Equatable {
+        let count: Int
+        let firstID: String?
+        let lastID: String?
+        let height: CGFloat
+    }
+
+    /// Memoizes the last `RulerLayout`. Computing it scans every result with
+    /// `Calendar` to find day boundaries — cheap once, ruinous if repeated on every
+    /// mouse-move while hovering a list of thousands. A reference type so `body` can
+    /// refresh it without mutating `@State` (which would re-enter `body`).
+    private final class LayoutCache {
+        var key: LayoutKey?
+        var layout: RulerLayout?
+    }
+    @State private var layoutCache = LayoutCache()
+
+    /// The cached layout for this height, recomputed only when the results (by
+    /// count and endpoints) or the height actually change.
+    private func cachedLayout(height h: CGFloat) -> RulerLayout {
+        let key = LayoutKey(count: results.count, firstID: results.first?.id,
+                            lastID: results.last?.id, height: h)
+        if layoutCache.key == key, let layout = layoutCache.layout { return layout }
+        let computed = computeLayout(height: h)
+        layoutCache.key = key
+        layoutCache.layout = computed
+        return computed
+    }
+
     var body: some View {
         GeometryReader { geo in
             let h = geo.size.height
-            let layout = computeLayout(height: h)
+            let layout = cachedLayout(height: h)
             let labelWidth = max(0, geo.size.width - majorTickLength - 8)
 
             ZStack(alignment: .topLeading) {
@@ -122,8 +153,8 @@ struct SearchTimelineRuler: View {
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onEnded { value in
-                        if let result = nearestResult(toY: value.location.y, height: h, layout: layout) {
-                            onSeek(result.id)
+                        if let idx = nearestResultIndex(toY: value.location.y, height: h, layout: layout) {
+                            onSeek(idx)
                         }
                     }
             )
@@ -156,15 +187,20 @@ struct SearchTimelineRuler: View {
             resultIndex[j] = min(max(idx, 0), count - 1)
         }
 
-        // Date boundaries (first result of each day), in order.
-        let cal = Calendar.current
+        // Date boundaries (first result of each day), in order. Bucketing by local
+        // day is pure arithmetic — one divide per result — because `Calendar`
+        // (startOfDay/isDate) is ~100× slower and, over thousands of results, that
+        // cost lands on the main thread and stalls the very first hover. The GMT
+        // offset can be a few seconds stale across a DST flip, which at worst nudges
+        // one divider by an hour: invisible on a date ruler.
+        let dayOffset = Double(TimeZone.current.secondsFromGMT())
         var boundaries: [(index: Int, label: String)] = []
-        var lastDay: Date?
+        var lastDayIndex: Int?
         for (index, r) in results.enumerated() {
-            let day = cal.startOfDay(for: Date(timeIntervalSince1970: r.ts))
-            if lastDay == nil || day != lastDay {
+            let dayIndex = Int((r.ts + dayOffset) / 86_400)
+            if dayIndex != lastDayIndex {
                 boundaries.append((index, dayLabel(for: r.ts)))
-                lastDay = day
+                lastDayIndex = dayIndex
             }
         }
 
@@ -259,7 +295,7 @@ struct SearchTimelineRuler: View {
         return CGFloat(exp(-d * d))
     }
 
-    private func nearestResult(toY y: CGFloat, height: CGFloat, layout: RulerLayout) -> SearchResult? {
+    private func nearestResultIndex(toY y: CGFloat, height: CGFloat, layout: RulerLayout) -> Int? {
         guard layout.slotCount > 0 else { return nil }
         var bestSlot = 0
         var bestDist = CGFloat.greatestFiniteMagnitude
@@ -267,7 +303,7 @@ struct SearchTimelineRuler: View {
             let dist = abs(warp(layout.slotY[j], height: height) - y)
             if dist < bestDist { bestDist = dist; bestSlot = j }
         }
-        return results[layout.resultIndex[bestSlot]]
+        return layout.resultIndex[bestSlot]
     }
 
     // MARK: - Formatting

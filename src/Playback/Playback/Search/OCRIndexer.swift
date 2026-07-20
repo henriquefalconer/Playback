@@ -17,7 +17,7 @@ struct WordBox: Codable, Sendable {
     let w: Double
     let h: Double
 
-    var rect: CGRect { CGRect(x: x, y: y, width: w, height: h) }
+    nonisolated var rect: CGRect { CGRect(x: x, y: y, width: w, height: h) }
 }
 
 /// One OCR observation, as written to the sidecar file by the encoder helper and

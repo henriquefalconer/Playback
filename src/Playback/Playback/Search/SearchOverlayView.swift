@@ -19,16 +19,18 @@ struct SearchOverlayView: View {
 
     @State private var query: String = ""
     @FocusState private var fieldFocused: Bool
-    /// The "(XX%)" is revealed only after loading has been visible a while, so a
-    /// quick pass never flashes a number — see the 10s timer in `body`.
-    @State private var showLoadingPercent = false
     /// Live drag translation while the header is being dragged.
     @State private var dragOffset: CGSize = .zero
     /// Committed drag translation from previous drags — the modal can be moved
     /// anywhere inside the app view by dragging its header.
     @State private var committedOffset: CGSize = .zero
+    /// Handle to the native results table so the ruler can jump it by row index.
+    @State private var tableController = SearchResultsTableController()
 
     private let panelWidth: CGFloat = 520
+    /// Row pitch of the results table — matches `SearchResultRow`'s intrinsic height
+    /// (52pt thumbnail + 2×8pt padding) so rows never clip and scroll math is exact.
+    private let rowHeight: CGFloat = 68
 
     var body: some View {
         VStack(spacing: 0) {
@@ -59,14 +61,6 @@ struct SearchOverlayView: View {
         )
         .onAppear { focusField() }
         .onChange(of: focusTrigger) { _, _ in focusField() }
-        // Reveal the "(XX%)" only once loading has stayed up past 10s; restarts
-        // whenever indexing starts/stops so a brief pass never shows a number.
-        .task(id: processing.indexingInProgress) {
-            showLoadingPercent = false
-            guard processing.indexingInProgress else { return }
-            try? await Task.sleep(nanoseconds: 10_000_000_000)
-            if !Task.isCancelled { showLoadingPercent = true }
-        }
     }
 
     /// Focus the field on the next runloop tick, so it works even when the field
@@ -172,36 +166,33 @@ struct SearchOverlayView: View {
     /// The scrolling result list plus its Time Machine-style ruler. Ends with a
     /// footer that reads "Loading results…" while the backlog is still indexing,
     /// so newly-OCR-ed matches keep streaming in above it.
+    ///
+    /// A native `NSTableView` (see `SearchResultsTable`) — not `ScrollView { LazyVStack }`
+    /// or `List` — is essential: a common word matches thousands of frames, and both
+    /// SwiftUI containers are O(n) to locate a scroll target (LazyVStack realizes every
+    /// row up to it; List walks its whole view list copying each element), stalling the
+    /// UI for seconds on a jump to an old date. The table addresses rows by index, so
+    /// it renders only what's visible and jumps in O(1) no matter the match count.
     private var resultsScroll: some View {
-        ScrollViewReader { proxy in
-            HStack(spacing: 0) {
-                ScrollView {
-                    LazyVStack(spacing: 2) {
-                        ForEach(index.results) { result in
-                            SearchResultRow(result: result, index: index) {
-                                onSelect(result.ts, result.id, query)
-                            }
-                            .id(result.id)
-                        }
-                        // Always a footer at the end of the list — never nothing.
-                        listFooter
-                    }
-                    .padding(6)
-                    .background(NativeScrollerHider())
-                }
-                .scrollIndicators(.hidden)
+        HStack(spacing: 0) {
+            // The footer ("Loading results…" / "No more results") is the list's own
+            // last row, so it only shows once you scroll to the very end.
+            SearchResultsTable(
+                results: index.results,
+                index: index,
+                onSelect: { onSelect($0.ts, $0.id, query) },
+                rowHeight: rowHeight,
+                controller: tableController
+            )
 
-                // Time Machine-style ruler replaces the scrollbar: click to
-                // fast-travel the list to the nearest match at that moment.
-                SearchTimelineRuler(results: index.results) { id in
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        proxy.scrollTo(id, anchor: .top)
-                    }
-                }
-                .frame(width: 116)
-                .padding(.vertical, 6)
-                .padding(.trailing, 6)
+            // Time Machine-style ruler replaces the scrollbar: click to fast-travel
+            // the list to the nearest match at that moment (by row index, O(1)).
+            SearchTimelineRuler(results: index.results) { row in
+                tableController.scrollToRow(row)
             }
+            .frame(width: 116)
+            .padding(.vertical, 6)
+            .padding(.trailing, 6)
         }
         .frame(maxHeight: 520)
         .accessibilityIdentifier("search.results")
@@ -217,92 +208,68 @@ struct SearchOverlayView: View {
             .padding(.vertical, 18)
     }
 
-    /// The end-of-list footer. While the OCR backlog is indexing it reads
-    /// "Loading results…"; once everything is searchable it reads "No more
-    /// results" (or notes when the match set was so large it was sampled across the
-    /// full history). It is never empty, so the list always ends with a clear status.
-    @ViewBuilder
-    private var listFooter: some View {
-        HStack(spacing: 8) {
-            if processing.indexingInProgress {
-                ProgressView().controlSize(.small)
-                Text(loadingText)
-            } else if index.didDownsample {
-                Text("Sampled across your full history")
-            } else {
-                Text("No more results")
-            }
-        }
-        .font(.system(size: 12))
-        .foregroundStyle(.secondary)
-        .frame(maxWidth: .infinity, alignment: .center)
-        .padding(.vertical, 10)
-    }
-
-    /// Centered spinner + label. Uses the same 13pt text as the empty-state hints
-    /// so the loading row is exactly as tall as "Keep typing".
+    /// Centered spinner + label for the empty state (no rows yet, still working).
     private var spinnerLabel: some View {
+        SearchLoadingLabel(fontSize: 13)
+    }
+}
+
+/// Spinner + "Loading results… (XX.XX%)" — the percent is revealed only once loading
+/// has stayed up past 10s, so a quick pass never flashes a number. Owns its own timer
+/// and observes indexing, so it renders correctly wherever it's placed (the empty
+/// state or, hosted in a table cell, the list's footer row). Two decimals because
+/// each 1% is minutes of OCR — the fine digits visibly tick to show progress.
+struct SearchLoadingLabel: View {
+    var fontSize: CGFloat = 13
+    @ObservedObject private var processing = ProcessingService.shared
+    @State private var showPercent = false
+
+    var body: some View {
         HStack(spacing: 8) {
-            ProgressView()
-                .controlSize(.small)
-            Text(loadingText)
-                .font(.system(size: 13))
+            ProgressView().controlSize(.small)
+            Text(text)
+                .font(.system(size: fontSize))
                 .foregroundStyle(.secondary)
         }
+        .task(id: processing.indexingInProgress) {
+            showPercent = false
+            guard processing.indexingInProgress else { return }
+            try? await Task.sleep(nanoseconds: 10_000_000_000)
+            if !Task.isCancelled { showPercent = true }
+        }
     }
 
-    /// "Loading results…", plus the "(XX.XX%)" OCR-ed percentage only once loading
-    /// has been on screen for more than 10s (so a quick pass never flashes it).
-    /// Two decimals because each 1% is minutes of OCR — the fine digits visibly
-    /// tick so it's clear indexing is progressing.
-    private var loadingText: String {
+    private var text: String {
         let pct = processing.indexingProgress * 100
-        return (showLoadingPercent && pct > 0)
+        return (showPercent && pct > 0)
             ? String(format: "Loading results… (%.2f%%)", pct)
             : "Loading results…"
     }
 }
 
-/// Fully removes the enclosing scroll view's native scroller — even when the
-/// system "Show scroll bars" preference is "Always" (which SwiftUI's
-/// `.scrollIndicators(.hidden)` doesn't override). The custom ruler is the scroller.
-private struct NativeScrollerHider: NSViewRepresentable {
-    func makeNSView(context: Context) -> NSView {
-        let view = NSView(frame: .zero)
-        disable(from: view)
-        return view
-    }
-    func updateNSView(_ nsView: NSView, context: Context) {
-        disable(from: nsView)
-    }
-    private func disable(from view: NSView) {
-        // The scroll view may not be in the hierarchy yet, and SwiftUI can reset
-        // the scroller on later layouts — so search up the superview chain and
-        // re-apply over a few runloop turns.
-        for delay in [0.0, 0.05, 0.25] {
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
-                guard let sv = scrollView(from: view) else { return }
-                sv.hasVerticalScroller = false
-                sv.hasHorizontalScroller = false
-                sv.scrollerStyle = .overlay
-                sv.verticalScroller?.isHidden = true
-                sv.verticalScroller?.alphaValue = 0
-                sv.horizontalScroller?.isHidden = true
+/// The list's own last row: the loading label while the OCR backlog is still
+/// indexing, "No more results" once everything is searchable — so the list never
+/// just trails off, and the status only shows when you scroll to the very end.
+struct SearchListFooter: View {
+    @ObservedObject private var processing = ProcessingService.shared
+
+    var body: some View {
+        Group {
+            if processing.indexingInProgress {
+                SearchLoadingLabel(fontSize: 12)
+            } else {
+                Text("No more results")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
             }
         }
-    }
-    private func scrollView(from view: NSView) -> NSScrollView? {
-        var current: NSView? = view
-        while let node = current {
-            if let sv = node as? NSScrollView { return sv }
-            current = node.superview
-        }
-        return view.enclosingScrollView
+        .frame(maxWidth: .infinity, alignment: .center)
+        .padding(.vertical, 10)
     }
 }
 
 /// A single result row: squircle preview + highlighted two-line snippet.
-private struct SearchResultRow: View {
+struct SearchResultRow: View {
     let result: SearchResult
     let index: SearchIndex
     let onTap: () -> Void
@@ -343,8 +310,13 @@ private struct SearchResultRow: View {
         .onHover { isHovering = $0 }
         .accessibilityIdentifier("search.result")
         .task(id: result.id) {
-            thumbnail = nil
-            thumbnail = await index.thumbnail(for: result)
+            // Seed from the cache synchronously so a reused cell shows the right
+            // frame immediately — never the previous row's image, never a flash of
+            // empty — and only decode when it isn't cached yet.
+            thumbnail = index.cachedThumbnail(for: result)
+            if thumbnail == nil {
+                thumbnail = await index.thumbnail(for: result)
+            }
         }
     }
 
