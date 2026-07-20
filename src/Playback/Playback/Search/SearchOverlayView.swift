@@ -133,64 +133,88 @@ struct SearchOverlayView: View {
 
     // MARK: - Results
 
+    /// The search body's state ladder, in strict precedence order (highest first):
+    ///
+    /// 1. **Keep typing** — a 1–2 char query is below the trigram index minimum and
+    ///    can never match, so it overrides everything, including any in-flight
+    ///    loading spinner or stale rows from a previous longer query.
+    /// 2. **Results** — any matching frame is listed, whether it was OCR-ed earlier
+    ///    or *just* indexed during this session. Rows always win over the loading
+    ///    state; the "Loading results…" footer sits *below* them, never replacing
+    ///    them. So the moment a match exists, the user sees it.
+    /// 3. **Loading** — no rows yet, but still fetching or still indexing the
+    ///    backlog: a spinner, since matches may yet appear.
+    /// 4. **No matches** — the query is long enough, the search finished, indexing
+    ///    is done, and nothing matched.
     @ViewBuilder
     private var resultsList: some View {
-        if index.results.isEmpty {
-            emptyState
+        if isQueryTooShort {
+            centeredHint("Keep typing…")
+        } else if !index.results.isEmpty {
+            resultsScroll
+        } else if index.isSearching || processing.indexingInProgress {
+            spinnerLabel
+                .frame(maxWidth: .infinity, alignment: .center)
+                .padding(.vertical, 18)
         } else {
-            ScrollViewReader { proxy in
-                HStack(spacing: 0) {
-                    ScrollView {
-                        LazyVStack(spacing: 2) {
-                            ForEach(index.results) { result in
-                                SearchResultRow(result: result, index: index) {
-                                    onSelect(result.ts, result.id, query)
-                                }
-                                .id(result.id)
-                            }
-                            // Always a footer at the end of the list — never nothing.
-                            listFooter
-                        }
-                        .padding(6)
-                        .background(NativeScrollerHider())
-                    }
-                    .scrollIndicators(.hidden)
-
-                    // Time Machine-style ruler replaces the scrollbar: click to
-                    // fast-travel the list to the nearest match at that moment.
-                    SearchTimelineRuler(results: index.results) { id in
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            proxy.scrollTo(id, anchor: .top)
-                        }
-                    }
-                    .frame(width: 116)
-                    .padding(.vertical, 6)
-                    .padding(.trailing, 6)
-                }
-            }
-            .frame(maxHeight: 520)
-            .accessibilityIdentifier("search.results")
+            centeredHint("No matches")
         }
     }
 
-    /// Shown when there are no result rows: a spinner while the first page loads,
-    /// otherwise the appropriate hint — never "No matches" while still loading.
-    /// Both branches share the same padding so the box height never jumps.
-    @ViewBuilder
-    private var emptyState: some View {
-        Group {
-            // Still fetching, or still indexing the backlog: show the loader rather
-            // than a premature "No matches" — matches may yet appear.
-            if index.isSearching || processing.indexingInProgress {
-                spinnerLabel
-            } else {
-                Text(Trigrams.normalize(query).count < Trigrams.minLength ? "Keep typing…" : "No matches")
-                    .font(.system(size: 13))
-                    .foregroundStyle(.secondary)
+    /// A 1–2 char query (after whitespace-normalization) is below the trigram
+    /// index's minimum length and cannot be served — so it resolves straight to
+    /// "Keep typing…", ahead of any result or loading state.
+    private var isQueryTooShort: Bool {
+        let length = Trigrams.normalize(query).count
+        return length > 0 && length < Trigrams.minLength
+    }
+
+    /// The scrolling result list plus its Time Machine-style ruler. Ends with a
+    /// footer that reads "Loading results…" while the backlog is still indexing,
+    /// so newly-OCR-ed matches keep streaming in above it.
+    private var resultsScroll: some View {
+        ScrollViewReader { proxy in
+            HStack(spacing: 0) {
+                ScrollView {
+                    LazyVStack(spacing: 2) {
+                        ForEach(index.results) { result in
+                            SearchResultRow(result: result, index: index) {
+                                onSelect(result.ts, result.id, query)
+                            }
+                            .id(result.id)
+                        }
+                        // Always a footer at the end of the list — never nothing.
+                        listFooter
+                    }
+                    .padding(6)
+                    .background(NativeScrollerHider())
+                }
+                .scrollIndicators(.hidden)
+
+                // Time Machine-style ruler replaces the scrollbar: click to
+                // fast-travel the list to the nearest match at that moment.
+                SearchTimelineRuler(results: index.results) { id in
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        proxy.scrollTo(id, anchor: .top)
+                    }
+                }
+                .frame(width: 116)
+                .padding(.vertical, 6)
+                .padding(.trailing, 6)
             }
         }
-        .frame(maxWidth: .infinity, alignment: .center)
-        .padding(.vertical, 18)
+        .frame(maxHeight: 520)
+        .accessibilityIdentifier("search.results")
+    }
+
+    /// A single centered, secondary-styled hint line ("Keep typing…"/"No matches"),
+    /// sized to match the loading row so the box height never jumps between states.
+    private func centeredHint(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 13))
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .center)
+            .padding(.vertical, 18)
     }
 
     /// The end-of-list footer. While the OCR backlog is indexing it reads
