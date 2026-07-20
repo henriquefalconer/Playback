@@ -227,11 +227,15 @@ struct SearchOverlayView: View {
         }
     }
 
-    /// "Loading results…", plus the "(XX%)" OCR-ed percentage only once loading
+    /// "Loading results…", plus the "(XX.XX%)" OCR-ed percentage only once loading
     /// has been on screen for more than 10s (so a quick pass never flashes it).
+    /// Two decimals because each 1% is minutes of OCR — the fine digits visibly
+    /// tick so it's clear indexing is progressing.
     private var loadingText: String {
-        let pct = Int((processing.indexingProgress * 100).rounded())
-        return (showLoadingPercent && pct > 0) ? "Loading results… (\(pct)%)" : "Loading results…"
+        let pct = processing.indexingProgress * 100
+        return (showLoadingPercent && pct > 0)
+            ? String(format: "Loading results… (%.2f%%)", pct)
+            : "Loading results…"
     }
 }
 
