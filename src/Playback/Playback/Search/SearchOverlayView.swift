@@ -19,6 +19,9 @@ struct SearchOverlayView: View {
 
     @State private var query: String = ""
     @FocusState private var fieldFocused: Bool
+    /// The "(XX%)" is revealed only after loading has been visible a while, so a
+    /// quick pass never flashes a number — see the 10s timer in `body`.
+    @State private var showLoadingPercent = false
     /// Live drag translation while the header is being dragged.
     @State private var dragOffset: CGSize = .zero
     /// Committed drag translation from previous drags — the modal can be moved
@@ -56,6 +59,14 @@ struct SearchOverlayView: View {
         )
         .onAppear { focusField() }
         .onChange(of: focusTrigger) { _, _ in focusField() }
+        // Reveal the "(XX%)" only once loading has stayed up past 10s; restarts
+        // whenever indexing starts/stops so a brief pass never shows a number.
+        .task(id: processing.indexingInProgress) {
+            showLoadingPercent = false
+            guard processing.indexingInProgress else { return }
+            try? await Task.sleep(nanoseconds: 10_000_000_000)
+            if !Task.isCancelled { showLoadingPercent = true }
+        }
     }
 
     /// Focus the field on the next runloop tick, so it works even when the field
@@ -216,11 +227,11 @@ struct SearchOverlayView: View {
         }
     }
 
-    /// "Loading results… (XX%)" — the percentage of recorded screenshots OCR-ed
-    /// so far. The percent is omitted only before the first progress reading.
+    /// "Loading results…", plus the "(XX%)" OCR-ed percentage only once loading
+    /// has been on screen for more than 10s (so a quick pass never flashes it).
     private var loadingText: String {
         let pct = Int((processing.indexingProgress * 100).rounded())
-        return pct > 0 ? "Loading results… (\(pct)%)" : "Loading results…"
+        return (showLoadingPercent && pct > 0) ? "Loading results… (\(pct)%)" : "Loading results…"
     }
 }
 

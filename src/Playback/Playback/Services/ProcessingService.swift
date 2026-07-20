@@ -68,6 +68,11 @@ final class ProcessingService: ObservableObject {
     @Published private(set) var indexingProgress: Double = 0
     /// Count of live index workers; when it drops to 0 the backlog is drained.
     private var activeIndexWorkers = 0
+    /// Names of temp manifest/output files currently in use by a live encoder or
+    /// OCR helper. The orphan sweep must skip these — deleting one mid-flight
+    /// makes the helper fail (unreadable manifest) and silently drops a segment.
+    private let tempFilesLock = NSLock()
+    private var inFlightTempFiles: Set<String> = []
     private var lastProcessingTime: Date?
     private var totalSegmentsCreated = 0
     private var triggerCount = 0
@@ -139,15 +144,27 @@ final class ProcessingService: ObservableObject {
             at: tempDir, includingPropertiesForKeys: nil, options: .skipsHiddenFiles
         ) else { return }
         let prefixes = ["encode-", "ocr-", "ocrseg-"]
+        // Never delete files a live helper is mid-flight on — only true orphans.
+        tempFilesLock.lock()
+        let protected = inFlightTempFiles
+        tempFilesLock.unlock()
         var removed = 0
         for url in contents {
             let name = url.lastPathComponent
             guard name.hasSuffix(".json"), prefixes.contains(where: { name.hasPrefix($0) }) else { continue }
+            if protected.contains(name) { continue }
             if (try? FileManager.default.removeItem(at: url)) != nil { removed += 1 }
         }
         if removed > 0 {
             Log.processing.info("Swept \(removed, privacy: .public) orphaned encoder temp file(s)")
         }
+    }
+
+    private func registerTempFile(_ url: URL) {
+        tempFilesLock.lock(); inFlightTempFiles.insert(url.lastPathComponent); tempFilesLock.unlock()
+    }
+    private func unregisterTempFile(_ url: URL) {
+        tempFilesLock.lock(); inFlightTempFiles.remove(url.lastPathComponent); tempFilesLock.unlock()
     }
 
     // MARK: - Processing Pipeline
@@ -425,7 +442,11 @@ final class ProcessingService: ObservableObject {
         )
         let manifestURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("encode-\(UUID().uuidString).json")
-        defer { try? FileManager.default.removeItem(at: manifestURL) }
+        registerTempFile(manifestURL)
+        defer {
+            try? FileManager.default.removeItem(at: manifestURL)
+            unregisterTempFile(manifestURL)
+        }
 
         do {
             try JSONEncoder().encode(manifest).write(to: manifestURL)
@@ -828,9 +849,14 @@ final class ProcessingService: ObservableObject {
             .appendingPathComponent("ocr-index-\(UUID().uuidString).json")
         let manifestURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("ocrseg-\(UUID().uuidString).json")
+        // Shield both from the orphan sweep for as long as this helper runs.
+        registerTempFile(ocrOutputURL)
+        registerTempFile(manifestURL)
         defer {
             try? FileManager.default.removeItem(at: ocrOutputURL)
             try? FileManager.default.removeItem(at: manifestURL)
+            unregisterTempFile(ocrOutputURL)
+            unregisterTempFile(manifestURL)
         }
 
         // Reuse the session key loaded once in `beginTimelineIndexing`.
@@ -892,9 +918,16 @@ final class ProcessingService: ObservableObject {
             return
         }
 
+        // A non-zero exit means the helper failed (e.g. a decode error). Leave the
+        // segment un-done so it's retried on the next pass — never mark a failed
+        // segment done-but-empty, which would drop it from search forever.
+        guard process.terminationStatus == 0 else {
+            Log.processing.error("Indexing: helper failed for segment=\(segment.id, privacy: .public) (status \(process.terminationStatus, privacy: .public)) — leaving for retry")
+            return
+        }
+
         let rows: [OCRSidecarRow]
-        if process.terminationStatus == 0,
-           let data = FileManager.default.contents(atPath: ocrOutputURL.path),
+        if let data = FileManager.default.contents(atPath: ocrOutputURL.path),
            let decoded = try? JSONDecoder().decode([OCRSidecarRow].self, from: data) {
             rows = decoded
         } else {

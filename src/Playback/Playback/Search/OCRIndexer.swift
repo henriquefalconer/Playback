@@ -43,6 +43,27 @@ enum OCRIndexer {
     /// Max dimension (px) of the stored preview thumbnail. Retina-crisp for the
     /// ~52pt squircle shown in search results.
     private static let thumbMaxDimension = 400
+    /// Long-side cap (px) of the image actually handed to Vision. Retina frames
+    /// are downscaled to this before OCR — big speedup, text stays legible.
+    nonisolated private static let ocrMaxDimension = 1920
+
+    /// Downscale a frame so its longest side is at most `ocrMaxDimension`, for
+    /// faster OCR. Returns the original when it's already small enough.
+    nonisolated private static func downscaledForOCR(_ image: CGImage) -> CGImage {
+        let longSide = max(image.width, image.height)
+        guard longSide > ocrMaxDimension else { return image }
+        let scale = Double(ocrMaxDimension) / Double(longSide)
+        let w = max(1, Int((Double(image.width) * scale).rounded()))
+        let h = max(1, Int((Double(image.height) * scale).rounded()))
+        let bitmapInfo = CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue
+        guard let ctx = CGContext(
+            data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
+            space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: bitmapInfo
+        ) else { return image }
+        ctx.interpolationQuality = .high
+        ctx.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
+        return ctx.makeImage() ?? image
+    }
 
     /// The OCR text + thumbnail of a processed frame, carried forward so a
     /// visually-unchanged next frame can reuse it without re-running Vision.
@@ -214,7 +235,11 @@ enum OCRIndexer {
         request.usesLanguageCorrection = false
         request.recognitionLanguages = ["en-US"]
 
-        let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
+        // Vision's cost scales with pixel count, and Retina captures are huge
+        // (~2880×1800). Downscaling the OCR input to `ocrMaxDimension` on the long
+        // side cuts recognition time ~2× while keeping text well above Vision's
+        // legibility floor. Boxes are normalized (0–1), so this doesn't move them.
+        let handler = VNImageRequestHandler(cgImage: downscaledForOCR(cgImage), options: [:])
         do {
             try handler.perform([request])
         } catch {
