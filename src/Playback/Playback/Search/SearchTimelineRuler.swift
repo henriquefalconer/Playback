@@ -5,13 +5,19 @@ import SwiftUI
 
 /// A Time Machine-style vertical ruler that replaces the results scrollbar.
 ///
-/// At rest the ticks sit in the central band, leaving a reserved margin
+/// Every tick — minor mark or major date divider — lives on a single, uniformly
+/// spaced grid of `slotCount` slots. Each slot is exactly one tick: most are
+/// minor, a few are "major" (a wider bar plus a date label). Because major bars
+/// occupy real grid slots (each date boundary is snapped to its nearest slot),
+/// the whole column shares one consistent pitch and nothing ever overlaps — it
+/// reads as one ruler, not a minor layout with dividers floating over it.
+///
+/// At rest the ticks fill the central band, leaving a reserved margin
 /// (`marginFraction`) top and bottom. As the cursor approaches, nearby ticks
 /// **grow in both width and height** and, via an error-function position warp,
-/// **spread apart** — shoving their neighbours (including the fixed-size major
-/// date dividers) outward into those reserved margins. The tick directly under
-/// the cursor stays pinned in place. Clicking fast-travels the list to the
-/// nearest match.
+/// **spread apart** — shoving their neighbours outward into those reserved
+/// margins. The tick directly under the cursor stays pinned. Clicking
+/// fast-travels the list to the nearest match.
 ///
 /// It's a pure view over the already-loaded results — it holds no OCR data and
 /// does nothing once search (and the timeline) closes.
@@ -38,59 +44,70 @@ struct SearchTimelineRuler: View {
     private let minorMaxWidthExtra: CGFloat = 16
     private let minorBaseHeight: CGFloat = 1.5
     private let minorMaxHeightExtra: CGFloat = 8
-    /// Resting centre-to-centre spacing of minor ticks. The number of ticks is
+    /// Resting centre-to-centre spacing of every tick. The number of slots is
     /// derived from this and the ruler height (results are sampled to fit), so
     /// ticks never overlap however many results there are: the warp only ever
     /// *expands* spacing (its slope is ≥ 1 everywhere), so as long as the resting
     /// pitch clears the base height and the max magnified growth stays within the
     /// warp's peak expansion of the pitch, magnified ticks stay separated too.
     private let minorPitch: CGFloat = 4.5
+    /// Minimum vertical room a date label needs so two adjacent dividers' labels
+    /// don't stack. Enforced in slot units when placing majors on the grid.
+    private let labelGap: CGFloat = 15
 
-    private struct DateMarker: Identifiable {
-        let id: Int          // result index
-        let label: String
+    /// The unified tick grid: one entry per slot, evenly spaced, each mapped to a
+    /// result. A subset of slots are majors (date dividers with a label).
+    private struct RulerLayout {
+        let slotCount: Int
+        let slotY: [CGFloat]              // resting (pre-warp) Y per slot
+        let resultIndex: [Int]           // result each slot represents
+        let majorLabel: [Int: String]    // slot → date label, for major slots only
     }
 
     var body: some View {
         GeometryReader { geo in
             let h = geo.size.height
-            let markers = dateMarkers()
-            let markerYs = markerRestingYs(markers, height: h)
+            let layout = computeLayout(height: h)
+            let labelWidth = max(0, geo.size.width - majorTickLength - 8)
 
             ZStack(alignment: .topLeading) {
                 // Ticks + date labels. Clipped to the container so ticks warped into
                 // the reserved 10% margins slide off-screen (like Time Machine).
                 ZStack(alignment: .topLeading) {
                     Canvas { ctx, size in
-                        draw(ctx, size: size, height: h, markers: markers, markerYs: markerYs)
+                        draw(ctx, size: size, height: h, layout: layout)
                     }
 
-                    // Major date labels, right-aligned just left of their (warped) tick.
-                    ForEach(markers) { marker in
-                        let labelWidth = max(0, geo.size.width - majorTickLength - 8)
-                        Text(marker.label)
+                    // Major date labels, right-aligned just left of their (warped) bar.
+                    ForEach(Array(layout.majorLabel.keys), id: \.self) { slot in
+                        Text(layout.majorLabel[slot] ?? "")
                             .font(.system(size: 10, weight: .semibold))
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                             .frame(width: labelWidth, alignment: .trailing)
-                            .position(x: labelWidth / 2,
-                                      y: warp(markerYs[marker.id] ?? baseY(marker.id, height: h), height: h))
+                            .position(x: labelWidth / 2, y: warp(layout.slotY[slot], height: h))
                             .allowsHitTesting(false)
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .clipped()
 
-                // Hover tooltip: "Yesterday at 23:59" for the nearest match. Its
-                // right edge is pinned just left of the tick column and it grows
-                // leftward, floating over the results list. It sits outside the clip
-                // above and is allowed to overflow the ruler, so it's always fully
-                // visible however long the label.
-                if let hoverY, let focus = nearestResult(toY: hoverY, height: h) {
-                    let anchorWidth = max(0, geo.size.width - majorTickLength - 6)
-                    tooltip(text: timeLabel(for: focus.ts))
-                        .frame(width: anchorWidth, alignment: .trailing)
-                        .position(x: anchorWidth / 2, y: min(max(hoverY, 12), h - 12))
+                // Hover label: "Yesterday at 23:59" styled exactly like the major
+                // date dividers (same font/size/weight/colour), snapped to the centre
+                // of the closest minor tick — except when the cursor is nearer a major
+                // divider, where its own date label already sits, so we hide it. It's
+                // right-aligned in the same column as the major labels (perfect edge
+                // alignment) but grows leftward via fixedSize, and it sits outside the
+                // clip above so a long label is never truncated.
+                if let hoverY,
+                   let snap = snappedMinorLabel(hoverY: hoverY, height: h, layout: layout) {
+                    Text(snap.text)
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .fixedSize()
+                        .frame(width: labelWidth, alignment: .trailing)
+                        .position(x: labelWidth / 2, y: snap.y)
                         .allowsHitTesting(false)
                 }
             }
@@ -105,7 +122,7 @@ struct SearchTimelineRuler: View {
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onEnded { value in
-                        if let result = nearestResult(toY: value.location.y, height: h) {
+                        if let result = nearestResult(toY: value.location.y, height: h, layout: layout) {
                             onSeek(result.id)
                         }
                     }
@@ -113,85 +130,114 @@ struct SearchTimelineRuler: View {
         }
     }
 
+    // MARK: - Layout
+
+    /// Build the uniform tick grid: evenly spaced slots mapped to results, with the
+    /// date boundaries snapped onto slots as majors. Each date boundary lands on its
+    /// nearest free slot, but consecutive majors are kept at least `labelGap` apart
+    /// (in slot units) so their labels never stack — the price is a slightly
+    /// approximate divider position, which is fine.
+    private func computeLayout(height: CGFloat) -> RulerLayout {
+        let count = results.count
+        guard count > 0 else { return RulerLayout(slotCount: 0, slotY: [], resultIndex: [], majorLabel: [:]) }
+
+        let top = edgeInset
+        let bottom = max(top, height - edgeInset)
+        let slotCount = max(1, min(count, Int(height / minorPitch)))
+
+        var slotY = [CGFloat](repeating: 0, count: slotCount)
+        var resultIndex = [Int](repeating: 0, count: slotCount)
+        for j in 0..<slotCount {
+            let frac = slotCount > 1 ? CGFloat(j) / CGFloat(slotCount - 1) : 0.5
+            slotY[j] = top + (bottom - top) * frac
+            let idx = slotCount > 1
+                ? Int((Double(j) * Double(count - 1) / Double(slotCount - 1)).rounded())
+                : 0
+            resultIndex[j] = min(max(idx, 0), count - 1)
+        }
+
+        // Date boundaries (first result of each day), in order.
+        let cal = Calendar.current
+        var boundaries: [(index: Int, label: String)] = []
+        var lastDay: Date?
+        for (index, r) in results.enumerated() {
+            let day = cal.startOfDay(for: Date(timeIntervalSince1970: r.ts))
+            if lastDay == nil || day != lastDay {
+                boundaries.append((index, dayLabel(for: r.ts)))
+                lastDay = day
+            }
+        }
+
+        // Snap each boundary to its nearest slot, keeping consecutive majors at
+        // least `gapSlots` apart. Forward pass pushes down; if it overflows the
+        // bottom, a backward pass pulls the run back in.
+        let pitch = slotCount > 1 ? (bottom - top) / CGFloat(slotCount - 1) : max(height, 1)
+        let gapSlots = max(1, Int((labelGap / max(pitch, 0.001)).rounded(.up)))
+        var slots = boundaries.map { b -> Int in
+            slotCount > 1 ? Int((Double(b.index) * Double(slotCount - 1) / Double(count - 1)).rounded()) : 0
+        }
+        for i in 1..<max(slots.count, 1) where slots.count > 1 {
+            slots[i] = max(slots[i], slots[i - 1] + gapSlots)
+        }
+        if let last = slots.last, last > slotCount - 1 {
+            slots[slots.count - 1] = slotCount - 1
+            for i in stride(from: slots.count - 2, through: 0, by: -1) {
+                slots[i] = min(slots[i], slots[i + 1] - gapSlots)
+            }
+        }
+
+        var majorLabel: [Int: String] = [:]
+        for (b, slot) in zip(boundaries, slots) where slot >= 0 && slot < slotCount {
+            majorLabel[slot] = b.label
+        }
+        return RulerLayout(slotCount: slotCount, slotY: slotY, resultIndex: resultIndex, majorLabel: majorLabel)
+    }
+
     // MARK: - Drawing
 
-    private func draw(_ ctx: GraphicsContext, size: CGSize, height: CGFloat,
-                      markers: [DateMarker], markerYs: [Int: CGFloat]) {
+    private func draw(_ ctx: GraphicsContext, size: CGSize, height: CGFloat, layout: RulerLayout) {
         let right = size.width
-        let majorIndices = Set(markers.map { $0.id })
-
-        // Minor ticks: sampled so their resting pitch is at least `minorPitch`,
-        // then grown in width + height and warped with proximity.
-        let maxTicks = max(1, Int(height / minorPitch))
-        let step = max(1, Int((Double(results.count) / Double(maxTicks)).rounded(.up)))
-        var i = 0
-        while i < results.count {
-            if !majorIndices.contains(i) {
-                let by = baseY(i, height: height)
-                let dy = warp(by, height: height)
-                let m = magnification(by, height: height)
+        for j in 0..<layout.slotCount {
+            let dy = warp(layout.slotY[j], height: height)
+            if layout.majorLabel[j] != nil {
+                // Major date divider: a fixed-size wide bar sitting on the same grid.
+                let rect = CGRect(x: right - majorTickLength, y: dy - majorThickness / 2,
+                                  width: majorTickLength, height: majorThickness)
+                ctx.fill(Path(roundedRect: rect, cornerRadius: majorThickness / 2),
+                         with: .color(.primary.opacity(0.5)))
+            } else {
+                // Minor tick: grows in width + height with proximity to the cursor.
+                let m = magnification(layout.slotY[j], height: height)
                 let w = minorBaseWidth + m * minorMaxWidthExtra
                 let tall = minorBaseHeight + m * minorMaxHeightExtra
                 let rect = CGRect(x: right - w, y: dy - tall / 2, width: w, height: tall)
                 ctx.fill(Path(roundedRect: rect, cornerRadius: majorThickness / 2),
                          with: .color(.primary.opacity(0.16 + m * 0.5)))
             }
-            i += step
-        }
-
-        // Major date dividers: fixed size, resting at their decluttered position
-        // (so two dates on adjacent results don't stack) — only their position warps.
-        for marker in markers {
-            let dy = warp(markerYs[marker.id] ?? baseY(marker.id, height: height), height: height)
-            let rect = CGRect(x: right - majorTickLength, y: dy - majorThickness / 2,
-                              width: majorTickLength, height: majorThickness)
-            ctx.fill(Path(roundedRect: rect, cornerRadius: majorThickness / 2),
-                     with: .color(.primary.opacity(0.5)))
         }
     }
 
-    /// Resting Y for each major date divider, decluttered so consecutive dividers
-    /// keep a minimum gap. Two dates falling on adjacent results would otherwise
-    /// rest at nearly the same Y and stack their labels. A forward pass enforces
-    /// the gap; if the run overflows the bottom, a backward pass pulls it back in.
-    private func markerRestingYs(_ markers: [DateMarker], height: CGFloat) -> [Int: CGFloat] {
-        guard !markers.isEmpty else { return [:] }
-        // At least the label's line height so adjacent labels never touch.
-        let minGap: CGFloat = 15
-        let bottom = height - edgeInset
-        var ys = markers.map { baseY($0.id, height: height) }
-        for i in 1..<ys.count {
-            ys[i] = max(ys[i], ys[i - 1] + minGap)
-        }
-        if let last = ys.last, last > bottom {
-            ys[ys.count - 1] = bottom
-            for i in stride(from: ys.count - 2, through: 0, by: -1) {
-                ys[i] = min(ys[i], ys[i + 1] - minGap)
+    /// The minor tick nearest the cursor (compared in warped/screen space, so it
+    /// matches what the eye sees) and its label. Returns nil when a major divider is
+    /// closer than that minor tick — the divider carries its own date label there.
+    private func snappedMinorLabel(hoverY: CGFloat, height: CGFloat,
+                                   layout: RulerLayout) -> (y: CGFloat, text: String)? {
+        var best: (slot: Int, y: CGFloat, dist: CGFloat)?
+        var nearestMajorDist = CGFloat.greatestFiniteMagnitude
+        for j in 0..<layout.slotCount {
+            let wy = warp(layout.slotY[j], height: height)
+            let dist = abs(wy - hoverY)
+            if layout.majorLabel[j] != nil {
+                nearestMajorDist = min(nearestMajorDist, dist)
+            } else if best == nil || dist < best!.dist {
+                best = (j, wy, dist)
             }
         }
-        return Dictionary(uniqueKeysWithValues: zip(markers.map { $0.id }, ys))
-    }
-
-    private func tooltip(text: String) -> some View {
-        Text(text)
-            .font(.system(size: 11, weight: .medium))
-            .foregroundStyle(.primary)
-            .fixedSize()
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(Capsule(style: .continuous).fill(.regularMaterial))
-            .overlay(Capsule(style: .continuous).strokeBorder(Color.primary.opacity(0.12), lineWidth: 0.5))
+        guard let minor = best, nearestMajorDist >= minor.dist else { return nil }
+        return (minor.y, timeLabel(for: results[layout.resultIndex[minor.slot]].ts))
     }
 
     // MARK: - Fisheye geometry
-
-    /// Resting position: ticks fill the whole visible height (minus a tiny inset).
-    private func baseY(_ index: Int, height: CGFloat) -> CGFloat {
-        let top = edgeInset
-        let bottom = height - edgeInset
-        guard results.count > 1 else { return (top + bottom) / 2 }
-        return top + (bottom - top) * CGFloat(index) / CGFloat(results.count - 1)
-    }
 
     /// Warp a resting position around the cursor: an error-function displacement
     /// that spreads points near the cursor apart and pushes far points outward by
@@ -213,29 +259,15 @@ struct SearchTimelineRuler: View {
         return CGFloat(exp(-d * d))
     }
 
-    private func nearestResult(toY y: CGFloat, height: CGFloat) -> SearchResult? {
-        guard !results.isEmpty else { return nil }
-        guard results.count > 1 else { return results[0] }
-        let top = edgeInset
-        let bottom = height - edgeInset
-        let frac = min(1, max(0, (y - top) / max(1, bottom - top)))
-        let index = Int((frac * CGFloat(results.count - 1)).rounded())
-        return results[min(max(index, 0), results.count - 1)]
-    }
-
-    private func dateMarkers() -> [DateMarker] {
-        guard !results.isEmpty else { return [] }
-        let cal = Calendar.current
-        var markers: [DateMarker] = []
-        var lastDay: Date?
-        for (index, result) in results.enumerated() {
-            let day = cal.startOfDay(for: Date(timeIntervalSince1970: result.ts))
-            if lastDay == nil || day != lastDay {
-                markers.append(DateMarker(id: index, label: dayLabel(for: result.ts)))
-                lastDay = day
-            }
+    private func nearestResult(toY y: CGFloat, height: CGFloat, layout: RulerLayout) -> SearchResult? {
+        guard layout.slotCount > 0 else { return nil }
+        var bestSlot = 0
+        var bestDist = CGFloat.greatestFiniteMagnitude
+        for j in 0..<layout.slotCount {
+            let dist = abs(warp(layout.slotY[j], height: height) - y)
+            if dist < bestDist { bestDist = dist; bestSlot = j }
         }
-        return markers
+        return results[layout.resultIndex[bestSlot]]
     }
 
     // MARK: - Formatting
