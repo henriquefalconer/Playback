@@ -49,10 +49,11 @@ struct SearchTimelineRuler: View {
         GeometryReader { geo in
             let h = geo.size.height
             let markers = dateMarkers()
+            let markerYs = markerRestingYs(markers, height: h)
 
             ZStack(alignment: .topLeading) {
                 Canvas { ctx, size in
-                    draw(ctx, size: size, height: h, markers: markers)
+                    draw(ctx, size: size, height: h, markers: markers, markerYs: markerYs)
                 }
 
                 // Major date labels, right-aligned just left of their (warped) tick.
@@ -63,7 +64,8 @@ struct SearchTimelineRuler: View {
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                         .frame(width: labelWidth, alignment: .trailing)
-                        .position(x: labelWidth / 2, y: warp(baseY(marker.id, height: h), height: h))
+                        .position(x: labelWidth / 2,
+                                  y: warp(markerYs[marker.id] ?? baseY(marker.id, height: h), height: h))
                         .allowsHitTesting(false)
                 }
 
@@ -102,7 +104,8 @@ struct SearchTimelineRuler: View {
 
     // MARK: - Drawing
 
-    private func draw(_ ctx: GraphicsContext, size: CGSize, height: CGFloat, markers: [DateMarker]) {
+    private func draw(_ ctx: GraphicsContext, size: CGSize, height: CGFloat,
+                      markers: [DateMarker], markerYs: [Int: CGFloat]) {
         let right = size.width
         let majorIndices = Set(markers.map { $0.id })
 
@@ -123,14 +126,37 @@ struct SearchTimelineRuler: View {
             i += step
         }
 
-        // Major date dividers: fixed size, only their position warps.
+        // Major date dividers: fixed size, resting at their decluttered position
+        // (so two dates on adjacent results don't stack) — only their position warps.
         for marker in markers {
-            let dy = warp(baseY(marker.id, height: height), height: height)
+            let dy = warp(markerYs[marker.id] ?? baseY(marker.id, height: height), height: height)
             let rect = CGRect(x: right - majorTickLength, y: dy - majorThickness / 2,
                               width: majorTickLength, height: majorThickness)
             ctx.fill(Path(roundedRect: rect, cornerRadius: majorThickness / 2),
                      with: .color(.primary.opacity(0.5)))
         }
+    }
+
+    /// Resting Y for each major date divider, decluttered so consecutive dividers
+    /// keep a minimum gap. Two dates falling on adjacent results would otherwise
+    /// rest at nearly the same Y and stack their labels. A forward pass enforces
+    /// the gap; if the run overflows the bottom, a backward pass pulls it back in.
+    private func markerRestingYs(_ markers: [DateMarker], height: CGFloat) -> [Int: CGFloat] {
+        guard !markers.isEmpty else { return [:] }
+        // At least the label's line height so adjacent labels never touch.
+        let minGap: CGFloat = 15
+        let bottom = height - edgeInset
+        var ys = markers.map { baseY($0.id, height: height) }
+        for i in 1..<ys.count {
+            ys[i] = max(ys[i], ys[i - 1] + minGap)
+        }
+        if let last = ys.last, last > bottom {
+            ys[ys.count - 1] = bottom
+            for i in stride(from: ys.count - 2, through: 0, by: -1) {
+                ys[i] = min(ys[i], ys[i + 1] - minGap)
+            }
+        }
+        return Dictionary(uniqueKeysWithValues: zip(markers.map { $0.id }, ys))
     }
 
     private func tooltip(text: String) -> some View {
