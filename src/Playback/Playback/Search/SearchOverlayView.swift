@@ -35,10 +35,6 @@ struct SearchOverlayView: View {
             }
         }
         .frame(width: panelWidth)
-        .offset(
-            x: committedOffset.width + dragOffset.width,
-            y: committedOffset.height + dragOffset.height
-        )
         .background(
             RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .fill(.ultraThinMaterial)
@@ -49,6 +45,12 @@ struct SearchOverlayView: View {
         )
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         .shadow(color: .black.opacity(0.35), radius: 24, y: 10)
+        // Offset the fully-composited panel (chrome + content) so the whole
+        // modal moves together, not just its contents.
+        .offset(
+            x: committedOffset.width + dragOffset.width,
+            y: committedOffset.height + dragOffset.height
+        )
         .onAppear { focusField() }
         .onChange(of: focusTrigger) { _, _ in focusField() }
     }
