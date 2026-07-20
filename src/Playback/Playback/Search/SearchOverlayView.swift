@@ -191,7 +191,7 @@ struct SearchOverlayView: View {
         HStack(spacing: 8) {
             if processing.indexingInProgress {
                 ProgressView().controlSize(.small)
-                Text("Loading results…")
+                Text(loadingText)
             } else if index.didHitCap {
                 Text("Showing the most recent 2,000 matches")
             } else {
@@ -210,10 +210,17 @@ struct SearchOverlayView: View {
         HStack(spacing: 8) {
             ProgressView()
                 .controlSize(.small)
-            Text("Loading results…")
+            Text(loadingText)
                 .font(.system(size: 13))
                 .foregroundStyle(.secondary)
         }
+    }
+
+    /// "Loading results… (XX%)" — the percentage of recorded screenshots OCR-ed
+    /// so far. The percent is omitted only before the first progress reading.
+    private var loadingText: String {
+        let pct = Int((processing.indexingProgress * 100).rounded())
+        return pct > 0 ? "Loading results… (\(pct)%)" : "Loading results…"
     }
 }
 

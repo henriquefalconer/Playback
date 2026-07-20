@@ -62,6 +62,10 @@ final class ProcessingService: ObservableObject {
     /// True while the OCR backlog is still being indexed with the timeline open.
     /// Drives the search panel's "Loading results…" vs "No more results" footer.
     @Published private(set) var indexingInProgress = false
+    /// Fraction (0…1) of all recorded frames that have been OCR-indexed, shown as
+    /// the "Loading results… (XX%)" percentage. Frame-weighted, so long segments
+    /// count for more than short ones.
+    @Published private(set) var indexingProgress: Double = 0
     /// Count of live index workers; when it drops to 0 the backlog is drained.
     private var activeIndexWorkers = 0
     private var lastProcessingTime: Date?
@@ -667,6 +671,8 @@ final class ProcessingService: ObservableObject {
         // prompt), then fan out the worker pool. Every worker reuses this key.
         indexQueue.async { [weak self] in
             guard let self else { return }
+            // Publish the starting percentage even while the key load is pending.
+            self.recomputeIndexingProgress()
             let key = SearchCrypto.loadOrCreateKey()
             self.indexLock.lock()
             guard self.indexingActive, self.indexEpoch == epoch else { self.indexLock.unlock(); return }
@@ -685,6 +691,32 @@ final class ProcessingService: ObservableObject {
     private func setIndexingInProgress(_ value: Bool) {
         if Thread.isMainThread { indexingInProgress = value }
         else { DispatchQueue.main.async { self.indexingInProgress = value } }
+    }
+
+    private func setIndexingProgress(_ value: Double) {
+        if Thread.isMainThread { indexingProgress = value }
+        else { DispatchQueue.main.async { self.indexingProgress = value } }
+    }
+
+    /// Recompute the frame-weighted OCR-indexed fraction from the DB. Cheap
+    /// (two SUMs); called at start and after each segment so the "(XX%)" ticks up.
+    private func recomputeIndexingProgress() {
+        guard let db = openDatabase(Paths.databasePath.path) else { return }
+        defer { sqlite3_close(db) }
+        let sql = """
+            SELECT
+              COALESCE((SELECT SUM(frame_count) FROM segments
+                        WHERE id IN (SELECT DISTINCT segment_id FROM ocr_frames)
+                           OR id IN (SELECT segment_id FROM ocr_done)), 0),
+              COALESCE((SELECT SUM(frame_count) FROM segments), 0);
+            """
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else { return }
+        defer { sqlite3_finalize(stmt) }
+        guard sqlite3_step(stmt) == SQLITE_ROW else { return }
+        let done = sqlite3_column_double(stmt, 0)
+        let total = sqlite3_column_double(stmt, 1)
+        setIndexingProgress(total > 0 ? min(1.0, done / total) : 1.0)
     }
 
     /// Stop indexing and reclaim CPU + RAM immediately. Called when the timeline
@@ -718,7 +750,8 @@ final class ProcessingService: ObservableObject {
             indexOneSegment(segment, epoch: epoch)
             releaseSegmentClaim(segment.id)
             processed += 1
-            // Tell any open search that fresh matches are now available.
+            // Update the percentage, then tell any open search fresh matches exist.
+            recomputeIndexingProgress()
             NotificationCenter.default.post(name: .ocrIndexProgressed, object: nil)
         }
         if processed > 0 {
