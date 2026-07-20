@@ -658,6 +658,11 @@ final class ProcessingService: ObservableObject {
         indexKey = nil
         let workers = indexConcurrency
         indexLock.unlock()
+        // Assert "indexing" up front — before the (possibly keychain-blocked) key
+        // load — so a search opened right now reads "Loading results…" instead of
+        // a premature "No matches"/"No more results". It flips to done only once a
+        // worker actually drains the backlog.
+        setIndexingInProgress(true)
         // Load the key once, off the main thread (it may block on a keychain
         // prompt), then fan out the worker pool. Every worker reuses this key.
         indexQueue.async { [weak self] in
@@ -668,7 +673,6 @@ final class ProcessingService: ObservableObject {
             self.indexKey = key
             self.activeIndexWorkers = workers
             self.indexLock.unlock()
-            self.setIndexingInProgress(true)
             Log.processing.info("OCR indexing started (timeline open) — \(workers, privacy: .public) worker(s)")
             for _ in 0..<workers {
                 self.indexQueue.async { self.runIndexer(epoch: epoch) }
