@@ -25,18 +25,27 @@ final class ProcessingService: ObservableObject {
     /// Serial worker that OCR-indexes encoded segments for search. It runs ONLY
     /// while the timeline window is open (started/stopped by `ContentView`), so
     /// the background recording path never spends any CPU on text recognition.
-    private let indexQueue = DispatchQueue(label: "com.falconer.Playback.ocrindex", qos: .utility)
-    /// Guards `indexingActive` / `currentIndexProcess`, both touched from the main
-    /// actor (begin/end) and the index worker thread.
+    /// Concurrent so a *pool* of OCR helpers can index several segments at once
+    /// while the timeline is open — the whole backlog (every date) is cleared far
+    /// sooner. Idle only while the timeline is closed (no worker is dispatched).
+    private let indexQueue = DispatchQueue(label: "com.falconer.Playback.ocrindex", qos: .utility, attributes: .concurrent)
+    /// Guards the indexing state below, touched from the main actor (begin/end)
+    /// and every index worker thread.
     private let indexLock = NSLock()
     private var indexingActive = false
     /// Incremented on every `beginTimelineIndexing`. A worker captures its epoch
     /// and stops the moment a newer one supersedes it, so a fast close→reopen can
-    /// never leave two workers running at once.
+    /// never leave stale workers running.
     private var indexEpoch = 0
-    /// The in-flight `--ocr-segment` helper, so closing the timeline can kill it
-    /// mid-segment and reclaim its CPU immediately.
-    private var currentIndexProcess: Process?
+    /// Every in-flight `--ocr-segment` helper, so closing the timeline can kill
+    /// them all mid-segment and reclaim their CPU + RAM immediately.
+    private var currentIndexProcesses: [Process] = []
+    /// Segment ids currently being OCR'd by some worker, so concurrent workers
+    /// never pick the same segment. Cleared on each begin; per-id on completion.
+    private var indexingSegmentIDs: Set<String> = []
+    /// How many OCR helpers may run at once. Leaves headroom for the UI and the
+    /// recording path; each helper is ~1 core + ~0.4 GB, all reclaimed on close.
+    private var indexConcurrency: Int { max(1, min(3, ProcessInfo.processInfo.activeProcessorCount - 2)) }
     /// True while a processing cycle (screenshot → video encoding) is in flight.
     @Published private(set) var isRunning = false
     private var lastProcessingTime: Date?
@@ -618,8 +627,10 @@ final class ProcessingService: ObservableObject {
     }
 
     /// Start indexing un-indexed segments for search. Called by `ContentView`
-    /// when the timeline window appears; the worker walks newest-first so the
-    /// content the user is most likely to search becomes searchable soonest.
+    /// when the timeline window appears. A pool of workers walks the segments
+    /// newest-first (the content most likely to be searched becomes searchable
+    /// soonest) and keeps going until every segment is indexed, so all history —
+    /// including old dates recorded long ago — eventually becomes searchable.
     /// Idempotent — a second call while already running is a no-op.
     func beginTimelineIndexing() {
         indexLock.lock()
@@ -627,29 +638,30 @@ final class ProcessingService: ObservableObject {
         indexingActive = true
         indexEpoch += 1
         let epoch = indexEpoch
+        indexingSegmentIDs.removeAll()
+        let workers = indexConcurrency
         indexLock.unlock()
-        Log.processing.info("OCR indexing started (timeline open)")
-        indexQueue.async { [weak self] in self?.runIndexer(epoch: epoch) }
+        Log.processing.info("OCR indexing started (timeline open) — \(workers, privacy: .public) worker(s)")
+        for _ in 0..<workers {
+            indexQueue.async { [weak self] in self?.runIndexer(epoch: epoch) }
+        }
     }
 
-    /// Stop indexing and reclaim CPU immediately. Called when the timeline window
-    /// disappears. Any in-flight `--ocr-segment` helper is terminated at once so
-    /// no OCR CPU survives the window closing.
+    /// Stop indexing and reclaim CPU + RAM immediately. Called when the timeline
+    /// window disappears. Every in-flight `--ocr-segment` helper is terminated at
+    /// once so no OCR CPU or memory survives the window closing.
     func endTimelineIndexing() {
         indexLock.lock()
         indexingActive = false
-        let process = currentIndexProcess
+        let processes = currentIndexProcesses
         indexLock.unlock()
-        if let process, process.isRunning {
-            // Vision OCR runs in-process in this helper (~0.4 GB working set); it
-            // is fully reclaimed when the subprocess dies here, so no OCR memory
-            // survives the timeline closing. (The main app's own player/decoder
-            // buffers are reclaimed by PlaybackController.releaseResources.)
-            process.terminate()
-            Log.processing.info("OCR indexing stopped (timeline closed) — killed in-flight helper")
-        } else {
-            Log.processing.info("OCR indexing stopped (timeline closed)")
-        }
+        // Vision OCR runs in-process in each helper (~0.4 GB working set); it is
+        // fully reclaimed when the subprocess dies here, so no OCR memory survives
+        // the timeline closing. (The main app's own player/decoder buffers are
+        // reclaimed by PlaybackController.releaseResources.)
+        let killed = processes.filter { $0.isRunning }
+        killed.forEach { $0.terminate() }
+        Log.processing.info("OCR indexing stopped (timeline closed) — killed \(killed.count, privacy: .public) in-flight helper(s)")
     }
 
     /// True only while indexing is on AND this worker is still the current epoch.
@@ -660,41 +672,62 @@ final class ProcessingService: ObservableObject {
 
     private func runIndexer(epoch: Int) {
         var processed = 0
-        while isIndexingActive(epoch: epoch), let segment = nextUnindexedSegment() {
+        while isIndexingActive(epoch: epoch), let segment = claimNextUnindexedSegment(epoch: epoch) {
             indexOneSegment(segment, epoch: epoch)
+            releaseSegmentClaim(segment.id)
             processed += 1
-            // Brief yield between segments so the viewing UI stays responsive.
-            // (Each segment is heavy; the real responsiveness lever is that
-            // `endTimelineIndexing` kills the in-flight helper on close.)
-            if isIndexingActive(epoch: epoch) { Thread.sleep(forTimeInterval: 0.3) }
         }
         if processed > 0 {
-            Log.processing.info("OCR indexing pass ended — processed \(processed, privacy: .public) segment(s)")
+            Log.processing.info("OCR indexing worker ended — processed \(processed, privacy: .public) segment(s)")
         }
     }
 
-    private func nextUnindexedSegment() -> IndexSegment? {
+    /// Atomically pick the newest un-indexed segment and mark it claimed, so
+    /// concurrent workers never decode the same segment. Claiming is serialized
+    /// under `indexLock`; the claim is in-memory only (a killed worker's segment
+    /// is simply re-eligible next time, never wrongly marked done).
+    private func claimNextUnindexedSegment(epoch: Int) -> IndexSegment? {
+        indexLock.lock()
+        defer { indexLock.unlock() }
+        guard indexingActive, indexEpoch == epoch else { return nil }
         guard let db = openDatabase(Paths.databasePath.path) else { return nil }
         defer { sqlite3_close(db) }
+
+        // Exclude segments another worker is mid-flight on. The set is at most
+        // `indexConcurrency` ids, so the NOT IN list is tiny.
+        let inFlight = Array(indexingSegmentIDs)
+        let placeholders = inFlight.isEmpty ? "" : "AND id NOT IN (\(inFlight.map { _ in "?" }.joined(separator: ",")))"
         let sql = """
             SELECT id, start_ts, end_ts, frame_count, video_path FROM segments
             WHERE id NOT IN (SELECT DISTINCT segment_id FROM ocr_frames)
               AND id NOT IN (SELECT segment_id FROM ocr_done)
+              \(placeholders)
             ORDER BY start_ts DESC LIMIT 1;
             """
         var stmt: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else { return nil }
         defer { sqlite3_finalize(stmt) }
+        for (i, id) in inFlight.enumerated() {
+            sqlite3_bind_text(stmt, Int32(i + 1), id, -1, SQLITE_TRANSIENT)
+        }
         guard sqlite3_step(stmt) == SQLITE_ROW,
               let idC = sqlite3_column_text(stmt, 0),
               let pathC = sqlite3_column_text(stmt, 4) else { return nil }
+        let id = String(cString: idC)
+        indexingSegmentIDs.insert(id)
         return IndexSegment(
-            id: String(cString: idC),
+            id: id,
             startTS: sqlite3_column_double(stmt, 1),
             endTS: sqlite3_column_double(stmt, 2),
             frameCount: Int(sqlite3_column_int(stmt, 3)),
             videoPath: String(cString: pathC)
         )
+    }
+
+    private func releaseSegmentClaim(_ id: String) {
+        indexLock.lock()
+        indexingSegmentIDs.remove(id)
+        indexLock.unlock()
     }
 
     private func indexOneSegment(_ segment: IndexSegment, epoch: Int) {
@@ -753,7 +786,7 @@ final class ProcessingService: ObservableObject {
             Log.processing.error("Indexing: failed to launch helper: \(error.localizedDescription)")
             return
         }
-        currentIndexProcess = process
+        currentIndexProcesses.append(process)
         indexLock.unlock()
 
         try? keyPipe.fileHandleForWriting.write(contentsOf: Data(SearchCrypto.exportBase64(key).utf8))
@@ -761,7 +794,7 @@ final class ProcessingService: ObservableObject {
         process.waitUntilExit()
 
         indexLock.lock()
-        currentIndexProcess = nil
+        currentIndexProcesses.removeAll { $0 === process }
         let stillActive = indexingActive && indexEpoch == epoch
         indexLock.unlock()
 
