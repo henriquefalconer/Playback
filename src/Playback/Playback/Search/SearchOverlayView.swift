@@ -11,13 +11,18 @@ struct SearchOverlayView: View {
     @ObservedObject var index: SearchIndex
     /// Bumped by the parent (on CMD+F) to (re)focus the field without closing.
     let focusTrigger: Int
+    /// True when results are limited to a date earlier than the latest — tints the
+    /// calendar button so an active limit is visible.
+    let isDateLimited: Bool
+    /// Opens the date-limit picker.
+    let onCalendarTap: () -> Void
     /// Invoked with the timestamp, frame id, and current query of a clicked result.
     let onSelect: (_ ts: TimeInterval, _ id: String, _ query: String) -> Void
 
     @State private var query: String = ""
     @FocusState private var fieldFocused: Bool
 
-    private let panelWidth: CGFloat = 460
+    private let panelWidth: CGFloat = 520
 
     var body: some View {
         VStack(spacing: 0) {
@@ -38,8 +43,14 @@ struct SearchOverlayView: View {
         )
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         .shadow(color: .black.opacity(0.35), radius: 24, y: 10)
-        .onAppear { fieldFocused = true }
-        .onChange(of: focusTrigger) { _, _ in fieldFocused = true }
+        .onAppear { focusField() }
+        .onChange(of: focusTrigger) { _, _ in focusField() }
+    }
+
+    /// Focus the field on the next runloop tick, so it works even when the field
+    /// isn't yet in the responder chain (first open) or lost focus to a result.
+    private func focusField() {
+        DispatchQueue.main.async { fieldFocused = true }
     }
 
     // MARK: - Search field
@@ -75,6 +86,16 @@ struct SearchOverlayView: View {
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("search.clear")
             }
+
+            // Date-limit picker: cap results at a chosen date & time.
+            Button(action: onCalendarTap) {
+                Image(systemName: "calendar")
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(isDateLimited ? Color.accentColor : Color.secondary)
+            }
+            .buttonStyle(.plain)
+            .help("Limit results by date & time")
+            .accessibilityIdentifier("search.calendar")
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 14)
@@ -85,44 +106,107 @@ struct SearchOverlayView: View {
     @ViewBuilder
     private var resultsList: some View {
         if index.results.isEmpty {
-            HStack {
-                Text(Trigrams.normalize(query).count < Trigrams.minLength ? "Keep typing…" : "No matches")
-                    .font(.system(size: 13))
-                    .foregroundStyle(.secondary)
-                Spacer()
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 18)
+            emptyState
         } else {
-            ScrollView {
-                LazyVStack(spacing: 2) {
-                    ForEach(index.results) { result in
-                        SearchResultRow(result: result, index: index) {
-                            onSelect(result.ts, result.id, query)
+            ScrollViewReader { proxy in
+                HStack(spacing: 0) {
+                    ScrollView {
+                        LazyVStack(spacing: 2) {
+                            ForEach(index.results) { result in
+                                SearchResultRow(result: result, index: index) {
+                                    onSelect(result.ts, result.id, query)
+                                }
+                                .id(result.id)
+                            }
+                        }
+                        .padding(6)
+                        .background(NativeScrollerHider())
+                    }
+                    .scrollIndicators(.hidden)
+
+                    // Time Machine-style ruler replaces the scrollbar: click to
+                    // fast-travel the list to the nearest match at that moment.
+                    SearchTimelineRuler(results: index.results) { id in
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            proxy.scrollTo(id, anchor: .top)
                         }
                     }
+                    .frame(width: 116)
+                    .padding(.vertical, 6)
+                    .padding(.trailing, 6)
                 }
-                .padding(6)
-                .background(OverlayScrollerConfigurator())
             }
             .frame(maxHeight: 520)
             .accessibilityIdentifier("search.results")
         }
     }
-}
 
-/// Forces the enclosing scroll view to use the thin, floating "overlay" scroller
-/// (the narrow, auto-hiding one) instead of the wide always-on legacy scroller,
-/// regardless of the user's system "Show scroll bars" preference.
-private struct OverlayScrollerConfigurator: NSViewRepresentable {
-    func makeNSView(context: Context) -> NSView {
-        let view = NSView(frame: .zero)
-        DispatchQueue.main.async { view.enclosingScrollView?.scrollerStyle = .overlay }
-        return view
+    /// Shown when there are no result rows: a spinner while the first page loads,
+    /// otherwise the appropriate hint — never "No matches" while still loading.
+    /// Both branches share the same padding so the box height never jumps.
+    @ViewBuilder
+    private var emptyState: some View {
+        Group {
+            if index.isSearching {
+                spinnerLabel
+            } else {
+                Text(Trigrams.normalize(query).count < Trigrams.minLength ? "Keep typing…" : "No matches")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .center)
+        .padding(.vertical, 18)
     }
 
+    /// Centered spinner + label. Uses the same 13pt text as the empty-state hints
+    /// so the loading row is exactly as tall as "Keep typing".
+    private var spinnerLabel: some View {
+        HStack(spacing: 8) {
+            ProgressView()
+                .controlSize(.small)
+            Text("Loading results…")
+                .font(.system(size: 13))
+                .foregroundStyle(.secondary)
+        }
+    }
+}
+
+/// Fully removes the enclosing scroll view's native scroller — even when the
+/// system "Show scroll bars" preference is "Always" (which SwiftUI's
+/// `.scrollIndicators(.hidden)` doesn't override). The custom ruler is the scroller.
+private struct NativeScrollerHider: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView(frame: .zero)
+        disable(from: view)
+        return view
+    }
     func updateNSView(_ nsView: NSView, context: Context) {
-        DispatchQueue.main.async { nsView.enclosingScrollView?.scrollerStyle = .overlay }
+        disable(from: nsView)
+    }
+    private func disable(from view: NSView) {
+        // The scroll view may not be in the hierarchy yet, and SwiftUI can reset
+        // the scroller on later layouts — so search up the superview chain and
+        // re-apply over a few runloop turns.
+        for delay in [0.0, 0.05, 0.25] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                guard let sv = scrollView(from: view) else { return }
+                sv.hasVerticalScroller = false
+                sv.hasHorizontalScroller = false
+                sv.scrollerStyle = .overlay
+                sv.verticalScroller?.isHidden = true
+                sv.verticalScroller?.alphaValue = 0
+                sv.horizontalScroller?.isHidden = true
+            }
+        }
+    }
+    private func scrollView(from view: NSView) -> NSScrollView? {
+        var current: NSView? = view
+        while let node = current {
+            if let sv = node as? NSScrollView { return sv }
+            current = node.superview
+        }
+        return view.enclosingScrollView
     }
 }
 

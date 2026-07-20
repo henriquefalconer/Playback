@@ -32,6 +32,15 @@ struct ContentView: View {
     // True while the pointer is over the search panel, so scroll wheel events
     // scroll the results list instead of scrubbing the timeline behind it.
     @State private var pointerInSearchPanel = false
+    // Date-limit picker for search: caps results at a chosen moment. Defaults to
+    // the latest recording each time search opens; the user can pick earlier.
+    @State private var showSearchDatePicker = false
+    @State private var searchDateLimited = false
+    // The committed max-moment for search (latest on open; updated on time-click).
+    @State private var searchDateLimit: TimeInterval = 0
+    // The picker's live selection while open; committed to `searchDateLimit` only
+    // when a time is clicked (which also closes the picker and reloads results).
+    @State private var searchPickerDraft: TimeInterval = 0
 
     @State private var centerTime: TimeInterval = Date().timeIntervalSince1970
     @State private var showDatePicker = false
@@ -101,8 +110,15 @@ struct ContentView: View {
         // open; drop it again the moment it closes.
         .onChange(of: showSearch) { _, isOpen in
             if isOpen {
-                searchIndex.activate()
+                // Default the result limit to the latest recorded moment (no
+                // effective restriction); the calendar button lets the user pick
+                // an earlier max date & time.
+                let latest = timelineStore.latestTS ?? Date().timeIntervalSince1970
+                searchDateLimited = false
+                searchDateLimit = latest
+                searchIndex.activate(upperBound: latest)
             } else {
+                showSearchDatePicker = false
                 searchIndex.deactivate()
                 pointerInSearchPanel = false
                 matchHighlight = nil
@@ -309,7 +325,15 @@ struct ContentView: View {
                     .onTapGesture { showSearch = false }
                     .zIndex(9)
 
-                SearchOverlayView(index: searchIndex, focusTrigger: focusSearchTrigger) { ts, id, query in
+                SearchOverlayView(
+                    index: searchIndex,
+                    focusTrigger: focusSearchTrigger,
+                    isDateLimited: searchDateLimited,
+                    onCalendarTap: {
+                        searchPickerDraft = searchDateLimit
+                        showSearchDatePicker = true
+                    }
+                ) { ts, id, query in
                     jumpToMoment(ts, id: id, query: query)
                 }
                 .onHover { pointerInSearchPanel = $0 }
@@ -319,8 +343,28 @@ struct ContentView: View {
                 .transition(.opacity.combined(with: .move(edge: .top)))
                 .zIndex(10)
             }
+
+            // Search date-limit picker (same component as the timeline's date
+            // filter). Picking a time closes it and reloads results up to that
+            // moment; tapping outside dismisses without changing the limit.
+            if showSearchDatePicker {
+                DateTimePickerView(
+                    isPresented: $showSearchDatePicker,
+                    selectedTime: $searchPickerDraft,
+                    onTimeSelected: {
+                        searchDateLimit = searchPickerDraft
+                        searchDateLimited = true
+                        showSearchDatePicker = false
+                        searchIndex.setUpperBound(searchPickerDraft)
+                    }
+                )
+                .environmentObject(timelineStore)
+                .transition(.opacity)
+                .zIndex(20)
+            }
         }
         .animation(.easeInOut(duration: 0.15), value: showDatePicker)
+        .animation(.easeInOut(duration: 0.15), value: showSearchDatePicker)
         .animation(.easeInOut(duration: 0.18), value: showSearch)
     }
 
@@ -355,17 +399,30 @@ struct ContentView: View {
             let isCmdF = event.modifierFlags.contains(.command)
                 && event.charactersIgnoringModifiers?.lowercased() == "f"
 
+            // The search date-limit picker sits above the search modal: ESC closes
+            // just the picker, leaving search open.
+            if showSearchDatePicker {
+                if event.keyCode == 53 {
+                    showSearchDatePicker = false
+                    return nil
+                }
+                return event
+            }
+
+            // CMD+F always opens search (if needed) and focuses the field —
+            // pressing it again while open just re-focuses.
+            if isCmdF {
+                showSearch = true
+                focusSearchTrigger += 1
+                return nil
+            }
+
             // While the search modal is open it owns the keyboard: ESC closes it,
-            // CMD+F just re-focuses the field, and everything else (typing, arrows
-            // to move the caret) flows to the search field instead of scrubbing
-            // the timeline behind it.
+            // and everything else (typing, arrows to move the caret) flows to the
+            // search field instead of scrubbing the timeline behind it.
             if showSearch {
                 if event.keyCode == 53 {
                     showSearch = false
-                    return nil
-                }
-                if isCmdF {
-                    focusSearchTrigger += 1
                     return nil
                 }
                 return event
@@ -380,11 +437,6 @@ struct ContentView: View {
                     return nil
                 }
                 return event
-            }
-
-            if isCmdF {
-                showSearch = true
-                return nil
             }
 
             switch event.keyCode {

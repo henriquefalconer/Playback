@@ -20,6 +20,17 @@ struct SearchResult: Identifiable, Sendable {
     let snippet: AttributedString
 }
 
+/// One page of results plus a cursor for fetching the next (older) page.
+struct OCRSearchPage: Sendable {
+    let results: [SearchResult]
+    /// Timestamp of the last candidate row scanned — the exclusive upper bound for
+    /// the next page. Nil when the page scanned no rows.
+    let lastTS: TimeInterval?
+    /// True when fewer than a full page of candidates remained, i.e. no older
+    /// matches exist beyond this page.
+    let reachedEnd: Bool
+}
+
 /// Thread-safe reader over the encrypted index. Each query is a single indexed
 /// lookup on the on-disk blind (trigram) index that decrypts only the handful of
 /// matching frames — nothing is ever bulk-loaded into memory. Implemented as an
@@ -29,11 +40,6 @@ actor OCRStore {
     private var db: OpaquePointer?
     private var cachedKey: SymmetricKey?
     private var cachedTokenKey: SymmetricKey?
-
-    /// Candidates pulled from the index before exact-substring verification.
-    /// Verification almost never rejects (trigram false positives are rare), so a
-    /// modest multiple of the display limit is plenty.
-    private let candidateLimit = 400
 
     init(path: String) {
         self.path = path
@@ -61,12 +67,16 @@ actor OCRStore {
         return (key, tokenKey)
     }
 
-    /// Run one query: resolve the blind-index candidates, decrypt + verify them,
-    /// and return the newest matches (already snippet-formatted).
-    func search(_ rawQuery: String, maxResults: Int) -> [SearchResult] {
+    /// Fetch one page of matches, newest-first, bounded to moments at or before
+    /// `upperTS` (the timeline position when search opened). `beforeTS`, when set,
+    /// pages further back: only rows strictly older than it are returned. Each
+    /// candidate is decrypted and exact-substring verified before inclusion.
+    func search(_ rawQuery: String, maxResults: Int, upperTS: TimeInterval, beforeTS: TimeInterval?) -> OCRSearchPage {
         let normalizedQuery = Trigrams.normalize(rawQuery)
         let shingles = Trigrams.shingles(normalizedQuery)
-        guard !shingles.isEmpty, let db = openIfNeeded() else { return [] }
+        guard !shingles.isEmpty, let db = openIfNeeded() else {
+            return OCRSearchPage(results: [], lastTS: nil, reachedEnd: true)
+        }
 
         let (key, tokenKey) = keys()
         // Cap the number of trigram filters so a very long query can't blow past
@@ -74,6 +84,11 @@ actor OCRStore {
         // exact-substring verify below still guarantees correctness.
         let tokens = shingles.prefix(64).map { SearchCrypto.token(for: $0, tokenKey: tokenKey) }
         let needle = normalizedQuery.lowercased()
+
+        // First page bounds inclusively at the open moment (`<= upperTS`); later
+        // pages page strictly past the previous page's last row (`< beforeTS`).
+        let tsClause = beforeTS == nil ? "AND f.ts <= ?" : "AND f.ts < ?"
+        let tsBound = beforeTS ?? upperTS
 
         // Frames whose trigram set contains ALL query tokens, newest first.
         let placeholders = Array(repeating: "?", count: tokens.count).joined(separator: ",")
@@ -84,11 +99,14 @@ actor OCRStore {
                 SELECT fid FROM ocr_trigrams WHERE tok IN (\(placeholders))
                 GROUP BY fid HAVING COUNT(DISTINCT tok) = ?
             )
+            \(tsClause)
             ORDER BY f.ts DESC
             LIMIT ?;
             """
         var stmt: OpaquePointer?
-        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else { return [] }
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else {
+            return OCRSearchPage(results: [], lastTS: nil, reachedEnd: true)
+        }
         defer { sqlite3_finalize(stmt) }
 
         var bindIndex: Int32 = 1
@@ -99,14 +117,19 @@ actor OCRStore {
             bindIndex += 1
         }
         sqlite3_bind_int(stmt, bindIndex, Int32(tokens.count)); bindIndex += 1
-        sqlite3_bind_int(stmt, bindIndex, Int32(candidateLimit))
+        sqlite3_bind_double(stmt, bindIndex, tsBound); bindIndex += 1
+        sqlite3_bind_int(stmt, bindIndex, Int32(maxResults))
 
         var results: [SearchResult] = []
-        while results.count < maxResults, sqlite3_step(stmt) == SQLITE_ROW {
+        var lastTS: TimeInterval?
+        var candidateCount = 0
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            candidateCount += 1
+            let ts = sqlite3_column_double(stmt, 1)
+            lastTS = ts // cursor advances over every scanned row, matched or not
             guard let idC = sqlite3_column_text(stmt, 0),
                   let blobPtr = sqlite3_column_blob(stmt, 3) else { continue }
             let id = String(cString: idC)
-            let ts = sqlite3_column_double(stmt, 1)
             let appId = sqlite3_column_text(stmt, 2).map { String(cString: $0) }
             let cipher = Data(bytes: blobPtr, count: Int(sqlite3_column_bytes(stmt, 3)))
             guard let plain = SearchCrypto.open(cipher, key: key),
@@ -118,7 +141,8 @@ actor OCRStore {
                 snippet: SnippetBuilder.make(text, query: normalizedQuery)
             ))
         }
-        return results
+        // A short page means the candidate stream is exhausted — nothing older left.
+        return OCRSearchPage(results: results, lastTS: lastTS, reachedEnd: candidateCount < maxResults)
     }
 
     /// Fetch and decrypt the word boxes for one observation.
@@ -164,45 +188,81 @@ actor OCRStore {
 final class SearchIndex: ObservableObject {
     @Published private(set) var results: [SearchResult] = []
     @Published private(set) var hasQuery = false
+    /// True while a query is loading — so the UI shows a loading state instead of
+    /// prematurely reading empty results as "No matches".
+    @Published private(set) var isSearching = false
+    /// True when the result set was clamped to `resultCap` (older matches exist
+    /// beyond what the ruler/list cover).
+    @Published private(set) var didHitCap = false
 
     private let store: OCRStore
     private let thumbCache = NSCache<NSString, NSImage>()
-    private let maxResults = 60
+    /// The whole match set is loaded in one pass so the ruler can span every date
+    /// and clicking it can scroll to any result. Capped to bound memory/time; the
+    /// most recent `resultCap` matches (within the date limit) are kept.
+    private let resultCap = 2000
     private var searchTask: Task<Void, Never>?
+
+    /// Results are bounded to moments at or before this — the search date limit.
+    private var upperBound: TimeInterval = .greatestFiniteMagnitude
+    private var currentQuery = ""
 
     init() {
         self.store = OCRStore(path: Paths.databasePath.path)
         thumbCache.countLimit = 300
     }
 
-    /// Nothing to preload — the index lives on disk and is queried on demand.
-    func activate() {}
+    /// Anchor results to the timeline moment search opened at; nothing to preload.
+    func activate(upperBound: TimeInterval) {
+        self.upperBound = upperBound
+    }
+
+    /// Change the max-timestamp limit (from the date-limit picker) and re-run the
+    /// current query from the top with it.
+    func setUpperBound(_ ts: TimeInterval) {
+        upperBound = ts
+        if hasQuery { search(currentQuery) }
+    }
 
     func deactivate() {
         searchTask?.cancel()
         searchTask = nil
         results = []
         hasQuery = false
+        isSearching = false
+        didHitCap = false
+        currentQuery = ""
         thumbCache.removeAllObjects()
         Task { await store.close() }
     }
 
     func search(_ rawQuery: String) {
-        let query = rawQuery
-        hasQuery = !query.trimmingCharacters(in: .whitespaces).isEmpty
+        currentQuery = rawQuery
+        hasQuery = !rawQuery.trimmingCharacters(in: .whitespaces).isEmpty
         searchTask?.cancel()
         guard hasQuery else {
             results = []
+            isSearching = false
+            didHitCap = false
             return
         }
+        // Show the loading state immediately (covers the debounce + fetch) so an
+        // in-flight search never reads as "No matches" — but only for queries long
+        // enough to actually hit the index. A 1–2 char query resolves straight to
+        // "Keep typing…" with no spinner flash.
+        isSearching = Trigrams.normalize(rawQuery).count >= Trigrams.minLength
         searchTask = Task { [weak self] in
             guard let self else { return }
             // Coalesce fast keystrokes into a single query.
             try? await Task.sleep(nanoseconds: 40_000_000)
             if Task.isCancelled { return }
-            let out = await self.store.search(query, maxResults: self.maxResults)
-            if Task.isCancelled { return }
-            self.results = out
+            // One indexed scan pulls the entire match set (newest-first, capped),
+            // so the ruler covers every date and any result can be scrolled to.
+            let page = await store.search(rawQuery, maxResults: resultCap, upperTS: upperBound, beforeTS: nil)
+            if Task.isCancelled || rawQuery != self.currentQuery { return }
+            self.results = page.results
+            self.didHitCap = !page.reachedEnd
+            self.isSearching = false
         }
     }
 

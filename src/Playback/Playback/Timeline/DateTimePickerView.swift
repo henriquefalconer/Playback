@@ -86,6 +86,10 @@ struct DateTimePickerView: View {
     @EnvironmentObject var timelineStore: TimelineStore
     @Binding var isPresented: Bool
     @Binding var selectedTime: TimeInterval
+    /// Called when a time slot is picked. When set (e.g. the search date limit),
+    /// the caller typically closes the modal and acts on the new `selectedTime`.
+    /// Left nil by the timeline, which keeps the modal open on selection.
+    var onTimeSelected: (() -> Void)? = nil
 
     private static let slotInterval: TimeInterval = 15 * 60
     private static let arrowHeight: CGFloat = 12
@@ -285,6 +289,7 @@ struct DateTimePickerView: View {
 
         return Button(action: {
             selectedTime = slot.jumpTime
+            onTimeSelected?()
         }) {
             HStack {
                 Text(timeFormatter.string(from: Date(timeIntervalSince1970: slot.bucket)))
