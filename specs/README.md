@@ -76,6 +76,7 @@ Playback is a single unified macOS app:
 - **Typical Usage**: 10-14 GB/month (4-5 hours daily recording)
 - **Light Usage**: 6-8 GB/month
 - **Heavy Usage**: 20-28 GB/month
+- **OCR search index**: The encrypted OCR data in `meta.sqlite3` (text, thumbnails, word boxes, and trigram tokens) dominates database size and can rival or exceed the retained video chunks, since it scales with indexed frames rather than recording hours.
 
 ## RAM Usage
 

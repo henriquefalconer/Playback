@@ -52,9 +52,9 @@ final class ProcessingService: ObservableObject {
     private var indexingSegmentIDs: Set<String> = []
     /// How many OCR helpers may run at once. OCR is CPU-bound (~1 core each), so
     /// throughput scales with the pool: use all cores but one (kept free for the
-    /// timeline UI + recording), capped at 6 to bound RAM (~0.4 GB per helper).
-    /// All are killed on timeline close, so this load only exists while viewing.
-    private var indexConcurrency: Int { max(1, min(6, ProcessInfo.processInfo.activeProcessorCount - 1)) }
+    /// timeline UI + recording). All are killed on timeline close, so this load
+    /// only exists while viewing.
+    private var indexConcurrency: Int { max(1, ProcessInfo.processInfo.activeProcessorCount - 1) }
     /// The search key, loaded once per indexing session (not per segment) so the
     /// keychain is touched at most once each time the timeline opens — one prompt
     /// after an app update instead of one per segment, and no repeated reads.
@@ -408,7 +408,9 @@ final class ProcessingService: ObservableObject {
         // OCR is intentionally NOT run here. The search index is built lazily and
         // only while the timeline is open (see `TimelineOCRIndexer`), so recording
         // never spends CPU on text recognition. This segment stays absent from
-        // `ocr_frames` / `ocr_done` and the indexer will pick it up on next open.
+        // `ocr_frames` / `ocr_done` and the indexer will pick it up on next open —
+        // or right now, newest-first, if the timeline is already open (below).
+        resumeIndexingIfDrained()
 
         // Delete processed temp files after successful DB write
         var deletedCount = 0
@@ -507,10 +509,6 @@ final class ProcessingService: ObservableObject {
         let initSQL = """
             PRAGMA journal_mode=WAL;
             PRAGMA secure_delete=ON;
-            CREATE TABLE IF NOT EXISTS schema_version (
-                version TEXT PRIMARY KEY,
-                applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            );
             CREATE TABLE IF NOT EXISTS segments (
                 id TEXT PRIMARY KEY,
                 date TEXT NOT NULL,
@@ -542,17 +540,14 @@ final class ProcessingService: ObservableObject {
                 segment_id TEXT NOT NULL,
                 ts REAL NOT NULL,
                 app_id TEXT,
-                text_cipher BLOB NOT NULL,
-                thumb_cipher BLOB,
-                boxes_cipher BLOB
+                text_cipher BLOB NOT NULL
             );
             CREATE INDEX IF NOT EXISTS idx_ocr_frames_ts ON ocr_frames(ts);
             CREATE INDEX IF NOT EXISTS idx_ocr_frames_segment ON ocr_frames(segment_id);
-            CREATE TABLE IF NOT EXISTS ocr_trigrams (
-                tok BLOB NOT NULL,
-                fid INTEGER NOT NULL
-            );
-            CREATE INDEX IF NOT EXISTS idx_ocr_trigrams_tok ON ocr_trigrams(tok, fid);
+            CREATE TABLE IF NOT EXISTS ocr_postings (
+                tok BLOB PRIMARY KEY,
+                fids BLOB NOT NULL
+            ) WITHOUT ROWID;
             CREATE TABLE IF NOT EXISTS ocr_done (
                 segment_id TEXT PRIMARY KEY
             );
@@ -564,9 +559,9 @@ final class ProcessingService: ObservableObject {
             Log.processing.fault("Schema initialization failed: \(msg)")
         }
 
-        // Migration: add boxes_cipher to a pre-existing ocr_frames table (CREATE
-        // TABLE IF NOT EXISTS won't). Harmless "duplicate column" error is ignored.
-        sqlite3_exec(db, "ALTER TABLE ocr_frames ADD COLUMN boxes_cipher BLOB;", nil, nil, nil)
+        // Stamp per-component schema versions. A legacy OCR index is left unstamped
+        // so the launch migrator still converts it.
+        SchemaVersions.reconcile(db: db)
 
         return db
     }
@@ -576,9 +571,13 @@ final class ProcessingService: ObservableObject {
 
         sqlite3_exec(db, "BEGIN TRANSACTION;", nil, nil, nil)
         var inserted = 0
+        // Accumulate every new (token → [fid]) posting for this whole batch, then
+        // fold them into the posting lists in one pass — one read-modify-write per
+        // distinct token instead of per (token, frame) pair.
+        var batchPostings: [Data: [Int64]] = [:]
         let sql = """
-            INSERT OR IGNORE INTO ocr_frames (id, segment_id, ts, app_id, text_cipher, thumb_cipher, boxes_cipher)
-            VALUES (?, ?, ?, ?, ?, ?, ?);
+            INSERT OR IGNORE INTO ocr_frames (id, segment_id, ts, app_id, text_cipher)
+            VALUES (?, ?, ?, ?, ?);
             """
         for row in rows {
             guard let textData = Data(base64Encoded: row.textCipherB64) else { continue }
@@ -599,55 +598,65 @@ final class ProcessingService: ObservableObject {
             textData.withUnsafeBytes { raw in
                 sqlite3_bind_blob(stmt, 5, raw.baseAddress, Int32(textData.count), SQLITE_TRANSIENT)
             }
-            if let thumbB64 = row.thumbCipherB64, let thumbData = Data(base64Encoded: thumbB64) {
-                thumbData.withUnsafeBytes { raw in
-                    sqlite3_bind_blob(stmt, 6, raw.baseAddress, Int32(thumbData.count), SQLITE_TRANSIENT)
-                }
-            } else {
-                sqlite3_bind_null(stmt, 6)
-            }
-            if let boxesB64 = row.boxesCipherB64, let boxesData = Data(base64Encoded: boxesB64) {
-                boxesData.withUnsafeBytes { raw in
-                    sqlite3_bind_blob(stmt, 7, raw.baseAddress, Int32(boxesData.count), SQLITE_TRANSIENT)
-                }
-            } else {
-                sqlite3_bind_null(stmt, 7)
-            }
 
             if sqlite3_step(stmt) == SQLITE_DONE {
                 inserted += 1
                 let fid = sqlite3_last_insert_rowid(db)
-                insertTrigramTokens(row.trigramTokensB64, fid: fid, db: db)
+                for token in Self.splitTokens(row.trigramTokensB64) {
+                    batchPostings[token, default: []].append(fid)
+                }
             } else {
                 Log.processing.error("Failed to insert ocr_frame: \(String(cString: sqlite3_errmsg(db)))")
             }
         }
+        upsertPostings(batchPostings, db: db)
         sqlite3_exec(db, "COMMIT;", nil, nil, nil)
         Log.processing.info("OCR rows indexed — segment=\(segmentId, privacy: .public), inserted=\(inserted, privacy: .public)/\(rows.count, privacy: .public)")
     }
 
-    /// Split the concatenated blind-index token blob into fixed-width tokens and
-    /// insert one `ocr_trigrams` row per token, pointing at the frame's rowid.
-    private func insertTrigramTokens(_ tokensB64: String, fid: Int64, db: OpaquePointer) {
-        guard let blob = Data(base64Encoded: tokensB64), !blob.isEmpty else { return }
+    /// Split a concatenated blind-index token blob into its fixed-width tokens.
+    static func splitTokens(_ tokensB64: String) -> [Data] {
+        guard let blob = Data(base64Encoded: tokensB64), !blob.isEmpty else { return [] }
         let width = SearchCrypto.tokenLength
-        guard blob.count % width == 0 else {
-            Log.processing.error("Malformed trigram token blob (len \(blob.count))")
-            return
-        }
-        let sql = "INSERT INTO ocr_trigrams (tok, fid) VALUES (?, ?);"
+        guard blob.count % width == 0 else { return [] }
+        var tokens: [Data] = []
         var offset = 0
         while offset < blob.count {
-            let token = blob.subdata(in: offset..<offset + width)
+            tokens.append(blob.subdata(in: offset..<offset + width))
             offset += width
-            guard let stmt = prepareStatement(db, sql: sql) else { continue }
-            defer { sqlite3_finalize(stmt) }
-            token.withUnsafeBytes { raw in
-                sqlite3_bind_blob(stmt, 1, raw.baseAddress, Int32(token.count), SQLITE_TRANSIENT)
+        }
+        return tokens
+    }
+
+    /// Append each token's new frame ids to its delta-varint posting list. fids in
+    /// a batch are always larger than any already stored (rowids only grow), so the
+    /// merged list stays ascending. Assumes an open transaction.
+    private func upsertPostings(_ postings: [Data: [Int64]], db: OpaquePointer) {
+        guard !postings.isEmpty else { return }
+        let selectSQL = "SELECT fids FROM ocr_postings WHERE tok = ?;"
+        let upsertSQL = "INSERT OR REPLACE INTO ocr_postings (tok, fids) VALUES (?, ?);"
+        for (tok, newFids) in postings {
+            var existing: Data?
+            if let sel = prepareStatement(db, sql: selectSQL) {
+                tok.withUnsafeBytes { raw in
+                    sqlite3_bind_blob(sel, 1, raw.baseAddress, Int32(tok.count), SQLITE_TRANSIENT)
+                }
+                if sqlite3_step(sel) == SQLITE_ROW, let ptr = sqlite3_column_blob(sel, 0) {
+                    existing = Data(bytes: ptr, count: Int(sqlite3_column_bytes(sel, 0)))
+                }
+                sqlite3_finalize(sel)
             }
-            sqlite3_bind_int64(stmt, 2, fid)
-            if sqlite3_step(stmt) != SQLITE_DONE {
-                Log.processing.error("Failed to insert trigram: \(String(cString: sqlite3_errmsg(db)))")
+            let merged = PostingCodec.appending(existing, fids: newFids)
+            guard let up = prepareStatement(db, sql: upsertSQL) else { continue }
+            defer { sqlite3_finalize(up) }
+            tok.withUnsafeBytes { raw in
+                sqlite3_bind_blob(up, 1, raw.baseAddress, Int32(tok.count), SQLITE_TRANSIENT)
+            }
+            merged.withUnsafeBytes { raw in
+                sqlite3_bind_blob(up, 2, raw.baseAddress, Int32(merged.count), SQLITE_TRANSIENT)
+            }
+            if sqlite3_step(up) != SQLITE_DONE {
+                Log.processing.error("Failed to upsert posting: \(String(cString: sqlite3_errmsg(db)))")
             }
         }
     }
@@ -742,6 +751,24 @@ final class ProcessingService: ObservableObject {
         setIndexingProgress(total > 0 ? min(1.0, done / total) : 1.0)
     }
 
+    /// Re-fan-out indexing workers if the timeline is open but the pool has drained,
+    /// so a segment encoded *after* the initial pass gets indexed promptly (and
+    /// newest-first) instead of waiting for the timeline to be reopened. No-op when
+    /// the timeline is closed or workers are already running.
+    func resumeIndexingIfDrained() {
+        indexLock.lock()
+        guard indexingActive, activeIndexWorkers == 0, indexKey != nil else { indexLock.unlock(); return }
+        let epoch = indexEpoch
+        let workers = indexConcurrency
+        activeIndexWorkers = workers
+        indexLock.unlock()
+        setIndexingInProgress(true)
+        Log.processing.info("OCR indexing resumed for newly-encoded segment — \(workers, privacy: .public) worker(s)")
+        for _ in 0..<workers {
+            indexQueue.async { self.runIndexer(epoch: epoch) }
+        }
+    }
+
     /// Stop indexing and reclaim CPU + RAM immediately. Called when the timeline
     /// window disappears. Every in-flight `--ocr-segment` helper is terminated at
     /// once so no OCR CPU or memory survives the window closing.
@@ -821,6 +848,7 @@ final class ProcessingService: ObservableObject {
               let pathC = sqlite3_column_text(stmt, 4) else { return nil }
         let id = String(cString: idC)
         indexingSegmentIDs.insert(id)
+        Log.processing.debug("OCR claim (newest-first) segment=\(id, privacy: .public) started=\(sqlite3_column_double(stmt, 1), privacy: .public)")
         return IndexSegment(
             id: id,
             startTS: sqlite3_column_double(stmt, 1),
@@ -985,8 +1013,8 @@ final class ProcessingService: ObservableObject {
                   let match = intervals.first(where: { row.ts >= $0.start && row.ts <= $0.end }) else { return row }
             return OCRSidecarRow(
                 ts: row.ts, appId: match.appId,
-                textCipherB64: row.textCipherB64, thumbCipherB64: row.thumbCipherB64,
-                trigramTokensB64: row.trigramTokensB64, boxesCipherB64: row.boxesCipherB64
+                textCipherB64: row.textCipherB64,
+                trigramTokensB64: row.trigramTokensB64
             )
         }
     }

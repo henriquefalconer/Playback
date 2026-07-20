@@ -3,9 +3,7 @@
 
 import Foundation
 import CoreGraphics
-import ImageIO
 import CryptoKit
-import UniformTypeIdentifiers
 import Vision
 import os
 
@@ -22,27 +20,26 @@ struct WordBox: Codable, Sendable {
     var rect: CGRect { CGRect(x: x, y: y, width: w, height: h) }
 }
 
-/// One encrypted OCR observation, as written to the sidecar file by the encoder
-/// helper and read back by `ProcessingService`. Only ciphertext ever hits disk.
+/// One OCR observation, as written to the sidecar file by the encoder helper and
+/// read back by `ProcessingService`.
+///
+/// Only the text is sensitive and only the text is encrypted: it is DEFLATE'd then
+/// AES-GCM sealed. Preview thumbnails and word boxes are NOT stored — both are
+/// re-derived on demand from the (already-plaintext) video chunk while the timeline
+/// is open, so they cost zero disk and zero indexing CPU.
 struct OCRSidecarRow: Codable {
     let ts: Double
     let appId: String?
     let textCipherB64: String
-    let thumbCipherB64: String?
     /// Concatenated blind-index tokens (each `SearchCrypto.tokenLength` bytes),
     /// base64-encoded. Keyed HMACs of the frame's trigrams — irreversible.
     let trigramTokensB64: String
-    /// Encrypted JSON of the frame's `WordBox` list (for match highlighting).
-    let boxesCipherB64: String?
 }
 
 /// Native, on-device OCR (Vision) plus preview-thumbnail generation, run inside
 /// the short-lived encoder subprocess so the recognizer's working set dies with
 /// the process (the same reason video encoding runs there).
 enum OCRIndexer {
-    /// Max dimension (px) of the stored preview thumbnail. Retina-crisp for the
-    /// ~52pt squircle shown in search results.
-    private static let thumbMaxDimension = 400
     /// Long-side cap (px) of the image actually handed to Vision. Retina frames
     /// are downscaled to this before OCR — big speedup, text stays legible.
     nonisolated private static let ocrMaxDimension = 1920
@@ -65,16 +62,14 @@ enum OCRIndexer {
         return ctx.makeImage() ?? image
     }
 
-    /// The OCR text + thumbnail of a processed frame, carried forward so a
-    /// visually-unchanged next frame can reuse it without re-running Vision.
+    /// The OCR text of a processed frame, carried forward so a visually-unchanged
+    /// next frame can reuse it without re-running Vision.
     struct FramePrint {
         /// Downsampled grayscale signature (`sigW`×`sigH`) of the frame this text
         /// came from — the anchor future frames are compared against.
         let signature: [UInt8]
         /// Whitespace-normalized recognized text (empty when the frame had none).
         let text: String
-        let thumb: Data?
-        let words: [WordBox]
     }
 
     // MARK: - Perceptual dedup tuning
@@ -99,10 +94,11 @@ enum OCRIndexer {
     /// change spikes its tile far past this, so it is never skipped.
     nonisolated private static let dedupTileThreshold = 4.0
 
-    /// Run OCR + thumbnail on a single decoded frame and return an encrypted
-    /// sidecar row (nil when the frame has no text) plus the `FramePrint` to
-    /// pass in as `previous` on the next call. When the frame is pixel-identical
-    /// to `previous`, OCR and thumbnail generation are skipped entirely.
+    /// Run OCR on a single decoded frame and return its row (nil when the frame
+    /// has no text) plus the `FramePrint` to pass in as `previous` on the next
+    /// call. When the frame is visually unchanged from `previous`, OCR is skipped
+    /// and the prior text reused. Only text is produced here — thumbnails and word
+    /// boxes are re-derived from the video on demand, never stored.
     nonisolated static func makeRow(
         cgImage: CGImage,
         timestamp: Double,
@@ -114,41 +110,26 @@ enum OCRIndexer {
         let signature = signature(of: cgImage)
 
         let text: String
-        let thumb: Data?
-        let words: [WordBox]
         let print: FramePrint
         if let previous, tiledMaxMAD(signature, previous.signature) <= dedupTileThreshold {
             // Visually unchanged since the last OCR'd frame — reuse its result for
             // THIS timestamp (so the moment is still searchable) and keep the
             // anchor frame's signature so slow drift is eventually re-OCR'd.
             text = previous.text
-            thumb = previous.thumb
-            words = previous.words
             print = previous
         } else {
-            words = recognizeWords(in: cgImage)
             // The search text is exactly the words single-spaced, so a match's
             // character offset maps back to the same words for highlighting.
-            text = words.map { $0.t }.joined(separator: " ")
-            thumb = text.isEmpty ? nil : thumbnailJPEG(from: cgImage)
-            print = FramePrint(signature: signature, text: text, thumb: thumb, words: words)
+            text = recognizeWords(in: cgImage).map { $0.t }.joined(separator: " ")
+            print = FramePrint(signature: signature, text: text)
         }
 
+        // Compress-then-encrypt: AES-GCM output is incompressible, so the plaintext
+        // must be DEFLATE'd first. Text is the only thing sealed to disk.
         guard !text.isEmpty,
               let textData = text.data(using: .utf8),
-              let textCipher = SearchCrypto.seal(textData, key: key) else {
+              let textCipher = SearchCrypto.seal(SearchCompression.compress(textData), key: key) else {
             return (nil, print)
-        }
-
-        var thumbCipherB64: String?
-        if let thumb, let thumbCipher = SearchCrypto.seal(thumb, key: key) {
-            thumbCipherB64 = thumbCipher.base64EncodedString()
-        }
-
-        var boxesCipherB64: String?
-        if let boxesData = try? JSONEncoder().encode(words),
-           let boxesCipher = SearchCrypto.seal(boxesData, key: key) {
-            boxesCipherB64 = boxesCipher.base64EncodedString()
         }
 
         // Blind-index tokens: keyed HMAC of every unique trigram, concatenated.
@@ -161,9 +142,7 @@ enum OCRIndexer {
             ts: timestamp,
             appId: appId,
             textCipherB64: textCipher.base64EncodedString(),
-            thumbCipherB64: thumbCipherB64,
-            trigramTokensB64: tokenBlob.base64EncodedString(),
-            boxesCipherB64: boxesCipherB64
+            trigramTokensB64: tokenBlob.base64EncodedString()
         )
         return (row, print)
     }
@@ -222,7 +201,7 @@ enum OCRIndexer {
     /// bounding box. Splitting on whitespace (not Vision's word tokenizer) keeps
     /// the reconstructed text identical to what the trigram index and snippets
     /// use, so match offsets line up with these boxes.
-    nonisolated private static func recognizeWords(in cgImage: CGImage) -> [WordBox] {
+    nonisolated static func recognizeWords(in cgImage: CGImage) -> [WordBox] {
         let request = VNRecognizeTextRequest()
         // `.accurate` is required: empirical testing on real captures showed
         // `.fast` misses >50% of the small terminal/code text on screen.
@@ -274,43 +253,5 @@ enum OCRIndexer {
             }
         }
         return words
-    }
-
-    // MARK: - Thumbnail
-
-    nonisolated private static func thumbnailJPEG(from cgImage: CGImage) -> Data? {
-        let srcW = cgImage.width
-        let srcH = cgImage.height
-        guard srcW > 0, srcH > 0 else { return nil }
-
-        let scale = min(1.0, Double(thumbMaxDimension) / Double(max(srcW, srcH)))
-        let dstW = max(1, Int((Double(srcW) * scale).rounded()))
-        let dstH = max(1, Int((Double(srcH) * scale).rounded()))
-
-        let colorSpace = CGColorSpaceCreateDeviceRGB()
-        let bitmapInfo = CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue
-        guard let context = CGContext(
-            data: nil,
-            width: dstW,
-            height: dstH,
-            bitsPerComponent: 8,
-            bytesPerRow: 0,
-            space: colorSpace,
-            bitmapInfo: bitmapInfo
-        ) else { return nil }
-
-        context.interpolationQuality = .medium
-        context.draw(cgImage, in: CGRect(x: 0, y: 0, width: dstW, height: dstH))
-        guard let scaled = context.makeImage() else { return nil }
-
-        let out = NSMutableData()
-        guard let dest = CGImageDestinationCreateWithData(
-            out, UTType.jpeg.identifier as CFString, 1, nil
-        ) else { return nil }
-        CGImageDestinationAddImage(dest, scaled, [
-            kCGImageDestinationLossyCompressionQuality: 0.6
-        ] as CFDictionary)
-        guard CGImageDestinationFinalize(dest) else { return nil }
-        return out as Data
     }
 }

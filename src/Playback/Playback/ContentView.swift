@@ -560,7 +560,7 @@ struct ContentView: View {
         playbackController.scrub(to: target, store: timelineStore)
         Log.ui.info("Search jump to ts=\(target, privacy: .public)")
         Task {
-            let rects = await searchIndex.highlightRects(for: id, query: query)
+            let rects = await searchIndex.highlightRects(at: ts, query: query)
             guard !rects.isEmpty else { return }
             withAnimation(.easeOut(duration: 0.2)) {
                 matchHighlight = MatchHighlight(ts: target, rects: rects)

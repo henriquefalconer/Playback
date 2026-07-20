@@ -13,7 +13,8 @@ final class TimelineStoreTests: XCTestCase {
             endTS: 1100.0,
             frameCount: 300,
             fps: 30.0,
-            videoURL: URL(fileURLWithPath: "/tmp/test.mp4")
+            videoURL: URL(fileURLWithPath: "/tmp/test.mp4"),
+            width: 1920, height: 1080
         )
 
         XCTAssertEqual(segment.duration, 100.0,
@@ -27,7 +28,8 @@ final class TimelineStoreTests: XCTestCase {
             endTS: 1100.0,
             frameCount: 300,
             fps: 30.0,
-            videoURL: URL(fileURLWithPath: "/tmp/test.mp4")
+            videoURL: URL(fileURLWithPath: "/tmp/test.mp4"),
+            width: 1920, height: 1080
         )
 
         if let videoDuration = segment.videoDuration {
@@ -45,7 +47,8 @@ final class TimelineStoreTests: XCTestCase {
             endTS: 1100.0,
             frameCount: 300,
             fps: nil,
-            videoURL: URL(fileURLWithPath: "/tmp/test.mp4")
+            videoURL: URL(fileURLWithPath: "/tmp/test.mp4"),
+            width: 1920, height: 1080
         )
 
         XCTAssertNil(segment.videoDuration,
@@ -59,7 +62,8 @@ final class TimelineStoreTests: XCTestCase {
             endTS: 1100.0,
             frameCount: 300,
             fps: 30.0,
-            videoURL: URL(fileURLWithPath: "/tmp/test.mp4")
+            videoURL: URL(fileURLWithPath: "/tmp/test.mp4"),
+            width: 1920, height: 1080
         )
 
         XCTAssertEqual(segment.id, "unique-id",
@@ -75,7 +79,8 @@ final class TimelineStoreTests: XCTestCase {
             endTS: 1100.0,
             frameCount: 300,
             fps: 30.0,
-            videoURL: URL(fileURLWithPath: "/tmp/test.mp4")
+            videoURL: URL(fileURLWithPath: "/tmp/test.mp4"),
+            width: 1920, height: 1080
         )
 
         let offset = segment.videoOffset(forAbsoluteTime: 1050.0)
@@ -95,7 +100,8 @@ final class TimelineStoreTests: XCTestCase {
             endTS: 1100.0,
             frameCount: 300,
             fps: 30.0,
-            videoURL: URL(fileURLWithPath: "/tmp/test.mp4")
+            videoURL: URL(fileURLWithPath: "/tmp/test.mp4"),
+            width: 1920, height: 1080
         )
 
         let absoluteTime = segment.absoluteTime(forVideoOffset: 5.0)
@@ -113,7 +119,8 @@ final class TimelineStoreTests: XCTestCase {
             endTS: 1100.0,
             frameCount: 300,
             fps: 30.0,
-            videoURL: URL(fileURLWithPath: "/tmp/test.mp4")
+            videoURL: URL(fileURLWithPath: "/tmp/test.mp4"),
+            width: 1920, height: 1080
         )
 
         let offset = segment.videoOffset(forAbsoluteTime: 900.0)
@@ -129,7 +136,8 @@ final class TimelineStoreTests: XCTestCase {
             endTS: 1100.0,
             frameCount: 300,
             fps: 30.0,
-            videoURL: URL(fileURLWithPath: "/tmp/test.mp4")
+            videoURL: URL(fileURLWithPath: "/tmp/test.mp4"),
+            width: 1920, height: 1080
         )
 
         let offset = segment.videoOffset(forAbsoluteTime: 1200.0)
@@ -149,7 +157,8 @@ final class TimelineStoreTests: XCTestCase {
             endTS: 1100.0,
             frameCount: 300,
             fps: 30.0,
-            videoURL: URL(fileURLWithPath: "/tmp/test.mp4")
+            videoURL: URL(fileURLWithPath: "/tmp/test.mp4"),
+            width: 1920, height: 1080
         )
 
         let originalTime: TimeInterval = 1050.0
@@ -167,7 +176,8 @@ final class TimelineStoreTests: XCTestCase {
             endTS: 1000.0,
             frameCount: 0,
             fps: 30.0,
-            videoURL: URL(fileURLWithPath: "/tmp/test.mp4")
+            videoURL: URL(fileURLWithPath: "/tmp/test.mp4"),
+            width: 1920, height: 1080
         )
 
         let offset = segment.videoOffset(forAbsoluteTime: 1000.0)
@@ -183,7 +193,8 @@ final class TimelineStoreTests: XCTestCase {
             endTS: 1100.0,
             frameCount: 0,
             fps: 30.0,
-            videoURL: URL(fileURLWithPath: "/tmp/test.mp4")
+            videoURL: URL(fileURLWithPath: "/tmp/test.mp4"),
+            width: 1920, height: 1080
         )
 
         let absoluteTime = segment.absoluteTime(forVideoOffset: 50.0)

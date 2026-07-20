@@ -85,21 +85,26 @@ actor OCRStore {
         let tokens = shingles.prefix(64).map { SearchCrypto.token(for: $0, tokenKey: tokenKey) }
         let needle = normalizedQuery.lowercased()
 
+        // Intersect the query tokens' posting lists → frames containing ALL of
+        // them. Each posting list is a token's ascending frame ids, delta-varint
+        // packed; decoding + intersecting happens in memory.
+        let lists = tokens.map { postingFids(for: $0, db: db) }
+        let candidates = PostingCodec.intersect(lists)
+        guard !candidates.isEmpty, loadCandidates(candidates, db: db) else {
+            return OCRSearchPage(results: [], lastTS: nil, reachedEnd: true)
+        }
+
         // First page bounds inclusively at the open moment (`<= upperTS`); later
         // pages page strictly past the previous page's last row (`< beforeTS`).
-        let tsClause = beforeTS == nil ? "AND f.ts <= ?" : "AND f.ts < ?"
+        let tsClause = beforeTS == nil ? "f.ts <= ?" : "f.ts < ?"
         let tsBound = beforeTS ?? upperTS
 
-        // Frames whose trigram set contains ALL query tokens, newest first.
-        let placeholders = Array(repeating: "?", count: tokens.count).joined(separator: ",")
+        // Candidate frames, newest first — ordering, ts-bound and limit stay in SQL
+        // because the intersected set can be large for a short query.
         let sql = """
             SELECT f.id, f.ts, f.app_id, f.text_cipher
-            FROM ocr_frames f
-            WHERE f.rowid IN (
-                SELECT fid FROM ocr_trigrams WHERE tok IN (\(placeholders))
-                GROUP BY fid HAVING COUNT(DISTINCT tok) = ?
-            )
-            \(tsClause)
+            FROM ocr_frames f JOIN _cand c ON f.rowid = c.fid
+            WHERE \(tsClause)
             ORDER BY f.ts DESC
             LIMIT ?;
             """
@@ -108,17 +113,8 @@ actor OCRStore {
             return OCRSearchPage(results: [], lastTS: nil, reachedEnd: true)
         }
         defer { sqlite3_finalize(stmt) }
-
-        var bindIndex: Int32 = 1
-        for token in tokens {
-            token.withUnsafeBytes { raw in
-                sqlite3_bind_blob(stmt, bindIndex, raw.baseAddress, Int32(token.count), SQLITE_TRANSIENT)
-            }
-            bindIndex += 1
-        }
-        sqlite3_bind_int(stmt, bindIndex, Int32(tokens.count)); bindIndex += 1
-        sqlite3_bind_double(stmt, bindIndex, tsBound); bindIndex += 1
-        sqlite3_bind_int(stmt, bindIndex, Int32(maxResults))
+        sqlite3_bind_double(stmt, 1, tsBound)
+        sqlite3_bind_int(stmt, 2, Int32(maxResults))
 
         var results: [SearchResult] = []
         var lastTS: TimeInterval?
@@ -132,7 +128,9 @@ actor OCRStore {
             let id = String(cString: idC)
             let appId = sqlite3_column_text(stmt, 2).map { String(cString: $0) }
             let cipher = Data(bytes: blobPtr, count: Int(sqlite3_column_bytes(stmt, 3)))
-            guard let plain = SearchCrypto.open(cipher, key: key),
+            // Reverse the write path: AES-GCM open, then DEFLATE inflate.
+            guard let deflated = SearchCrypto.open(cipher, key: key),
+                  let plain = SearchCompression.decompress(deflated),
                   let text = String(data: plain, encoding: .utf8) else { continue }
             // Exact-substring verify to drop trigram false positives.
             guard text.lowercased().contains(needle) else { continue }
@@ -145,35 +143,38 @@ actor OCRStore {
         return OCRSearchPage(results: results, lastTS: lastTS, reachedEnd: candidateCount < maxResults)
     }
 
-    /// Fetch and decrypt the word boxes for one observation.
-    func wordBoxes(for id: String) -> [WordBox] {
-        guard let db = openIfNeeded() else { return [] }
-        let sql = "SELECT boxes_cipher FROM ocr_frames WHERE id = ? LIMIT 1;"
+    /// Decode one token's posting list into its ascending frame ids.
+    private func postingFids(for tok: Data, db: OpaquePointer) -> [Int64] {
         var stmt: OpaquePointer?
-        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else { return [] }
+        guard sqlite3_prepare_v2(db, "SELECT fids FROM ocr_postings WHERE tok = ?;", -1, &stmt, nil) == SQLITE_OK, let stmt else { return [] }
         defer { sqlite3_finalize(stmt) }
-        sqlite3_bind_text(stmt, 1, id, -1, SQLITE_TRANSIENT)
-        guard sqlite3_step(stmt) == SQLITE_ROW, let blobPtr = sqlite3_column_blob(stmt, 0) else { return [] }
-        let cipher = Data(bytes: blobPtr, count: Int(sqlite3_column_bytes(stmt, 0)))
-        let (key, _) = keys()
-        guard let plain = SearchCrypto.open(cipher, key: key),
-              let boxes = try? JSONDecoder().decode([WordBox].self, from: plain) else { return [] }
-        return boxes
+        tok.withUnsafeBytes { raw in
+            sqlite3_bind_blob(stmt, 1, raw.baseAddress, Int32(tok.count), SQLITE_TRANSIENT)
+        }
+        guard sqlite3_step(stmt) == SQLITE_ROW, let ptr = sqlite3_column_blob(stmt, 0) else { return [] }
+        let blob = Data(bytes: ptr, count: Int(sqlite3_column_bytes(stmt, 0)))
+        return PostingCodec.decode(blob)
     }
 
-    /// Fetch and decrypt the preview thumbnail (JPEG data) for one observation.
-    func thumbnailData(for id: String) -> Data? {
-        guard let db = openIfNeeded() else { return nil }
-        let sql = "SELECT thumb_cipher FROM ocr_frames WHERE id = ? LIMIT 1;"
+    /// Load the intersected candidate fids into a temp table for the ordered join.
+    /// A read-only main connection can still write to the temp database.
+    private func loadCandidates(_ fids: [Int64], db: OpaquePointer) -> Bool {
+        sqlite3_exec(db, "CREATE TEMP TABLE IF NOT EXISTS _cand(fid INTEGER PRIMARY KEY);", nil, nil, nil)
+        sqlite3_exec(db, "DELETE FROM _cand;", nil, nil, nil)
+        guard sqlite3_exec(db, "BEGIN;", nil, nil, nil) == SQLITE_OK else { return false }
         var stmt: OpaquePointer?
-        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else { return nil }
-        defer { sqlite3_finalize(stmt) }
-        sqlite3_bind_text(stmt, 1, id, -1, SQLITE_TRANSIENT)
-
-        guard sqlite3_step(stmt) == SQLITE_ROW, let blobPtr = sqlite3_column_blob(stmt, 0) else { return nil }
-        let cipher = Data(bytes: blobPtr, count: Int(sqlite3_column_bytes(stmt, 0)))
-        let (key, _) = keys()
-        return SearchCrypto.open(cipher, key: key)
+        guard sqlite3_prepare_v2(db, "INSERT INTO _cand(fid) VALUES (?);", -1, &stmt, nil) == SQLITE_OK, let stmt else {
+            sqlite3_exec(db, "ROLLBACK;", nil, nil, nil); return false
+        }
+        for fid in fids {
+            sqlite3_reset(stmt)
+            sqlite3_bind_int64(stmt, 1, fid)
+            if sqlite3_step(stmt) != SQLITE_DONE {
+                sqlite3_finalize(stmt); sqlite3_exec(db, "ROLLBACK;", nil, nil, nil); return false
+            }
+        }
+        sqlite3_finalize(stmt)
+        return sqlite3_exec(db, "COMMIT;", nil, nil, nil) == SQLITE_OK
     }
 
     func close() {
@@ -196,6 +197,8 @@ final class SearchIndex: ObservableObject {
     @Published private(set) var didHitCap = false
 
     private let store: OCRStore
+    /// Re-derives result previews and highlight boxes from the video on demand.
+    private let extractor: FrameExtractor
     private let thumbCache = NSCache<NSString, NSImage>()
     /// The whole match set is loaded in one pass so the ruler can span every date
     /// and clicking it can scroll to any result. Capped to bound memory/time; the
@@ -209,6 +212,7 @@ final class SearchIndex: ObservableObject {
 
     init() {
         self.store = OCRStore(path: Paths.databasePath.path)
+        self.extractor = FrameExtractor(dbPath: Paths.databasePath.path)
         thumbCache.countLimit = 300
         // As the background indexer finishes more segments, pull the newly-indexed
         // matches into the open result list so results stream in without retyping.
@@ -253,7 +257,8 @@ final class SearchIndex: ObservableObject {
         didHitCap = false
         currentQuery = ""
         thumbCache.removeAllObjects()
-        Task { await store.close() }
+        extractor.close()
+        Task { [store] in await store.close() }
     }
 
     func search(_ rawQuery: String) {
@@ -287,11 +292,13 @@ final class SearchIndex: ObservableObject {
     }
 
     /// Normalized bounding boxes (Vision coords) of the words the query matched
-    /// within a given frame — used to highlight the exact spot on the video.
-    func highlightRects(for id: String, query: String) async -> [CGRect] {
+    /// within the frame at `ts` — used to highlight the exact spot on the video.
+    /// The frame is pulled from the chunk and OCR'd on demand (nothing is stored).
+    func highlightRects(at ts: TimeInterval, query: String) async -> [CGRect] {
         let needle = Trigrams.normalize(query).lowercased()
-        guard needle.count >= Trigrams.minLength else { return [] }
-        let words = await store.wordBoxes(for: id)
+        guard needle.count >= Trigrams.minLength,
+              let cgImage = await extractor.exactImage(at: ts) else { return [] }
+        let words = OCRIndexer.recognizeWords(in: cgImage)
         guard !words.isEmpty else { return [] }
 
         // Reconstruct the exact search text (words single-spaced) and locate the
@@ -315,22 +322,37 @@ final class SearchIndex: ObservableObject {
         return rects
     }
 
-    /// Decrypt (or return cached) the preview thumbnail for a result.
-    func thumbnail(for id: String, completion: @escaping (NSImage?) -> Void) {
-        if let cached = thumbCache.object(forKey: id as NSString) {
-            completion(cached)
-            return
-        }
-        Task { [weak self] in
-            guard let self else { completion(nil); return }
-            let data = await store.thumbnailData(for: id)
-            guard let data, let image = NSImage(data: data) else {
-                completion(nil)
-                return
-            }
-            self.thumbCache.setObject(image, forKey: id as NSString)
-            completion(image)
-        }
+    /// The preview for a result: the frame at its timestamp, pulled from the video
+    /// chunk on demand and downscaled. Cached by result id for the session.
+    ///
+    /// `async` so the caller's SwiftUI `.task(id:)` owns it — when a row scrolls off
+    /// screen the task is cancelled and its decode stops, so effort stays focused on
+    /// the rows actually visible. Concurrent calls (one per visible row) decode in
+    /// parallel across videos.
+    func thumbnail(for result: SearchResult) async -> NSImage? {
+        if let cached = thumbCache.object(forKey: result.id as NSString) { return cached }
+        guard let cgImage = await extractor.thumbnail(at: result.ts), !Task.isCancelled,
+              let image = Self.downscaled(cgImage, maxDimension: 400) else { return nil }
+        thumbCache.setObject(image, forKey: result.id as NSString)
+        return image
+    }
+
+    /// Downscale a decoded frame to at most `maxDimension` on its long side — a
+    /// retina-crisp preview for the ~52pt squircle without caching full frames.
+    private static func downscaled(_ cgImage: CGImage, maxDimension: Int) -> NSImage? {
+        let longSide = max(cgImage.width, cgImage.height)
+        let scale = longSide > maxDimension ? Double(maxDimension) / Double(longSide) : 1.0
+        let w = max(1, Int((Double(cgImage.width) * scale).rounded()))
+        let h = max(1, Int((Double(cgImage.height) * scale).rounded()))
+        let bitmapInfo = CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue
+        guard let ctx = CGContext(
+            data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
+            space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: bitmapInfo
+        ) else { return nil }
+        ctx.interpolationQuality = .medium
+        ctx.draw(cgImage, in: CGRect(x: 0, y: 0, width: w, height: h))
+        guard let scaled = ctx.makeImage() else { return nil }
+        return NSImage(cgImage: scaled, size: NSSize(width: w, height: h))
     }
 }
 

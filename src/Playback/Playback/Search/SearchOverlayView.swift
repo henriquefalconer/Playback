@@ -344,9 +344,7 @@ private struct SearchResultRow: View {
         .accessibilityIdentifier("search.result")
         .task(id: result.id) {
             thumbnail = nil
-            index.thumbnail(for: result.id) { image in
-                thumbnail = image
-            }
+            thumbnail = await index.thumbnail(for: result)
         }
     }
 

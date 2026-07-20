@@ -209,17 +209,30 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         setupNotificationObservers()
         registerGlobalHotkey()
 
-        Task {
-            await ensureServicesRunning()
-        }
+        // `launchedAsLoginItem` reads the launch Apple event, only valid now — so
+        // capture it before the (possibly async) index migration defers the rest.
+        let asLoginItem = launchedAsLoginItem
 
-        // Opening the app by hand (Finder/Dock) means the user wants the rewind view;
-        // login-item launches stay in the background (menu bar only).
-        if !launchedAsLoginItem {
-            DispatchQueue.main.async {
+        // Upgrade a pre-compaction OCR index if present. While the migration runs,
+        // its native dialog is shown *instead of* the timeline, and recording + OCR
+        // stay off (no write-lock/VACUUM contention); they start only when the user
+        // clicks Open Playback. When nothing needs migrating, launch proceeds
+        // immediately with no dialog.
+        MigrationCoordinator.runIfNeeded(
+            immediate: {
+                Task { await self.ensureServicesRunning() }
+                // Opening by hand (Finder/Dock) means the user wants the rewind
+                // view; login-item launches stay in the background (menu bar only).
+                if !asLoginItem {
+                    Self.openTimeline()
+                }
+            },
+            afterMigration: {
+                // Explicit Open Playback click — start services and reveal the timeline.
+                Task { await self.ensureServicesRunning() }
                 Self.openTimeline()
             }
-        }
+        )
     }
 
     /// True when this launch came from the SMAppService login item rather than user action.
