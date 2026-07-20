@@ -219,16 +219,16 @@ struct SearchOverlayView: View {
 
     /// The end-of-list footer. While the OCR backlog is indexing it reads
     /// "Loading results…"; once everything is searchable it reads "No more
-    /// results" (or notes the cap when the match set was truncated). It is never
-    /// empty, so the list always ends with a clear status.
+    /// results" (or notes when the match set was so large it was sampled across the
+    /// full history). It is never empty, so the list always ends with a clear status.
     @ViewBuilder
     private var listFooter: some View {
         HStack(spacing: 8) {
             if processing.indexingInProgress {
                 ProgressView().controlSize(.small)
                 Text(loadingText)
-            } else if index.didHitCap {
-                Text("Showing the most recent 2,000 matches")
+            } else if index.didDownsample {
+                Text("Sampled across your full history")
             } else {
                 Text("No more results")
             }

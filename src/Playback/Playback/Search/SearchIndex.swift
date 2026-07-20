@@ -20,15 +20,13 @@ struct SearchResult: Identifiable, Sendable {
     let snippet: AttributedString
 }
 
-/// One page of results plus a cursor for fetching the next (older) page.
+/// The whole result set for a query, sampled to span the full history.
 struct OCRSearchPage: Sendable {
     let results: [SearchResult]
-    /// Timestamp of the last candidate row scanned — the exclusive upper bound for
-    /// the next page. Nil when the page scanned no rows.
-    let lastTS: TimeInterval?
-    /// True when fewer than a full page of candidates remained, i.e. no older
-    /// matches exist beyond this page.
-    let reachedEnd: Bool
+    /// True when there were more matches than the cap, so results were downsampled
+    /// (one representative per time bucket) rather than shown exhaustively. Every
+    /// date is still spanned — only the density within each period is thinned.
+    let didDownsample: Bool
 }
 
 /// Thread-safe reader over the encrypted index. Each query is a single indexed
@@ -67,15 +65,22 @@ actor OCRStore {
         return (key, tokenKey)
     }
 
-    /// Fetch one page of matches, newest-first, bounded to moments at or before
-    /// `upperTS` (the timeline position when search opened). `beforeTS`, when set,
-    /// pages further back: only rows strictly older than it are returned. Each
-    /// candidate is decrypted and exact-substring verified before inclusion.
-    func search(_ rawQuery: String, maxResults: Int, upperTS: TimeInterval, beforeTS: TimeInterval?) -> OCRSearchPage {
+    /// Fetch the match set for a query, sampled to span the *entire* history rather
+    /// than a dense slice of the most recent moments.
+    ///
+    /// A ubiquitous word ("the") matches nearly every frame, so a plain newest-first
+    /// `LIMIT n` fills the cap within the last couple of hours and never reaches
+    /// older days. Instead we split the full time range of the matches into
+    /// `maxResults` equal buckets and keep the newest match in each — one
+    /// representative per time slice. The result set therefore covers every date,
+    /// densest where activity is densest, and stays bounded by `maxResults`. Fewer
+    /// matches than the cap skip bucketing and return exhaustively. Each kept row is
+    /// decrypted and exact-substring verified before inclusion.
+    func search(_ rawQuery: String, maxResults: Int) -> OCRSearchPage {
         let normalizedQuery = Trigrams.normalize(rawQuery)
         let shingles = Trigrams.shingles(normalizedQuery)
-        guard !shingles.isEmpty, let db = openIfNeeded() else {
-            return OCRSearchPage(results: [], lastTS: nil, reachedEnd: true)
+        guard !shingles.isEmpty, maxResults > 0, let db = openIfNeeded() else {
+            return OCRSearchPage(results: [], didDownsample: false)
         }
 
         let (key, tokenKey) = keys()
@@ -91,38 +96,45 @@ actor OCRStore {
         let lists = tokens.map { postingFids(for: $0, db: db) }
         let candidates = PostingCodec.intersect(lists)
         guard !candidates.isEmpty, loadCandidates(candidates, db: db) else {
-            return OCRSearchPage(results: [], lastTS: nil, reachedEnd: true)
+            return OCRSearchPage(results: [], didDownsample: false)
         }
 
-        // First page bounds inclusively at the open moment (`<= upperTS`); later
-        // pages page strictly past the previous page's last row (`< beforeTS`).
-        let tsClause = beforeTS == nil ? "f.ts <= ?" : "f.ts < ?"
-        let tsBound = beforeTS ?? upperTS
+        let didDownsample = candidates.count > maxResults
+        // Under the cap: return every match, newest-first. Over it: keep only the
+        // newest match per time bucket (rn = 1) so the set spans the full range.
+        // Both decrypt at most ~maxResults rows.
+        let sql: String
+        if didDownsample, let (minTS, maxTS) = candidateTSRange(db: db), maxTS > minTS {
+            let width = (maxTS - minTS) / Double(maxResults)
+            sql = """
+                WITH bucketed AS (
+                    SELECT f.id AS id, f.ts AS ts, f.app_id AS app_id, f.text_cipher AS cipher,
+                           ROW_NUMBER() OVER (
+                               PARTITION BY CAST((f.ts - \(minTS)) / \(width) AS INTEGER)
+                               ORDER BY f.ts DESC
+                           ) AS rn
+                    FROM ocr_frames f JOIN _cand c ON f.rowid = c.fid
+                )
+                SELECT id, ts, app_id, cipher FROM bucketed WHERE rn = 1 ORDER BY ts DESC;
+                """
+        } else {
+            sql = """
+                SELECT f.id, f.ts, f.app_id, f.text_cipher
+                FROM ocr_frames f JOIN _cand c ON f.rowid = c.fid
+                ORDER BY f.ts DESC
+                LIMIT \(maxResults);
+                """
+        }
 
-        // Candidate frames, newest first — ordering, ts-bound and limit stay in SQL
-        // because the intersected set can be large for a short query.
-        let sql = """
-            SELECT f.id, f.ts, f.app_id, f.text_cipher
-            FROM ocr_frames f JOIN _cand c ON f.rowid = c.fid
-            WHERE \(tsClause)
-            ORDER BY f.ts DESC
-            LIMIT ?;
-            """
         var stmt: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else {
-            return OCRSearchPage(results: [], lastTS: nil, reachedEnd: true)
+            return OCRSearchPage(results: [], didDownsample: false)
         }
         defer { sqlite3_finalize(stmt) }
-        sqlite3_bind_double(stmt, 1, tsBound)
-        sqlite3_bind_int(stmt, 2, Int32(maxResults))
 
         var results: [SearchResult] = []
-        var lastTS: TimeInterval?
-        var candidateCount = 0
         while sqlite3_step(stmt) == SQLITE_ROW {
-            candidateCount += 1
             let ts = sqlite3_column_double(stmt, 1)
-            lastTS = ts // cursor advances over every scanned row, matched or not
             guard let idC = sqlite3_column_text(stmt, 0),
                   let blobPtr = sqlite3_column_blob(stmt, 3) else { continue }
             let id = String(cString: idC)
@@ -139,8 +151,18 @@ actor OCRStore {
                 snippet: SnippetBuilder.make(text, query: normalizedQuery)
             ))
         }
-        // A short page means the candidate stream is exhausted — nothing older left.
-        return OCRSearchPage(results: results, lastTS: lastTS, reachedEnd: candidateCount < maxResults)
+        return OCRSearchPage(results: results, didDownsample: didDownsample)
+    }
+
+    /// Min/max timestamp across the loaded candidate frames — the bounds we bucket.
+    private func candidateTSRange(db: OpaquePointer) -> (min: TimeInterval, max: TimeInterval)? {
+        let sql = "SELECT MIN(f.ts), MAX(f.ts) FROM ocr_frames f JOIN _cand c ON f.rowid = c.fid;"
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else { return nil }
+        defer { sqlite3_finalize(stmt) }
+        guard sqlite3_step(stmt) == SQLITE_ROW,
+              sqlite3_column_type(stmt, 0) != SQLITE_NULL else { return nil }
+        return (sqlite3_column_double(stmt, 0), sqlite3_column_double(stmt, 1))
     }
 
     /// Decode one token's posting list into its ascending frame ids.
@@ -192,18 +214,22 @@ final class SearchIndex: ObservableObject {
     /// True while a query is loading — so the UI shows a loading state instead of
     /// prematurely reading empty results as "No matches".
     @Published private(set) var isSearching = false
-    /// True when the result set was clamped to `resultCap` (older matches exist
-    /// beyond what the ruler/list cover).
-    @Published private(set) var didHitCap = false
+    /// True when there were more matches than `resultCap`, so the set was
+    /// downsampled to one-per-time-bucket. Every date is still spanned — only the
+    /// density within each period is thinned.
+    @Published private(set) var didDownsample = false
 
     private let store: OCRStore
     /// Re-derives result previews and highlight boxes from the video on demand.
     private let extractor: FrameExtractor
     private let thumbCache = NSCache<NSString, NSImage>()
-    /// The whole match set is loaded in one pass so the ruler can span every date
-    /// and clicking it can scroll to any result. Capped to bound memory/time; the
-    /// most recent `resultCap` matches (within the date limit) are kept.
-    private let resultCap = 2000
+    /// Every match is loaded in one pass so the list shows them all and the ruler —
+    /// which alone thins the view, by snapping results onto its fixed slot grid —
+    /// spans every date. This cap is only a memory/time safety valve set well above
+    /// realistic match counts; if it's ever exceeded the overflow is downsampled to
+    /// one-per-time-bucket, so even then the set still spans the full history rather
+    /// than collapsing to the most recent moments.
+    private let resultCap = 50_000
     private var searchTask: Task<Void, Never>?
 
     private var currentQuery = ""
@@ -240,11 +266,10 @@ final class SearchIndex: ObservableObject {
             let query = self.currentQuery
             Task { [weak self] in
                 guard let self else { return }
-                let page = await self.store.search(
-                    query, maxResults: self.resultCap, upperTS: .greatestFiniteMagnitude, beforeTS: nil)
+                let page = await self.store.search(query, maxResults: self.resultCap)
                 if query != self.currentQuery { return }
                 self.results = page.results
-                self.didHitCap = !page.reachedEnd
+                self.didDownsample = page.didDownsample
             }
         }
     }
@@ -255,7 +280,7 @@ final class SearchIndex: ObservableObject {
         results = []
         hasQuery = false
         isSearching = false
-        didHitCap = false
+        didDownsample = false
         currentQuery = ""
         thumbCache.removeAllObjects()
         extractor.close()
@@ -269,7 +294,7 @@ final class SearchIndex: ObservableObject {
         guard hasQuery else {
             results = []
             isSearching = false
-            didHitCap = false
+            didDownsample = false
             return
         }
         // Show the loading state immediately (covers the debounce + fetch) so an
@@ -282,12 +307,12 @@ final class SearchIndex: ObservableObject {
             // Coalesce fast keystrokes into a single query.
             try? await Task.sleep(nanoseconds: 40_000_000)
             if Task.isCancelled { return }
-            // One indexed scan pulls the entire match set (newest-first, capped),
-            // so the ruler covers every date and any result can be scrolled to.
-            let page = await store.search(rawQuery, maxResults: resultCap, upperTS: .greatestFiniteMagnitude, beforeTS: nil)
+            // One indexed scan pulls the entire match set, spanning every date, so
+            // the list shows them all and the ruler can scroll to any of them.
+            let page = await store.search(rawQuery, maxResults: resultCap)
             if Task.isCancelled || rawQuery != self.currentQuery { return }
             self.results = page.results
-            self.didHitCap = !page.reachedEnd
+            self.didDownsample = page.didDownsample
             self.isSearching = false
         }
     }
