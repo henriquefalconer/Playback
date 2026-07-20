@@ -50,9 +50,11 @@ final class ProcessingService: ObservableObject {
     /// Segment ids currently being OCR'd by some worker, so concurrent workers
     /// never pick the same segment. Cleared on each begin; per-id on completion.
     private var indexingSegmentIDs: Set<String> = []
-    /// How many OCR helpers may run at once. Leaves headroom for the UI and the
-    /// recording path; each helper is ~1 core + ~0.4 GB, all reclaimed on close.
-    private var indexConcurrency: Int { max(1, min(3, ProcessInfo.processInfo.activeProcessorCount - 2)) }
+    /// How many OCR helpers may run at once. OCR is CPU-bound (~1 core each), so
+    /// throughput scales with the pool: use all cores but one (kept free for the
+    /// timeline UI + recording), capped at 6 to bound RAM (~0.4 GB per helper).
+    /// All are killed on timeline close, so this load only exists while viewing.
+    private var indexConcurrency: Int { max(1, min(6, ProcessInfo.processInfo.activeProcessorCount - 1)) }
     /// The search key, loaded once per indexing session (not per segment) so the
     /// keychain is touched at most once each time the timeline opens — one prompt
     /// after an app update instead of one per segment, and no repeated reads.
