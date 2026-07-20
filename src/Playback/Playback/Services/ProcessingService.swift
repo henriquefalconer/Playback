@@ -9,11 +9,18 @@ import CoreGraphics
 import SQLite3
 import AppKit
 import Security
+import CryptoKit
 import UniformTypeIdentifiers
 import os
 import MachO
 
 private let SQLITE_TRANSIENT = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
+
+extension Notification.Name {
+    /// Posted each time a segment finishes OCR indexing, so an open search can
+    /// pull the newly-indexed matches in.
+    static let ocrIndexProgressed = Notification.Name("com.falconer.Playback.ocrIndexProgressed")
+}
 
 @MainActor
 final class ProcessingService: ObservableObject {
@@ -46,8 +53,17 @@ final class ProcessingService: ObservableObject {
     /// How many OCR helpers may run at once. Leaves headroom for the UI and the
     /// recording path; each helper is ~1 core + ~0.4 GB, all reclaimed on close.
     private var indexConcurrency: Int { max(1, min(3, ProcessInfo.processInfo.activeProcessorCount - 2)) }
+    /// The search key, loaded once per indexing session (not per segment) so the
+    /// keychain is touched at most once each time the timeline opens — one prompt
+    /// after an app update instead of one per segment, and no repeated reads.
+    private var indexKey: SymmetricKey?
     /// True while a processing cycle (screenshot → video encoding) is in flight.
     @Published private(set) var isRunning = false
+    /// True while the OCR backlog is still being indexed with the timeline open.
+    /// Drives the search panel's "Loading results…" vs "No more results" footer.
+    @Published private(set) var indexingInProgress = false
+    /// Count of live index workers; when it drops to 0 the backlog is drained.
+    private var activeIndexWorkers = 0
     private var lastProcessingTime: Date?
     private var totalSegmentsCreated = 0
     private var triggerCount = 0
@@ -639,12 +655,32 @@ final class ProcessingService: ObservableObject {
         indexEpoch += 1
         let epoch = indexEpoch
         indexingSegmentIDs.removeAll()
+        indexKey = nil
         let workers = indexConcurrency
         indexLock.unlock()
-        Log.processing.info("OCR indexing started (timeline open) — \(workers, privacy: .public) worker(s)")
-        for _ in 0..<workers {
-            indexQueue.async { [weak self] in self?.runIndexer(epoch: epoch) }
+        // Load the key once, off the main thread (it may block on a keychain
+        // prompt), then fan out the worker pool. Every worker reuses this key.
+        indexQueue.async { [weak self] in
+            guard let self else { return }
+            let key = SearchCrypto.loadOrCreateKey()
+            self.indexLock.lock()
+            guard self.indexingActive, self.indexEpoch == epoch else { self.indexLock.unlock(); return }
+            self.indexKey = key
+            self.activeIndexWorkers = workers
+            self.indexLock.unlock()
+            self.setIndexingInProgress(true)
+            Log.processing.info("OCR indexing started (timeline open) — \(workers, privacy: .public) worker(s)")
+            for _ in 0..<workers {
+                self.indexQueue.async { self.runIndexer(epoch: epoch) }
+            }
         }
+    }
+
+    /// Set `indexingInProgress` on the main thread (it's a `@Published` the search
+    /// UI observes), from any worker thread.
+    private func setIndexingInProgress(_ value: Bool) {
+        if Thread.isMainThread { indexingInProgress = value }
+        else { DispatchQueue.main.async { self.indexingInProgress = value } }
     }
 
     /// Stop indexing and reclaim CPU + RAM immediately. Called when the timeline
@@ -653,8 +689,10 @@ final class ProcessingService: ObservableObject {
     func endTimelineIndexing() {
         indexLock.lock()
         indexingActive = false
+        activeIndexWorkers = 0
         let processes = currentIndexProcesses
         indexLock.unlock()
+        setIndexingInProgress(false)
         // Vision OCR runs in-process in each helper (~0.4 GB working set); it is
         // fully reclaimed when the subprocess dies here, so no OCR memory survives
         // the timeline closing. (The main app's own player/decoder buffers are
@@ -676,10 +714,18 @@ final class ProcessingService: ObservableObject {
             indexOneSegment(segment, epoch: epoch)
             releaseSegmentClaim(segment.id)
             processed += 1
+            // Tell any open search that fresh matches are now available.
+            NotificationCenter.default.post(name: .ocrIndexProgressed, object: nil)
         }
         if processed > 0 {
             Log.processing.info("OCR indexing worker ended — processed \(processed, privacy: .public) segment(s)")
         }
+        // Last worker out drains the backlog: clear the "still loading" state.
+        indexLock.lock()
+        activeIndexWorkers = max(0, activeIndexWorkers - 1)
+        let drained = activeIndexWorkers == 0 && indexEpoch == epoch
+        indexLock.unlock()
+        if drained { setIndexingInProgress(false) }
     }
 
     /// Atomically pick the newest un-indexed segment and mark it claimed, so
@@ -750,7 +796,11 @@ final class ProcessingService: ObservableObject {
             try? FileManager.default.removeItem(at: manifestURL)
         }
 
-        let key = SearchCrypto.loadOrCreateKey()
+        // Reuse the session key loaded once in `beginTimelineIndexing`.
+        indexLock.lock()
+        let sessionKey = indexKey
+        indexLock.unlock()
+        guard let key = sessionKey else { return }
         let manifest = OCRBackfill.Manifest(
             videoPath: videoURL.path,
             startTS: segment.startTS,

@@ -9,6 +9,9 @@ import AppKit
 /// clicked, so the timeline behind it jumps while the panel remains available.
 struct SearchOverlayView: View {
     @ObservedObject var index: SearchIndex
+    /// Drives the list footer: "Loading results…" while the OCR backlog is still
+    /// being indexed, "No more results" once every frame is searchable.
+    @ObservedObject private var processing = ProcessingService.shared
     /// Bumped by the parent (on CMD+F) to (re)focus the field without closing.
     let focusTrigger: Int
     /// Invoked with the timestamp, frame id, and current query of a clicked result.
@@ -134,6 +137,8 @@ struct SearchOverlayView: View {
                                 }
                                 .id(result.id)
                             }
+                            // Always a footer at the end of the list — never nothing.
+                            listFooter
                         }
                         .padding(6)
                         .background(NativeScrollerHider())
@@ -163,7 +168,9 @@ struct SearchOverlayView: View {
     @ViewBuilder
     private var emptyState: some View {
         Group {
-            if index.isSearching {
+            // Still fetching, or still indexing the backlog: show the loader rather
+            // than a premature "No matches" — matches may yet appear.
+            if index.isSearching || processing.indexingInProgress {
                 spinnerLabel
             } else {
                 Text(Trigrams.normalize(query).count < Trigrams.minLength ? "Keep typing…" : "No matches")
@@ -173,6 +180,28 @@ struct SearchOverlayView: View {
         }
         .frame(maxWidth: .infinity, alignment: .center)
         .padding(.vertical, 18)
+    }
+
+    /// The end-of-list footer. While the OCR backlog is indexing it reads
+    /// "Loading results…"; once everything is searchable it reads "No more
+    /// results" (or notes the cap when the match set was truncated). It is never
+    /// empty, so the list always ends with a clear status.
+    @ViewBuilder
+    private var listFooter: some View {
+        HStack(spacing: 8) {
+            if processing.indexingInProgress {
+                ProgressView().controlSize(.small)
+                Text("Loading results…")
+            } else if index.didHitCap {
+                Text("Showing the most recent 2,000 matches")
+            } else {
+                Text("No more results")
+            }
+        }
+        .font(.system(size: 12))
+        .foregroundStyle(.secondary)
+        .frame(maxWidth: .infinity, alignment: .center)
+        .padding(.vertical, 10)
     }
 
     /// Centered spinner + label. Uses the same 13pt text as the empty-state hints

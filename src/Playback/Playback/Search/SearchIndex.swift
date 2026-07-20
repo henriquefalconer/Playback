@@ -204,14 +204,45 @@ final class SearchIndex: ObservableObject {
     private var searchTask: Task<Void, Never>?
 
     private var currentQuery = ""
+    /// Coalesces the burst of index-progress notifications into one refresh.
+    private var refreshScheduled = false
 
     init() {
         self.store = OCRStore(path: Paths.databasePath.path)
         thumbCache.countLimit = 300
+        // As the background indexer finishes more segments, pull the newly-indexed
+        // matches into the open result list so results stream in without retyping.
+        NotificationCenter.default.addObserver(
+            forName: .ocrIndexProgressed, object: nil, queue: .main
+        ) { [weak self] _ in
+            self?.scheduleIndexRefresh()
+        }
     }
 
     /// Open the search session; nothing to preload.
     func activate() {}
+
+    /// Re-run the current query ~every 1.5s while indexing progresses. Silent: it
+    /// never clears the visible rows or flashes the empty-state spinner (the
+    /// list's footer already signals "Loading results…").
+    private func scheduleIndexRefresh() {
+        guard hasQuery, !refreshScheduled else { return }
+        refreshScheduled = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+            guard let self else { return }
+            self.refreshScheduled = false
+            guard self.hasQuery else { return }
+            let query = self.currentQuery
+            Task { [weak self] in
+                guard let self else { return }
+                let page = await self.store.search(
+                    query, maxResults: self.resultCap, upperTS: .greatestFiniteMagnitude, beforeTS: nil)
+                if query != self.currentQuery { return }
+                self.results = page.results
+                self.didHitCap = !page.reachedEnd
+            }
+        }
+    }
 
     func deactivate() {
         searchTask?.cancel()
