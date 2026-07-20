@@ -11,28 +11,34 @@ struct SearchOverlayView: View {
     @ObservedObject var index: SearchIndex
     /// Bumped by the parent (on CMD+F) to (re)focus the field without closing.
     let focusTrigger: Int
-    /// True when results are limited to a date earlier than the latest — tints the
-    /// calendar button so an active limit is visible.
-    let isDateLimited: Bool
-    /// Opens the date-limit picker.
-    let onCalendarTap: () -> Void
     /// Invoked with the timestamp, frame id, and current query of a clicked result.
     let onSelect: (_ ts: TimeInterval, _ id: String, _ query: String) -> Void
 
     @State private var query: String = ""
     @FocusState private var fieldFocused: Bool
+    /// Live drag translation while the header is being dragged.
+    @State private var dragOffset: CGSize = .zero
+    /// Committed drag translation from previous drags — the modal can be moved
+    /// anywhere inside the app view by dragging its header.
+    @State private var committedOffset: CGSize = .zero
 
     private let panelWidth: CGFloat = 520
 
     var body: some View {
         VStack(spacing: 0) {
             searchField
+                .contentShape(Rectangle())
+                .gesture(dragGesture)
             if !query.trimmingCharacters(in: .whitespaces).isEmpty {
                 Divider().opacity(0.4)
                 resultsList
             }
         }
         .frame(width: panelWidth)
+        .offset(
+            x: committedOffset.width + dragOffset.width,
+            y: committedOffset.height + dragOffset.height
+        )
         .background(
             RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .fill(.ultraThinMaterial)
@@ -51,6 +57,18 @@ struct SearchOverlayView: View {
     /// isn't yet in the responder chain (first open) or lost focus to a result.
     private func focusField() {
         DispatchQueue.main.async { fieldFocused = true }
+    }
+
+    /// Drag the whole panel by its header, freeing it from the top-right corner
+    /// so it can be repositioned anywhere inside the app view.
+    private var dragGesture: some Gesture {
+        DragGesture()
+            .onChanged { dragOffset = $0.translation }
+            .onEnded { value in
+                committedOffset.width += value.translation.width
+                committedOffset.height += value.translation.height
+                dragOffset = .zero
+            }
     }
 
     // MARK: - Search field
@@ -86,16 +104,6 @@ struct SearchOverlayView: View {
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("search.clear")
             }
-
-            // Date-limit picker: cap results at a chosen date & time.
-            Button(action: onCalendarTap) {
-                Image(systemName: "calendar")
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundStyle(isDateLimited ? Color.accentColor : Color.secondary)
-            }
-            .buttonStyle(.plain)
-            .help("Limit results by date & time")
-            .accessibilityIdentifier("search.calendar")
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 14)

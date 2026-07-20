@@ -117,7 +117,7 @@ struct SearchTimelineRuler: View {
                 let w = minorBaseWidth + m * minorMaxWidthExtra
                 let tall = minorBaseHeight + m * minorMaxHeightExtra
                 let rect = CGRect(x: right - w, y: dy - tall / 2, width: w, height: tall)
-                ctx.fill(Path(roundedRect: rect, cornerRadius: tall / 2),
+                ctx.fill(Path(roundedRect: rect, cornerRadius: majorThickness / 2),
                          with: .color(.primary.opacity(0.16 + m * 0.5)))
             }
             i += step

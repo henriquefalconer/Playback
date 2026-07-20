@@ -203,8 +203,6 @@ final class SearchIndex: ObservableObject {
     private let resultCap = 2000
     private var searchTask: Task<Void, Never>?
 
-    /// Results are bounded to moments at or before this — the search date limit.
-    private var upperBound: TimeInterval = .greatestFiniteMagnitude
     private var currentQuery = ""
 
     init() {
@@ -212,17 +210,8 @@ final class SearchIndex: ObservableObject {
         thumbCache.countLimit = 300
     }
 
-    /// Anchor results to the timeline moment search opened at; nothing to preload.
-    func activate(upperBound: TimeInterval) {
-        self.upperBound = upperBound
-    }
-
-    /// Change the max-timestamp limit (from the date-limit picker) and re-run the
-    /// current query from the top with it.
-    func setUpperBound(_ ts: TimeInterval) {
-        upperBound = ts
-        if hasQuery { search(currentQuery) }
-    }
+    /// Open the search session; nothing to preload.
+    func activate() {}
 
     func deactivate() {
         searchTask?.cancel()
@@ -258,7 +247,7 @@ final class SearchIndex: ObservableObject {
             if Task.isCancelled { return }
             // One indexed scan pulls the entire match set (newest-first, capped),
             // so the ruler covers every date and any result can be scrolled to.
-            let page = await store.search(rawQuery, maxResults: resultCap, upperTS: upperBound, beforeTS: nil)
+            let page = await store.search(rawQuery, maxResults: resultCap, upperTS: .greatestFiniteMagnitude, beforeTS: nil)
             if Task.isCancelled || rawQuery != self.currentQuery { return }
             self.results = page.results
             self.didHitCap = !page.reachedEnd
