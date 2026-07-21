@@ -418,7 +418,7 @@ struct ContentView: View {
 
             switch event.keyCode {
             case 53:  // ESC - Close window
-                NSApp.keyWindow?.close()
+                closeTimelineWindow()
                 return nil
 
             case 49:  // Space - Play/Pause
@@ -575,6 +575,37 @@ struct ContentView: View {
 
     private func togglePlayPause() {
         playbackController.togglePlayPause()
+    }
+
+    /// Close the timeline window on ESC. Calling `close()` directly on a native
+    /// fullscreen window sometimes only drops it out of fullscreen and leaves it open
+    /// (AppKit/SwiftUI entangle the fullscreen-exit with the close). So if we're
+    /// fullscreen, exit first and close once `didExitFullScreen` lands — with a
+    /// fallback close in case that notification never arrives.
+    private func closeTimelineWindow() {
+        let window = NSApp.keyWindow
+            ?? NSApp.windows.first(where: { $0.identifier?.rawValue.contains("timeline") == true })
+        guard let window else { return }
+
+        guard window.styleMask.contains(.fullScreen) else {
+            window.close()
+            return
+        }
+
+        var token: NSObjectProtocol?
+        var closed = false
+        let close: () -> Void = {
+            guard !closed else { return }
+            closed = true
+            if let token { NotificationCenter.default.removeObserver(token) }
+            window.close()
+        }
+        token = NotificationCenter.default.addObserver(
+            forName: NSWindow.didExitFullScreenNotification, object: window, queue: .main
+        ) { _ in close() }
+        window.toggleFullScreen(nil)
+        // Fallback: if the exit transition never reports completion, close anyway.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { close() }
     }
 
     /// Jump the timeline to the moment behind a search result. Keeps the search
