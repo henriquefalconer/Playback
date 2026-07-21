@@ -118,6 +118,13 @@ struct TimelineView: View {
 
     private static var appNameCache: [String: String] = [:]
 
+    /// VoiceOver label for a segment's colored bar: the app name, plus a
+    /// "processing" note for the latest still-unprocessed run.
+    private func accessibilityLabel(for segment: AppSegment) -> String {
+        let name = segment.appId.map { appDisplayName(for: $0) } ?? "Unknown app"
+        return segment.isPending ? "\(name), processing" : name
+    }
+
     private func appDisplayName(for appId: String) -> String {
         if let cached = Self.appNameCache[appId] {
             return cached
@@ -243,6 +250,9 @@ struct TimelineView: View {
                             }
                         }
                         .position(x: segCenterX, y: height / 2)
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityIdentifier(segment.isPending ? "timeline.appSegment.pending" : "timeline.appSegment")
+                        .accessibilityLabel(accessibilityLabel(for: segment))
                     }
                 }
                 .frame(width: width, height: height)

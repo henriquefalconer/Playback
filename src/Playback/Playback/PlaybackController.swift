@@ -34,6 +34,10 @@ final class PlaybackController: ObservableObject {
     @Published var frozenFrame: NSImage?
     /// When `true`, the UI should display `frozenFrame` over the video.
     @Published var showFrozenFrame: Bool = false
+    /// When `true`, the playhead sits inside the latest still-unprocessed run,
+    /// which has no encoded video yet — the UI covers the frame with black until
+    /// the encode lands and it becomes a real segment.
+    @Published private(set) var isShowingPendingBlack: Bool = false
     /// True once the player's current item is ready to display frames.
     /// Reset whenever the item is swapped.
     @Published private(set) var isCurrentItemReady: Bool = false
@@ -191,6 +195,16 @@ final class PlaybackController: ObservableObject {
         preloadPlayer = nil
     }
 
+    /// Enter the "pending run" visual state: the playhead is over frames that
+    /// haven't been encoded yet, so pause and let the UI cover everything with
+    /// black. No player item is loaded — there's nothing to decode.
+    private func enterPendingBlack() {
+        player.pause()
+        isPlaying = false
+        showFrozenFrame = false
+        isShowingPendingBlack = true
+    }
+
     /// Release all playback resources when the timeline window closes.
     /// The controller outlives the window (it's an app-level @StateObject), so
     /// without this the video decoder, its IOSurfaces, and the frozen frame
@@ -212,6 +226,7 @@ final class PlaybackController: ObservableObject {
         currentSegment = nil
         frozenFrame = nil
         showFrozenFrame = false
+        isShowingPendingBlack = false
         currentTime = Date().timeIntervalSince1970
         // The player's decoder and the encode triggered by opening the timeline
         // leave large buffers in malloc's cache; reclaim them promptly instead
@@ -382,6 +397,21 @@ final class PlaybackController: ObservableObject {
                 }
             }
         }
+
+        // The latest still-unprocessed run has no encoded video — render it black.
+        // Keep the playhead/bubble tracking the requested time, load no item, and
+        // still schedule the end-of-scrub bookkeeping below.
+        if store.isPendingTime(clampedTime) {
+            currentTime = clampedTime
+            enterPendingBlack()
+            Log.playback.debug("(scrub) time=\(clampedTime) is in pending run — showing black")
+            scrubEndWorkItem?.cancel()
+            let work = DispatchWorkItem { [weak self] in self?.isScrubbing = false }
+            scrubEndWorkItem = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: work)
+            return
+        }
+        isShowingPendingBlack = false
 
         let direction = clampedTime - currentTime
 
@@ -597,6 +627,16 @@ final class PlaybackController: ObservableObject {
     }
 
     func update(for time: TimeInterval, store: TimelineStore) {
+        // Latest still-unprocessed run: no video to load — track the time and show
+        // black until a processing cycle turns it into a real segment.
+        if store.isPendingTime(time) {
+            currentTime = time
+            enterPendingBlack()
+            Log.playback.debug("update(for:\(time)) is in pending run — showing black")
+            return
+        }
+        isShowingPendingBlack = false
+
         guard let (segment, offset) = store.segment(for: time) else {
             Log.playback.notice("No segment found for time=\(time)")
             return

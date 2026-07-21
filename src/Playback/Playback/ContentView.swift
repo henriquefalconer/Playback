@@ -164,7 +164,17 @@ struct ContentView: View {
         // does not wait on this.)
         .onChange(of: processingService.isRunning) { _, running in
             guard !running else { return }
-            timelineStore.reload {}
+            timelineStore.reload {
+                // If the user was parked on the pending (black) run and this cycle
+                // just encoded it into a real segment, load that segment's frame in
+                // place. The followingLatest path (onChange segments.count) already
+                // handles the "watching the latest" case.
+                if !followingLatest,
+                   playbackController.isShowingPendingBlack,
+                   !timelineStore.isPendingTime(centerTime) {
+                    playbackController.update(for: centerTime, store: timelineStore)
+                }
+            }
         }
         .onChange(of: playbackController.isCurrentItemReady) { _, _ in
             maybeRevealVideo()
@@ -228,6 +238,16 @@ struct ContentView: View {
                         .ignoresSafeArea()
                 }
                 .transition(.opacity.animation(.easeInOut(duration: 0.2)))
+            }
+
+            // The playhead is over the latest still-unprocessed run: there's no
+            // encoded video yet, so cover the frame with black. The timeline bar
+            // (drawn later in this ZStack) stays visible on top, so the pending
+            // segment's colored bar and accessibility show through immediately.
+            if playbackController.isShowingPendingBlack {
+                Color.black
+                    .ignoresSafeArea()
+                    .transition(.opacity.animation(.easeInOut(duration: 0.2)))
             }
 
             // Initial load: cover the video (and frozen frame) with black until

@@ -83,27 +83,54 @@ struct AppSegment: Identifiable {
     let startTS: TimeInterval
     let endTS: TimeInterval
     let appId: String?
+    /// True for the latest still-unprocessed run (temp frames not yet encoded to
+    /// a chunk). Its colored bar + accessibility render exactly like a normal
+    /// segment, but its frames play back black until the encode lands.
+    var isPending: Bool = false
 
     var duration: TimeInterval {
         max(0, endTS - startTS)
     }
 }
 
+/// The single latest run of recorded frames that hasn't been encoded into a video
+/// chunk yet. It has no playable video, so its span on the timeline plays back as
+/// black frames until processing turns it into a real `Segment`.
+struct PendingSegment {
+    let startTS: TimeInterval
+    let endTS: TimeInterval
+}
+
 final class TimelineStore: ObservableObject {
     @Published private(set) var segments: [Segment] = []
     @Published private(set) var appSegments: [AppSegment] = []
+    /// The latest recorded-but-not-yet-encoded run, surfaced so it's visible and
+    /// navigable on the timeline the instant it opens. `nil` when everything
+    /// recorded has already been encoded into chunks.
+    @Published private(set) var pendingSegment: PendingSegment?
     @Published private(set) var loadingState: LoadingState = .loading
 
     var timelineStart: TimeInterval? {
-        segments.first?.startTS
+        guard let pending = pendingSegment else { return segments.first?.startTS }
+        guard let segStart = segments.first?.startTS else { return pending.startTS }
+        return min(segStart, pending.startTS)
     }
 
     var timelineEnd: TimeInterval? {
-        segments.last?.endTS
+        guard let pending = pendingSegment else { return segments.last?.endTS }
+        guard let segEnd = segments.last?.endTS else { return pending.endTS }
+        return max(segEnd, pending.endTS)
     }
 
     var latestTS: TimeInterval? {
         timelineEnd
+    }
+
+    /// True when `time` lands inside the pending (un-encoded) run, i.e. there's no
+    /// video to show and playback should render black.
+    func isPendingTime(_ time: TimeInterval) -> Bool {
+        guard let pending = pendingSegment else { return false }
+        return time >= pending.startTS && time <= pending.endTS
     }
 
     private let dbPath: String
@@ -174,6 +201,7 @@ final class TimelineStore: ObservableObject {
         refreshTimer = nil
         segments = []
         appSegments = []
+        pendingSegment = nil
         loadingState = .loading
     }
 
@@ -189,8 +217,21 @@ final class TimelineStore: ObservableObject {
         refreshTimer?.invalidate()
     }
 
+    /// Publish store changes on the main thread. When already on main (the normal
+    /// case — resume/refresh/reload all run there), this runs SYNCHRONOUSLY so the
+    /// freshly loaded segments and pending run are visible the instant loadSegments
+    /// returns. That lets `positionAtLatest()` land on the true latest on the first
+    /// frame instead of flashing "Now" and then jumping once an async publish lands.
+    private func runOnMain(_ block: @escaping () -> Void) {
+        if Thread.isMainThread {
+            block()
+        } else {
+            DispatchQueue.main.async(execute: block)
+        }
+    }
+
     func loadSegments() {
-        DispatchQueue.main.async {
+        runOnMain {
             self.loadingState = .loading
         }
 
@@ -205,7 +246,7 @@ final class TimelineStore: ObservableObject {
                 errorMessage = "sqlite3_open returned code \(rc) and db == nil"
             }
             Log.timeline.fault("Failed to open meta.sqlite3 at \(self.dbPath). rc=\(rc), error=\(errorMessage)")
-            DispatchQueue.main.async {
+            runOnMain {
                 self.loadingState = .error(errorMessage)
             }
             return
@@ -225,7 +266,7 @@ final class TimelineStore: ObservableObject {
             // Don't spam logs when table simply doesn't exist yet (processing hasn't run)
             if errMsg.contains("no such table") {
                 Log.timeline.debug("segments table not yet created (processing service hasn't run)")
-                DispatchQueue.main.async {
+                runOnMain {
                     self.segments = []
                     self.appSegments = []
                     self.loadingState = .empty
@@ -319,18 +360,117 @@ final class TimelineStore: ObservableObject {
             Log.timeline.notice("appsegments table not found or error preparing query; only segments will be loaded.")
         }
 
-        DispatchQueue.main.async {
-            self.segments = loaded
-            self.appSegments = loadedAppSegments
+        // Surface the latest still-unprocessed run (temp frames beyond the last
+        // encoded chunk) so it's visible/navigable immediately — its frames play
+        // back black until a processing cycle turns it into a real segment.
+        let lastChunkEnd = loaded.last?.endTS ?? 0
+        let pending = loadPendingSegment(afterTS: lastChunkEnd)
 
-            if loaded.isEmpty {
+        runOnMain {
+            self.segments = loaded
+            self.appSegments = loadedAppSegments + (pending?.appSegments ?? [])
+            self.pendingSegment = pending?.segment
+
+            if loaded.isEmpty && pending == nil {
                 self.loadingState = .empty
             } else {
                 self.loadingState = .loaded
             }
 
-            Log.timeline.debug("Loaded \(loaded.count) segments and \(loadedAppSegments.count) appsegments")
+            Log.timeline.debug("Loaded \(loaded.count) segments, \(loadedAppSegments.count) appsegments; pending=\(pending != nil)")
         }
+    }
+
+    // MARK: - Pending (un-encoded) run
+
+    private struct PendingFrame {
+        let ts: TimeInterval
+        let appId: String?
+    }
+
+    /// Scan the temp screenshot directory for the latest temporally-contiguous run
+    /// of frames not yet encoded into a chunk (everything after `afterTS`), and
+    /// return it as a `PendingSegment` plus its per-app colored sub-segments.
+    /// Frames are named `YYYYMMDD-HHMMSS-<uuid>-<bundleid>` so timestamp + app can
+    /// be read from the filename alone — no image decode.
+    private func loadPendingSegment(afterTS: TimeInterval) -> (segment: PendingSegment, appSegments: [AppSegment])? {
+        let fm = FileManager.default
+        let tempDir = Paths.tempDirectory
+        guard let monthDirs = try? fm.contentsOfDirectory(
+            at: tempDir, includingPropertiesForKeys: nil, options: .skipsHiddenFiles
+        ) else { return nil }
+
+        var frames: [PendingFrame] = []
+        for monthDir in monthDirs {
+            guard let dayDirs = try? fm.contentsOfDirectory(
+                at: monthDir, includingPropertiesForKeys: nil, options: .skipsHiddenFiles
+            ) else { continue }
+            for dayDir in dayDirs {
+                guard let files = try? fm.contentsOfDirectory(
+                    at: dayDir, includingPropertiesForKeys: nil, options: .skipsHiddenFiles
+                ) else { continue }
+                for file in files {
+                    let name = file.lastPathComponent
+                    guard let (ts, appId) = Self.parseScreenshotFilename(name), ts > afterTS else { continue }
+                    frames.append(PendingFrame(ts: ts, appId: appId))
+                }
+            }
+        }
+        guard !frames.isEmpty else { return nil }
+        frames.sort { $0.ts < $1.ts }
+
+        // Keep only the latest contiguous run — the same 10s gap the encoder uses
+        // to split segments. That run is "the current segment still being recorded
+        // / awaiting processing"; earlier orphaned runs (if any) encode separately.
+        let maxFrameGap: TimeInterval = 10.0
+        var groupStart = 0
+        for i in 1..<frames.count where frames[i].ts - frames[i - 1].ts > maxFrameGap {
+            groupStart = i
+        }
+        let group = Array(frames[groupStart...])
+        guard let first = group.first, let last = group.last else { return nil }
+        let startTS = first.ts
+        let endTS = last.ts + 2.0  // last frame covers its ~2s capture interval
+        guard endTS > afterTS else { return nil }
+
+        // Split the run into per-app colored sub-segments, matching the encoder.
+        var appSegs: [AppSegment] = []
+        var curApp = group[0].appId
+        var segStart = group[0].ts
+        for i in 1..<group.count where group[i].appId != curApp {
+            appSegs.append(AppSegment(
+                id: "pending-\(segStart)", startTS: segStart,
+                endTS: group[i - 1].ts + 2.0, appId: curApp, isPending: true
+            ))
+            curApp = group[i].appId
+            segStart = group[i].ts
+        }
+        appSegs.append(AppSegment(
+            id: "pending-\(segStart)", startTS: segStart,
+            endTS: last.ts + 2.0, appId: curApp, isPending: true
+        ))
+
+        return (PendingSegment(startTS: startTS, endTS: endTS), appSegs)
+    }
+
+    private static let filenameFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyyMMdd HHmmss"
+        formatter.timeZone = TimeZone.current
+        return formatter
+    }()
+
+    /// Parse `YYYYMMDD-HHMMSS-<uuid>-<bundleid>` into (timestamp, appId).
+    private static func parseScreenshotFilename(_ name: String) -> (ts: TimeInterval, appId: String?)? {
+        let parts = name.split(separator: "-", maxSplits: 3)
+        guard parts.count >= 2 else { return nil }
+        let datePart = String(parts[0])
+        let timePart = String(parts[1])
+        guard datePart.count == 8, timePart.count == 6 else { return nil }
+        guard let date = filenameFormatter.date(from: "\(datePart) \(timePart)") else { return nil }
+
+        let appId: String? = parts.count >= 4 ? String(parts[3]) : nil
+        return (date.timeIntervalSince1970, appId)
     }
 
     /// Simple version (without explicit direction) used in places where we're not
