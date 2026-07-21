@@ -614,6 +614,7 @@ struct ContentView: View {
         token = NotificationCenter.default.addObserver(
             forName: NSWindow.didExitFullScreenNotification, object: window, queue: .main
         ) { _ in close() }
+        fullscreenManager.beginIntentionalExit()
         window.toggleFullScreen(nil)
         // Fallback: if the exit transition never reports completion, close anyway.
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { close() }
@@ -636,8 +637,10 @@ struct ContentView: View {
             forName: NSWindow.didDeminiaturizeNotification, object: window, queue: .main
         ) { [fullscreenManager] _ in
             if let restoreToken { NotificationCenter.default.removeObserver(restoreToken) }
-            fullscreenManager.configureFullscreenPresentation()
-            fullscreenManager.enterFullscreen(window)
+            // didDeminiaturize fires while the genie animation is still settling, which
+            // reverts a just-entered fullscreen. enterFullscreenSticky re-enters until the
+            // settle is done.
+            fullscreenManager.enterFullscreenSticky(window)
         }
 
         let miniaturize: () -> Void = {
@@ -661,6 +664,7 @@ struct ContentView: View {
         token = NotificationCenter.default.addObserver(
             forName: NSWindow.didExitFullScreenNotification, object: window, queue: .main
         ) { _ in run() }
+        fullscreenManager.beginIntentionalExit()
         window.toggleFullScreen(nil)
         // Fallback: if the exit transition never reports completion, minimize anyway.
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { run() }

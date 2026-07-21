@@ -287,6 +287,18 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     static func openTimeline() {
+        // If the timeline was minimized (Shift+ESC), restore it from the Dock: reuse
+        // the live window so its state is kept and the didDeminiaturize observer puts
+        // it back into fullscreen. Don't openWindow() here — that wouldn't deminiaturize.
+        if let minimized = NSApp.windows.first(where: {
+            $0.isMiniaturized && $0.identifier?.rawValue.contains("timeline") == true
+        }) {
+            NSApp.setActivationPolicy(.regular)
+            NSApp.activate(ignoringOtherApps: true)
+            minimized.deminiaturize(nil)
+            Log.hotkey.info("Timeline restored from minimized state")
+            return
+        }
         if NSApp.windows.contains(where: { $0.isVisible && $0.identifier?.rawValue.contains("timeline") == true }) {
             Log.hotkey.debug("Timeline already open — ignoring")
             return
@@ -537,6 +549,53 @@ final class FullscreenManagerWrapper: ObservableObject {
     private var noopWatchdog: DispatchWorkItem?
     private var abortWatchdog: DispatchWorkItem?
     private var fullscreenAttempts = 0
+    private var stickyActive = false
+    private var stickyWork: DispatchWorkItem?
+
+    /// Enter fullscreen and, for a few seconds, re-enter if the window reverts to
+    /// windowed. Restoring a minimized window from the Dock lands the saved windowed
+    /// frame a beat after the fullscreen enter — reverting it *without* a
+    /// didExitFullScreen notification — so we poll the styleMask rather than listen.
+    /// Close/minimize call `beginIntentionalExit()` first so the guard never fights a
+    /// deliberate exit; the user can't leave fullscreen on their own (⌃⌘F is disabled,
+    /// there's no title bar), so any windowed state here is spurious.
+    func enterFullscreenSticky(_ window: NSWindow) {
+        configureFullscreenPresentation()
+        endSticky()
+        stickyActive = true
+        enterFullscreen(window)
+        // First check well after the enter animation would finish, so we don't mistake
+        // an in-progress transition for a revert and double-toggle.
+        scheduleStickyCheck(window, delay: 1.8, remaining: 10)
+    }
+
+    private func scheduleStickyCheck(_ window: NSWindow, delay: TimeInterval, remaining: Int) {
+        let work = DispatchWorkItem { [weak self, weak window] in
+            guard let self, let window, self.stickyActive else { return }
+            guard remaining > 0, window.isVisible, !window.isMiniaturized else { self.endSticky(); return }
+            if window.styleMask.contains(.fullScreen) {
+                // Holding fullscreen — keep watching briefly in case the settle is late.
+                self.scheduleStickyCheck(window, delay: 0.5, remaining: remaining - 1)
+            } else {
+                Log.playback.info("Sticky guard re-entering fullscreen (revert caught)")
+                self.enterFullscreen(window)
+                self.scheduleStickyCheck(window, delay: 1.8, remaining: remaining - 1)
+            }
+        }
+        stickyWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+    }
+
+    /// Stop the sticky guard before a deliberate fullscreen exit (close / minimize).
+    func beginIntentionalExit() {
+        endSticky()
+    }
+
+    private func endSticky() {
+        stickyActive = false
+        stickyWork?.cancel()
+        stickyWork = nil
+    }
 
     /// Reliably drive the timeline window into native fullscreen.
     ///
