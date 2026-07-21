@@ -689,7 +689,11 @@ final class PlaybackController: ObservableObject {
             }
 
             let cm = CMTime(seconds: offset, preferredTimescale: 600)
-            seekOrDefer(to: cm, thenPlay: true)
+            // Land on the target frame paused — this is only ever used to show the
+            // latest frame when the timeline opens (and to hop to a newer latest
+            // once the opening backlog encodes), which should be a single still
+            // frame, not an auto-played fast-forward.
+            seekOrDefer(to: cm, thenPlay: false)
         } else {
             let cm = CMTime(seconds: offset, preferredTimescale: 600)
             seekOrDefer(to: cm, thenPlay: false)

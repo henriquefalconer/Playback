@@ -146,7 +146,9 @@ struct SearchOverlayView: View {
             centeredHint("Keep typing…")
         } else if !index.results.isEmpty {
             resultsScroll
-        } else if index.isSearching || processing.indexingInProgress {
+        } else if index.isSearching || processing.indexingProgress < 1.0 {
+            // Still fetching, or frames remain un-OCR'd (even if the indexing pass
+            // is momentarily paused) — matches may yet appear.
             spinnerLabel
                 .frame(maxWidth: .infinity, alignment: .center)
                 .padding(.vertical, 18)
@@ -235,9 +237,13 @@ struct SearchLoadingLabel: View {
                 .font(.system(size: fontSize))
                 .foregroundStyle(.secondary)
         }
-        .task(id: processing.indexingInProgress) {
+        // Reveal the percent after the loading label has stayed up 10s. Keyed on
+        // "backlog incomplete" — the SAME condition that shows this label — not on
+        // whether a pass is momentarily running, so the percent still appears while
+        // indexing is paused (e.g. during a search) but frames remain to OCR.
+        .task(id: processing.indexingProgress < 1.0) {
             showPercent = false
-            guard processing.indexingInProgress else { return }
+            guard processing.indexingProgress < 1.0 else { return }
             try? await Task.sleep(nanoseconds: 10_000_000_000)
             if !Task.isCancelled { showPercent = true }
         }
@@ -259,7 +265,11 @@ struct SearchListFooter: View {
 
     var body: some View {
         Group {
-            if processing.indexingInProgress {
+            // "No more results" ONLY when every frame is OCR'd. While any remain
+            // pending — even if the indexing pass is paused (e.g. while searching)
+            // or deferred (on battery) — keep showing "Loading results…", since
+            // more matches can still appear once they're indexed.
+            if processing.indexingProgress < 1.0 {
                 SearchLoadingLabel(fontSize: 12)
             } else {
                 Text("No more results")

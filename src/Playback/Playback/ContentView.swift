@@ -15,13 +15,16 @@ struct ContentView: View {
     @EnvironmentObject var playbackController: PlaybackController
     @ObservedObject private var processingService = ProcessingService.shared
 
-    // Initial load: the video area stays black until the pending screenshots
-    // are encoded and the player is ready at the latest frame.
+    // Initial load: the video area stays black only until the latest AVAILABLE
+    // frame is decoded, then lifts in one instant transition. It does NOT wait
+    // for the opening backlog to finish encoding — that can take tens of seconds
+    // and staring at black the whole time is the bug this avoids. Once the
+    // backlog encodes, a single clean jump upgrades to the true newest frame.
     @State private var revealVideo = false
-    // True once the store has been reloaded AFTER the opening backlog finished
-    // encoding — revealing before this shows a stale "latest" frame, because
-    // the store's auto-refresh only picks up new segments every 5 seconds.
-    @State private var latestDataLoaded = false
+    // While true, new/reloaded data snaps the playhead to the latest frame. Set
+    // false the moment the user navigates by hand, so the post-encode jump to the
+    // newest frame never yanks them away from where they scrubbed to.
+    @State private var followingLatest = true
 
     @StateObject private var searchIndex = SearchIndex()
     @State private var showSearch = false
@@ -67,28 +70,29 @@ struct ContentView: View {
         }
         .onAppear {
             revealVideo = false
-            latestDataLoaded = false
+            followingLatest = true
+            // Mark the window open up front so the background OCR pass stays out
+            // for the whole session (timeline OCR starts later, at reveal).
+            ProcessingService.shared.setTimelineOpen(true)
             setupEventHandlers()
             timelineStore.resume()
+            // Refresh the OCR-complete fraction so a search opened right away shows
+            // the correct "Loading…" vs "No more results" footer.
+            ProcessingService.shared.refreshIndexingProgress()
             // Flush any just-recorded frames into a segment right now (instead of
             // waiting up to 5 min for the next processing cycle), so the newest
             // content is immediately indexable — then index, newest-first.
             ProcessingService.shared.triggerProcessing(source: "timeline-open")
-            // OCR search indexing runs ONLY while the timeline is open, so the
-            // background recording path never spends CPU on text recognition. It is
-            // paused whenever the search modal opens (see the showSearch handler),
-            // since its video decoding starves the results' on-demand thumbnails.
-            if !showSearch { ProcessingService.shared.beginTimelineIndexing() }
-            // If segments are already loaded when view appears,
-            // immediately position at the most recent instant; otherwise show
-            // "Now" until the data arrives.
-            if let latest = timelineStore.latestTS {
-                centerTime = latest
-                playbackController.update(for: latest, store: timelineStore)
-            } else {
-                centerTime = Date().timeIntervalSince1970
-                playbackController.currentTime = centerTime
-            }
+            // NB: OCR indexing is deliberately NOT started here. Its helper pool
+            // saturates the video decoder + Neural Engine, and starting it now
+            // keeps the newest frame from becoming ready for tens of seconds (the
+            // black-screen delay). It starts once the latest frame is revealed —
+            // see maybeRevealVideo().
+            // Position at the latest available frame and start decoding it now;
+            // the black cover lifts the instant that frame is ready. Segments
+            // usually aren't loaded yet at onAppear (resume() loads async), in
+            // which case onChange(segments.count) does the positioning.
+            positionAtLatest()
         }
         .onDisappear {
             cleanupEventHandlers()
@@ -96,12 +100,14 @@ struct ContentView: View {
             timelineStore.suspend()
             TimelineView.clearCaches()
             // Stop indexing and kill any in-flight OCR helper the moment the
-            // timeline closes — no OCR CPU survives the window.
+            // timeline closes — no OCR CPU survives the window. Mark the window
+            // closed so the next processing cycle's background pass may run.
+            ProcessingService.shared.setTimelineOpen(false)
             ProcessingService.shared.endTimelineIndexing()
             searchIndex.deactivate()
             showSearch = false
             revealVideo = false
-            latestDataLoaded = false
+            followingLatest = true
         }
         // Load/decrypt the OCR index into memory only while the search modal is
         // open; drop it again the moment it closes.
@@ -113,6 +119,9 @@ struct ContentView: View {
                 // Browsing results is interactive and wins; the backlog resumes on
                 // close.
                 ProcessingService.shared.endTimelineIndexing()
+                // Make sure the footer's "Loading…"/"No more results" reflects the
+                // true pending state the moment the panel opens.
+                ProcessingService.shared.refreshIndexingProgress()
                 searchIndex.activate()
             } else {
                 searchIndex.deactivate()
@@ -135,31 +144,25 @@ struct ContentView: View {
                 withAnimation(.easeOut(duration: 0.15)) { matchHighlight = nil }
             }
         }
-        // Whenever segment count changes (initial load or reload),
-        // reposition centerTime to the latest available timestamp.
+        // Whenever segment count changes (initial load, or the opening backlog
+        // finishing), snap to the latest frame and load it — even while black, so
+        // it decodes and we can reveal the instant it's ready. Recording is paused
+        // while the timeline is open, so `latest` advances at most once (when the
+        // backlog encodes): a single clean jump, not a fast-forward. Skipped once
+        // the user has scrubbed away, so their position is never yanked.
         .onChange(of: timelineStore.segments.count) { _, newCount in
-            guard newCount > 0, let latest = timelineStore.latestTS else { return }
-            Log.ui.debug("segments.count changed to \(newCount); repositioning centerTime to latestTS=\(latest)")
+            guard newCount > 0, followingLatest, let latest = timelineStore.latestTS else { return }
+            Log.ui.debug("segments.count changed to \(newCount); snapping centerTime to latestTS=\(latest)")
             centerTime = latest
-            // Until the initial load completes (backlog encoded + store
-            // reloaded), don't load intermediate segments into the player —
-            // the video area is black and every load spins up a decoder for
-            // frames nobody sees. The reload completion performs the final load.
-            if !revealVideo && !latestDataLoaded { return }
             playbackController.update(for: latest, store: timelineStore)
         }
         // When the opening backlog finishes encoding, reload the store so the
-        // just-encoded segments are visible, then jump to the true latest
-        // frame; the black cover lifts once the player is ready there.
+        // just-encoded segment becomes visible; onChange(segments.count) then
+        // jumps to it. (The reveal itself is driven by isCurrentItemReady, so it
+        // does not wait on this.)
         .onChange(of: processingService.isRunning) { _, running in
-            guard !running, !revealVideo else { return }
-            timelineStore.reload {
-                latestDataLoaded = true
-                guard let latest = timelineStore.latestTS else { return }
-                centerTime = latest
-                playbackController.update(for: latest, store: timelineStore)
-                maybeRevealVideo()
-            }
+            guard !running else { return }
+            timelineStore.reload {}
         }
         .onChange(of: playbackController.isCurrentItemReady) { _, _ in
             maybeRevealVideo()
@@ -301,6 +304,7 @@ struct ContentView: View {
                     selectedTime: Binding(
                         get: { playbackController.currentTime },
                         set: { newTime in
+                            followingLatest = false
                             centerTime = newTime
                             playbackController.scrub(to: newTime, store: timelineStore)
                         }
@@ -412,12 +416,14 @@ struct ContentView: View {
                 return nil
 
             case 123:  // Left Arrow - Seek backward 5 seconds
+                followingLatest = false
                 let newTime = max(playbackController.currentTime - 5, timelineStore.timelineStart ?? 0)
                 playbackController.scrub(to: newTime, store: timelineStore)
                 centerTime = newTime
                 return nil
 
             case 124:  // Right Arrow - Seek forward 5 seconds
+                followingLatest = false
                 let newTime = min(playbackController.currentTime + 5, timelineStore.timelineEnd ?? playbackController.currentTime)
                 playbackController.scrub(to: newTime, store: timelineStore)
                 centerTime = newTime
@@ -508,6 +514,9 @@ struct ContentView: View {
 
     /// Apply a time delta to the timeline, clamping to timeline bounds.
     private func applyScrollDelta(_ secondsDelta: Double) {
+        // The user is driving the playhead by hand now — stop auto-snapping to the
+        // latest frame so a late-arriving encode can't yank them back.
+        followingLatest = false
         let base = playbackController.currentTime
         var newTime = base + secondsDelta
 
@@ -562,6 +571,7 @@ struct ContentView: View {
     /// modal open and does not steal focus from the search field. Then highlights
     /// exactly where the matched text sits on the frame.
     private func jumpToMoment(_ ts: TimeInterval, id: String, query: String) {
+        followingLatest = false
         var target = ts
         if let start = timelineStore.timelineStart { target = max(start, target) }
         if let end = timelineStore.timelineEnd { target = min(end, target) }
@@ -606,15 +616,30 @@ struct ContentView: View {
         return CGRect(x: x, y: y, width: width, height: height)
     }
 
-    /// Lift the black initial-load cover once the opening backlog is encoded,
-    /// the store has been reloaded with the freshly encoded segments, and the
-    /// player is ready at the latest frame.
+    /// Position the playhead at the latest available frame and start decoding it.
+    /// Falls back to "Now" when no segments have loaded yet (the subsequent
+    /// onChange(segments.count) positions once they do).
+    private func positionAtLatest() {
+        if let latest = timelineStore.latestTS {
+            centerTime = latest
+            playbackController.update(for: latest, store: timelineStore)
+        } else {
+            centerTime = Date().timeIntervalSince1970
+            playbackController.currentTime = centerTime
+        }
+    }
+
+    /// Lift the black initial-load cover the instant the latest available frame
+    /// is decoded — one clean transition, no fast-forward, and never before the
+    /// frame is actually ready to display.
     private func maybeRevealVideo() {
-        guard !revealVideo else { return }
-        guard latestDataLoaded,
-              !processingService.isRunning,
-              playbackController.isCurrentItemReady else { return }
-        Log.ui.info("Initial load complete — revealing video at latest frame")
+        guard !revealVideo, playbackController.isCurrentItemReady else { return }
+        Log.ui.info("Latest frame ready — revealing video")
         revealVideo = true
+        // Only now start OCR search indexing. Its helper pool saturates the video
+        // decoder + Neural Engine, so starting it before the newest frame is on
+        // screen delays that frame's readiness by tens of seconds. Skipped while
+        // the search modal is open — it drives indexing itself.
+        if !showSearch { ProcessingService.shared.beginTimelineIndexing() }
     }
 }

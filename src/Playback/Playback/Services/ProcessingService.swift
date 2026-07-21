@@ -13,6 +13,7 @@ import CryptoKit
 import UniformTypeIdentifiers
 import os
 import MachO
+import IOKit.ps
 
 private let SQLITE_TRANSIENT = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
 
@@ -28,6 +29,9 @@ final class ProcessingService: ObservableObject {
 
     private var timer: Timer?
     private var heartbeatTimer: Timer?
+    /// Run-loop source that fires when the power source (AC/battery) changes, so a
+    /// just-connected charger can drain OCR windows deferred while on battery.
+    private var powerNotifySource: CFRunLoopSource?
     private let queue = DispatchQueue(label: "com.falconer.Playback.processing", qos: .utility)
     /// Serial worker that OCR-indexes encoded segments for search. It runs ONLY
     /// while the timeline window is open (started/stopped by `ContentView`), so
@@ -40,6 +44,23 @@ final class ProcessingService: ObservableObject {
     /// and every index worker thread.
     private let indexLock = NSLock()
     private var indexingActive = false
+    /// Which lifecycle owns the current indexing session. `.timeline` runs while
+    /// the window is open (larger pool, drives the search "Loading" UI, killed on
+    /// close). `.background` runs on the 5-minute processing cycle while the
+    /// timeline is CLOSED, so newly-encoded frames become searchable without
+    /// needing the timeline open. Timeline always preempts background.
+    private enum IndexMode { case timeline, background }
+    private var indexMode: IndexMode = .timeline
+    /// The queued (`ocr_bg_queue`) segments the in-flight background pass is scoped
+    /// to, so its claims never wander into legacy segments. Loaded from the DB when
+    /// a pass starts; empty in timeline mode (which OCRs everything).
+    private var backgroundScopeIDs: Set<String> = []
+    /// True while the timeline window is open, set by `ContentView` on appear/
+    /// disappear. Tracked separately from `indexingActive` because timeline OCR is
+    /// deferred until the newest frame is on screen — during that gap the window is
+    /// open but no indexing session exists yet, and the background pass must still
+    /// stay out (it would starve the decoder the newest frame is waiting on).
+    private var timelineOpen = false
     /// Incremented on every `beginTimelineIndexing`. A worker captures its epoch
     /// and stops the moment a newer one supersedes it, so a fast close→reopen can
     /// never leave stale workers running.
@@ -55,6 +76,13 @@ final class ProcessingService: ObservableObject {
     /// timeline UI + recording). All are killed on timeline close, so this load
     /// only exists while viewing.
     private var indexConcurrency: Int { max(1, ProcessInfo.processInfo.activeProcessorCount - 1) }
+    /// The background (timeline-closed) pass uses the SAME n-1 pool as the timeline
+    /// path so the per-cycle backlog drains in a short burst (seconds) rather than
+    /// trickling across cycles. The helpers are niced (see `launchIndexHelper`), so
+    /// this burst yields to the user's foreground apps instead of pegging the
+    /// machine while nobody is watching the rewind view (see the nice in
+    /// `indexFrameBatch`).
+    private var backgroundIndexConcurrency: Int { indexConcurrency }
     /// The search key, loaded once per indexing session (not per segment) so the
     /// keychain is touched at most once each time the timeline opens — one prompt
     /// after an app update instead of one per segment, and no repeated reads.
@@ -94,6 +122,7 @@ final class ProcessingService: ObservableObject {
             guard let self else { return }
             Log.processing.info("Heartbeat — running=\(self.isRunning, privacy: .public), lastProcessing=\(self.lastProcessingTime?.description ?? "never", privacy: .public), totalSegmentsCreated=\(self.totalSegmentsCreated, privacy: .public)")
         }
+        startPowerMonitor()
         triggerProcessing()
     }
 
@@ -102,6 +131,28 @@ final class ProcessingService: ObservableObject {
         timer = nil
         heartbeatTimer?.invalidate()
         heartbeatTimer = nil
+        if let src = powerNotifySource {
+            CFRunLoopRemoveSource(CFRunLoopGetMain(), src, .defaultMode)
+            powerNotifySource = nil
+        }
+    }
+
+    /// Watch for AC/battery transitions so a just-connected charger can drain OCR
+    /// windows that were deferred while on battery.
+    private func startPowerMonitor() {
+        guard powerNotifySource == nil else { return }
+        let ctx = Unmanaged.passUnretained(self).toOpaque()
+        let callback: IOPowerSourceCallbackType = { context in
+            guard let context else { return }
+            let service = Unmanaged<ProcessingService>.fromOpaque(context).takeUnretainedValue()
+            DispatchQueue.main.async { service.powerStateChanged() }
+        }
+        guard let source = IOPSNotificationCreateRunLoopSource(callback, ctx)?.takeRetainedValue() else {
+            Log.processing.error("Failed to create power-source notification")
+            return
+        }
+        powerNotifySource = source
+        CFRunLoopAddSource(CFRunLoopGetMain(), source, .defaultMode)
     }
 
     func triggerProcessing(source: String? = nil) {
@@ -133,6 +184,12 @@ final class ProcessingService: ObservableObject {
                 self?.isRunning = false
                 self?.lastProcessingTime = Date()
                 self?.totalSegmentsCreated += segmentsCreated
+                // With the timeline closed, OCR ONLY the segments this cycle just
+                // encoded (enqueued to the persistent `ocr_bg_queue`) in the
+                // background, so recent activity stays searchable without needing the
+                // timeline open. The legacy backlog is left for the timeline pass.
+                // No-op when the timeline is open, a pass is running, or on battery.
+                self?.maybeStartBackgroundIndexing()
             }
         }
     }
@@ -374,6 +431,15 @@ final class ProcessingService: ObservableObject {
                 Log.processing.info("DB segment inserted — id=\(segmentId, privacy: .public), date=\(dateStr, privacy: .public), duration=\(String(format: "%.1f", duration), privacy: .public)s, frames=\(frames.count, privacy: .public), size=\(fileSize, privacy: .public)bytes")
                 segmentsCreated += 1
                 framesProcessed += frames.count
+                // Enqueue this window for background OCR (persisted, so it survives
+                // a force-quit and open/close of the timeline). The claim is bounded
+                // to these queued segments while the timeline is closed; legacy
+                // segments are OCR'd only when the timeline is open.
+                if let enq = prepareStatement(db, sql: "INSERT OR IGNORE INTO ocr_bg_queue (segment_id) VALUES (?);") {
+                    defer { sqlite3_finalize(enq) }
+                    sqlite3_bind_text(enq, 1, segmentId, -1, SQLITE_TRANSIENT)
+                    _ = sqlite3_step(enq)
+                }
             }
         }
 
@@ -556,6 +622,9 @@ final class ProcessingService: ObservableObject {
                 bits BLOB NOT NULL,
                 done_count INTEGER NOT NULL
             ) WITHOUT ROWID;
+            CREATE TABLE IF NOT EXISTS ocr_bg_queue (
+                segment_id TEXT PRIMARY KEY
+            ) WITHOUT ROWID;
             """
         var errMsg: UnsafeMutablePointer<CChar>?
         if sqlite3_exec(db, initSQL, nil, nil, &errMsg) != SQLITE_OK {
@@ -671,11 +740,15 @@ final class ProcessingService: ObservableObject {
 
     // MARK: - Timeline-gated OCR indexing
 
-    /// Frames per OCR helper invocation. Small so a large segment streams its
-    /// matches every few seconds and workers free up quickly to pick up just-recorded
-    /// frames (newest-first), while still amortizing helper launch + Vision init and
-    /// preserving perceptual dedup across the batch.
-    static let ocrFrameBatch = 10
+    /// Frames per OCR request handed to a persistent worker. It no longer needs to
+    /// be large to hide the CoreML model load — the worker loads that ONCE and
+    /// reuses it across every request, so there is no per-request cold start (that
+    /// is what killed the old "~100% CPU every ~10s" pulsing). Kept modest instead
+    /// so per-frame progress is flushed to `ocr_frame_bitmap` every ~50 frames:
+    /// a force-quit (or timeline close) mid-segment loses at most this many frames
+    /// of work and resumes exactly where it left off. Newest-first ordering is
+    /// preserved (the claim always starts from the newest pending run).
+    static let ocrFrameBatch = 50
 
     /// One unit of OCR work: the frame range `[lo, hi)` a helper will process. The
     /// range is chosen by the `FrameBitmap` status layer (newest pending run), so
@@ -697,12 +770,29 @@ final class ProcessingService: ObservableObject {
     /// soonest) and keeps going until every segment is indexed, so all history —
     /// including old dates recorded long ago — eventually becomes searchable.
     /// Idempotent — a second call while already running is a no-op.
+    /// Record whether the timeline window is open. Called by `ContentView` on
+    /// appear/disappear, up front — before OCR indexing is (later) started — so the
+    /// background pass stays out for the whole time the window is up.
+    func setTimelineOpen(_ open: Bool) {
+        indexLock.lock()
+        timelineOpen = open
+        indexLock.unlock()
+    }
+
     func beginTimelineIndexing() {
         indexLock.lock()
-        if indexingActive {
-            // Already open. If the pool has drained (all workers exited) but new
-            // segments were recorded since, re-fan-out so the latest content gets
-            // indexed — newest-first — instead of no-op'ing until a full close/open.
+        if indexingActive && indexMode == .background {
+            // The timeline takes priority over the background pass: retire its
+            // workers (the epoch bump below supersedes them) and SIGKILL any
+            // in-flight helper so interactive playback gets the CPU immediately,
+            // then fall through to start a fresh timeline session.
+            Log.processing.info("Preempting background OCR — timeline opened")
+            terminateInFlightHelpersLocked()
+        } else if indexingActive {
+            // Already open (timeline mode). If the pool has drained (all workers
+            // exited) but new segments were recorded since, re-fan-out so the
+            // latest content gets indexed — newest-first — instead of no-op'ing
+            // until a full close/open.
             if activeIndexWorkers == 0, let key = indexKey {
                 _ = key
                 let epoch = indexEpoch
@@ -720,7 +810,13 @@ final class ProcessingService: ObservableObject {
             return
         }
         Log.processing.info("beginTimelineIndexing: starting fresh")
+        // Preserve `ocr_bg_queue` across timeline open/close: the timeline pass OCRs
+        // everything newest-first regardless, and finished windows are pruned from
+        // the queue lazily on the next background scope load — so nothing is lost if
+        // the timeline is closed again before the whole backlog is indexed.
+        backgroundScopeIDs.removeAll()
         indexingActive = true
+        indexMode = .timeline
         indexEpoch += 1
         let epoch = indexEpoch
         indexingSegmentIDs.removeAll()
@@ -757,6 +853,127 @@ final class ProcessingService: ObservableObject {
         }
     }
 
+    /// Start a background OCR pass over the queued recent windows — but only when
+    /// the timeline is closed, no session is already running, and the machine is on
+    /// AC power. The queue lives in the DB (`ocr_bg_queue`), so it survives a
+    /// force-quit and any number of timeline open/close cycles; per-frame progress
+    /// lives in `ocr_frame_bitmap`, so a partially-OCR'd window resumes exactly
+    /// where it left off. On battery the windows just stay queued (compression
+    /// already ran); `powerStateChanged` retries the moment the charger is
+    /// connected. Called after each cycle and on power/drain events. Idempotent.
+    func maybeStartBackgroundIndexing() {
+        indexLock.lock()
+        // Never run while the timeline is open (even in the gap before its OCR
+        // starts) — it would starve the newest frame's decode.
+        guard !timelineOpen, !indexingActive else { indexLock.unlock(); return }
+        // Battery: defer. Compression already happened; OCR waits for AC power.
+        guard Self.isOnACPower() else {
+            indexLock.unlock()
+            Log.processing.info("Background OCR deferred — on battery (waiting for AC power)")
+            return
+        }
+        // Load the still-pending queued windows from the DB (drop finished/pruned
+        // entries while we're here). Nothing pending → nothing to do.
+        let scope = loadPendingBackgroundScopeLocked()
+        guard !scope.isEmpty else { indexLock.unlock(); return }
+        backgroundScopeIDs = Set(scope)
+        indexingActive = true
+        indexMode = .background
+        indexEpoch += 1
+        let epoch = indexEpoch
+        indexingSegmentIDs.removeAll()
+        indexKey = nil
+        let workers = backgroundIndexConcurrency
+        indexLock.unlock()
+        // Load the key off the main thread (the keychain is already trusted, so
+        // this is silent), then fan out. Every worker reuses this one key.
+        indexQueue.async { [weak self] in
+            guard let self else { return }
+            let key = SearchCrypto.loadOrCreateKey()
+            self.indexLock.lock()
+            guard self.indexingActive, self.indexEpoch == epoch else {
+                self.indexLock.unlock()
+                return
+            }
+            self.indexKey = key
+            self.activeIndexWorkers = workers
+            self.indexLock.unlock()
+            Log.processing.info("Background OCR started (timeline closed, on AC) — \(scope.count, privacy: .public) window(s), \(workers, privacy: .public) worker(s)")
+            for _ in 0..<workers {
+                self.indexQueue.async { self.runIndexer(epoch: epoch) }
+            }
+        }
+    }
+
+    /// Return the queued (`ocr_bg_queue`) segments that still have un-OCR'd frames,
+    /// and opportunistically delete queue rows whose segment is finished or gone —
+    /// so the queue can't grow without bound. Caller holds `indexLock`.
+    private func loadPendingBackgroundScopeLocked() -> [String] {
+        guard let db = openDatabase(Paths.databasePath.path) else { return [] }
+        defer { sqlite3_close(db) }
+        // Drop finished/pruned entries.
+        sqlite3_exec(db, """
+            DELETE FROM ocr_bg_queue WHERE segment_id IN (
+              SELECT q.segment_id FROM ocr_bg_queue q
+              LEFT JOIN segments s ON s.id = q.segment_id
+              LEFT JOIN ocr_frame_bitmap b ON b.segment_id = q.segment_id
+              WHERE s.id IS NULL OR s.frame_count = 0
+                 OR COALESCE(b.done_count, 0) >= s.frame_count
+            );
+            """, nil, nil, nil)
+        var ids: [String] = []
+        let sql = """
+            SELECT q.segment_id FROM ocr_bg_queue q
+            JOIN segments s ON s.id = q.segment_id
+            LEFT JOIN ocr_frame_bitmap b ON b.segment_id = q.segment_id
+            WHERE COALESCE(b.done_count, 0) < s.frame_count AND s.frame_count > 0;
+            """
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else { return [] }
+        defer { sqlite3_finalize(stmt) }
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            if let c = sqlite3_column_text(stmt, 0) { ids.append(String(cString: c)) }
+        }
+        return ids
+    }
+
+    /// Whether the Mac is running on AC power (or is a desktop with no battery).
+    /// The background OCR pass is gated on this; segment compression is not.
+    static func isOnACPower() -> Bool {
+        guard let blob = IOPSCopyPowerSourcesInfo()?.takeRetainedValue(),
+              let sources = IOPSCopyPowerSourcesList(blob)?.takeRetainedValue() as? [CFTypeRef],
+              !sources.isEmpty else {
+            return true // no power sources → desktop, always "plugged in"
+        }
+        for source in sources {
+            guard let desc = IOPSGetPowerSourceDescription(blob, source)?.takeUnretainedValue() as? [String: Any],
+                  let state = desc[kIOPSPowerSourceStateKey] as? String else { continue }
+            if state == kIOPSACPowerValue { return true }
+        }
+        return false
+    }
+
+    /// Called when the power source changes: if the charger was just connected,
+    /// drain the windows that were queued while on battery — no timeline needed.
+    private func powerStateChanged() {
+        if Self.isOnACPower() {
+            Log.processing.info("Power connected — draining any battery-deferred OCR windows")
+            maybeStartBackgroundIndexing()
+        }
+    }
+
+    /// SIGKILL every in-flight OCR helper and clear the list. Caller holds
+    /// `indexLock`. Used to preempt the background pass when the timeline opens.
+    private func terminateInFlightHelpersLocked() {
+        let processes = currentIndexProcesses
+        currentIndexProcesses.removeAll()
+        let killed = processes.filter { $0.isRunning }
+        killed.forEach { kill($0.processIdentifier, SIGKILL) }
+        if !killed.isEmpty {
+            Log.processing.info("SIGKILLed \(killed.count, privacy: .public) in-flight OCR helper(s)")
+        }
+    }
+
     /// Set `indexingInProgress` on the main thread (it's a `@Published` the search
     /// UI observes), from any worker thread.
     private func setIndexingInProgress(_ value: Bool) {
@@ -767,6 +984,13 @@ final class ProcessingService: ObservableObject {
     private func setIndexingProgress(_ value: Double) {
         if Thread.isMainThread { indexingProgress = value }
         else { DispatchQueue.main.async { self.indexingProgress = value } }
+    }
+
+    /// Recompute the OCR-indexed fraction on demand (off-main), so the search
+    /// footer can tell "everything is indexed" from "more is pending" even when no
+    /// indexing session is currently running (e.g. right after the search opens).
+    func refreshIndexingProgress() {
+        indexQueue.async { [weak self] in self?.recomputeIndexingProgress() }
     }
 
     /// Recompute the frame-weighted OCR-indexed fraction from the DB. Cheap
@@ -798,7 +1022,7 @@ final class ProcessingService: ObservableObject {
     /// the timeline is closed or workers are already running.
     func resumeIndexingIfDrained() {
         indexLock.lock()
-        guard indexingActive, activeIndexWorkers == 0, indexKey != nil else { indexLock.unlock(); return }
+        guard indexMode == .timeline, indexingActive, activeIndexWorkers == 0, indexKey != nil else { indexLock.unlock(); return }
         let epoch = indexEpoch
         let workers = indexConcurrency
         activeIndexWorkers = workers
@@ -843,30 +1067,186 @@ final class ProcessingService: ObservableObject {
         return indexingActive && indexEpoch == epoch
     }
 
+    /// One pool worker: launches a single persistent OCR helper (which loads the
+    /// Vision model ONCE), then feeds it segment after segment over its lifetime.
+    /// Because the same warm helper handles every batch, the CPU stays busy
+    /// continuously — no per-segment cold-start stall, so no pulsing.
     private func runIndexer(epoch: Int) {
         var processed = 0
-        while isIndexingActive(epoch: epoch) {
-            guard let batch = claimNextFrameBatch(epoch: epoch) else {
-                Log.processing.info("OCR worker exiting: no more pending frames (processed \(processed, privacy: .public) batch(es))")
-                break
+        if let worker = launchOCRWorker(epoch: epoch) {
+            while isIndexingActive(epoch: epoch), worker.process.isRunning {
+                guard let batch = claimNextFrameBatch(epoch: epoch) else {
+                    Log.processing.info("OCR worker exiting: no more pending frames (processed \(processed, privacy: .public) batch(es))")
+                    break
+                }
+                let ok = runBatch(batch, on: worker, epoch: epoch)
+                releaseSegmentClaim(batch.id)
+                if ok {
+                    processed += 1
+                    // Update the percentage, then tell any open search fresh matches
+                    // exist — per batch, so a just-OCR'd frame's match surfaces soon.
+                    recomputeIndexingProgress()
+                    NotificationCenter.default.post(name: .ocrIndexProgressed, object: nil)
+                }
             }
-            indexFrameBatch(batch, epoch: epoch)
-            releaseSegmentClaim(batch.id)
-            processed += 1
-            // Update the percentage, then tell any open search fresh matches exist —
-            // per batch, so a just-OCR'd frame's match surfaces almost immediately.
-            recomputeIndexingProgress()
-            NotificationCenter.default.post(name: .ocrIndexProgressed, object: nil)
+            shutdownOCRWorker(worker)
         }
         if processed > 0 {
             Log.processing.info("OCR indexing worker ended — processed \(processed, privacy: .public) batch(es)")
         }
-        // Last worker out drains the backlog: clear the "still loading" state.
+        // Last worker out drains the backlog. The decrement is epoch-guarded so a
+        // worker superseded by a newer session (e.g. background preempted by the
+        // timeline) never corrupts the new session's live worker count.
         indexLock.lock()
-        activeIndexWorkers = max(0, activeIndexWorkers - 1)
-        let drained = activeIndexWorkers == 0 && indexEpoch == epoch
+        var drainedTimeline = false
+        var drainedBackground = false
+        if indexEpoch == epoch {
+            activeIndexWorkers = max(0, activeIndexWorkers - 1)
+            if activeIndexWorkers == 0 {
+                if indexMode == .timeline {
+                    // Clear the search "Loading results…" state.
+                    drainedTimeline = true
+                } else {
+                    // Background pass finished — end the session. Finished windows
+                    // are pruned from `ocr_bg_queue` by the next scope load; if any
+                    // remain (queued while this pass ran, or left partial), start
+                    // another pass for them.
+                    backgroundScopeIDs.removeAll()
+                    indexingActive = false
+                    drainedBackground = true
+                    Log.processing.info("Background OCR drained")
+                }
+            }
+        }
         indexLock.unlock()
-        if drained { setIndexingInProgress(false) }
+        if drainedTimeline { setIndexingInProgress(false) }
+        if drainedBackground { maybeStartBackgroundIndexing() }
+    }
+
+    /// A live persistent OCR helper plus the handles to talk to it.
+    private struct OCRWorker {
+        let process: Process
+        let requests: FileHandle      // write one Manifest JSON line per batch
+        let replies: PipeLineReader   // read one "OK"/"ERR" line per batch
+    }
+
+    /// Launch one persistent `--ocr-worker` subprocess and hand it the session key
+    /// as the first stdin line. Registered in `currentIndexProcesses` so a timeline
+    /// close/preempt SIGKILLs it with the rest. Nil if the session ended first.
+    private func launchOCRWorker(epoch: Int) -> OCRWorker? {
+        indexLock.lock()
+        let sessionKey = indexKey
+        indexLock.unlock()
+        guard let key = sessionKey, let executableURL = Bundle.main.executableURL else { return nil }
+
+        let inPipe = Pipe()
+        let outPipe = Pipe()
+        let process = Process()
+        process.executableURL = executableURL
+        process.arguments = ["--ocr-worker"]
+        process.standardInput = inPipe
+        process.standardOutput = outPipe
+
+        indexLock.lock()
+        guard indexingActive, indexEpoch == epoch else { indexLock.unlock(); return nil }
+        do {
+            try process.run()
+        } catch {
+            indexLock.unlock()
+            Log.processing.error("Indexing: failed to launch OCR worker: \(error.localizedDescription)")
+            return nil
+        }
+        currentIndexProcesses.append(process)
+        indexLock.unlock()
+
+        let requests = inPipe.fileHandleForWriting
+        // First line: the AES key. (SIGPIPE is ignored process-wide, so a write to
+        // an already-dead worker fails the write instead of killing us.)
+        try? requests.write(contentsOf: Data((SearchCrypto.exportBase64(key) + "\n").utf8))
+        return OCRWorker(process: process, requests: requests, replies: PipeLineReader(outPipe.fileHandleForReading))
+    }
+
+    /// Send one batch to a persistent worker and record its result. Returns true
+    /// only when the batch was durably indexed (or its video is gone, so the frames
+    /// are marked done and never retried); false leaves the frames pending for a
+    /// later pass (worker killed on timeline close, decode error, etc.).
+    private func runBatch(_ batch: FrameBatch, on worker: OCRWorker, epoch: Int) -> Bool {
+        let videoURL = Paths.baseDataDirectory.appendingPathComponent(batch.videoPath)
+        // Video gone (pruned by retention): mark every frame processed, don't retry.
+        guard FileManager.default.fileExists(atPath: videoURL.path) else {
+            if let db = openDatabase(Paths.databasePath.path) {
+                markFramesProcessed(batch.id, frameCount: batch.frameCount, range: 0..<batch.frameCount, db: db)
+                sqlite3_close(db)
+            }
+            return true
+        }
+
+        let ocrOutputURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ocr-index-\(UUID().uuidString).json")
+        registerTempFile(ocrOutputURL)
+        defer {
+            try? FileManager.default.removeItem(at: ocrOutputURL)
+            unregisterTempFile(ocrOutputURL)
+        }
+
+        let manifest = OCRBackfill.Manifest(
+            videoPath: videoURL.path,
+            startTS: batch.startTS,
+            endTS: batch.endTS,
+            frameCount: batch.frameCount,
+            fps: batch.fps,
+            loFrame: batch.lo,
+            hiFrame: batch.hi,
+            ocrOutputPath: ocrOutputURL.path
+        )
+        guard var request = try? JSONEncoder().encode(manifest) else { return false }
+        request.append(0x0A) // newline-delimit the request
+
+        // Send the request and block for the worker's single-line reply.
+        guard worker.process.isRunning else { return false }
+        do {
+            try worker.requests.write(contentsOf: request)
+        } catch {
+            return false
+        }
+        guard let ack = worker.replies.readLine() else { return false } // EOF → worker died
+
+        // Timeline closed mid-batch (helper SIGKILLed) — leave frames pending.
+        guard isIndexingActive(epoch: epoch) else { return false }
+        guard ack == "OK" else {
+            Log.processing.error("Indexing: worker failed segment=\(batch.id, privacy: .public) frames [\(batch.lo, privacy: .public),\(batch.hi, privacy: .public)) — leaving for retry")
+            return false
+        }
+
+        let rows: [OCRSidecarRow]
+        if let data = FileManager.default.contents(atPath: ocrOutputURL.path),
+           let decoded = try? JSONDecoder().decode([OCRSidecarRow].self, from: data) {
+            rows = decoded
+        } else {
+            rows = []
+        }
+
+        guard let db = openDatabase(Paths.databasePath.path) else { return false }
+        defer { sqlite3_close(db) }
+        // Frames decoded from the video carry no app id; recover it from appsegments.
+        let enriched = enrichAppIds(rows, startTS: batch.startTS, endTS: batch.endTS, db: db)
+        // Insert this batch's rows and flip its frame bits in the SAME transaction,
+        // so the batch is durably indexed exactly once.
+        insertOCRRows(enriched, segmentId: batch.id, frameCount: batch.frameCount,
+                      processed: batch.lo..<batch.hi, db: db)
+        Log.processing.info("Indexed segment=\(batch.id, privacy: .public) frames [\(batch.lo, privacy: .public),\(batch.hi, privacy: .public)) — rows=\(rows.count, privacy: .public)")
+        return true
+    }
+
+    /// Close a worker's stdin so it hits EOF and exits cleanly (dropping the Vision
+    /// model's working set with the process). No-op if it was already SIGKILLed on
+    /// timeline close.
+    private func shutdownOCRWorker(_ worker: OCRWorker) {
+        try? worker.requests.close()
+        indexLock.lock()
+        currentIndexProcesses.removeAll { $0 === worker.process }
+        indexLock.unlock()
+        if worker.process.isRunning { worker.process.waitUntilExit() }
     }
 
     /// Atomically claim the newest batch of pending frames. Picks the newest segment
@@ -883,19 +1263,30 @@ final class ProcessingService: ObservableObject {
 
         // Scheduling layer: newest segment that still has unprocessed frames
         // (done_count < frame_count), excluding segments a worker is mid-flight on.
+        // In background mode the search space is ALSO restricted to this pass's
+        // window (`backgroundScopeIDs`) so it never wanders into legacy segments —
+        // those are timeline-open-only.
         let inFlight = Array(indexingSegmentIDs)
-        let placeholders = inFlight.isEmpty ? "" : "AND s.id NOT IN (\(inFlight.map { _ in "?" }.joined(separator: ",")))"
+        let scope = indexMode == .background ? Array(backgroundScopeIDs) : []
+        let inFlightClause = inFlight.isEmpty ? "" : "AND s.id NOT IN (\(inFlight.map { _ in "?" }.joined(separator: ",")))"
+        let scopeClause = indexMode == .background
+            ? (scope.isEmpty ? "AND 0" : "AND s.id IN (\(scope.map { _ in "?" }.joined(separator: ",")))")
+            : ""
         let sql = """
             SELECT s.id, s.start_ts, s.end_ts, s.frame_count, COALESCE(s.fps, 1.0), s.video_path, b.bits
             FROM segments s LEFT JOIN ocr_frame_bitmap b ON b.segment_id = s.id
-            WHERE COALESCE(b.done_count, 0) < s.frame_count AND s.frame_count > 0 \(placeholders)
+            WHERE COALESCE(b.done_count, 0) < s.frame_count AND s.frame_count > 0 \(inFlightClause) \(scopeClause)
             ORDER BY s.start_ts DESC LIMIT 1;
             """
         var stmt: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else { return nil }
         defer { sqlite3_finalize(stmt) }
-        for (i, id) in inFlight.enumerated() {
-            sqlite3_bind_text(stmt, Int32(i + 1), id, -1, SQLITE_TRANSIENT)
+        var bindIndex: Int32 = 1
+        for id in inFlight {
+            sqlite3_bind_text(stmt, bindIndex, id, -1, SQLITE_TRANSIENT); bindIndex += 1
+        }
+        for id in scope {
+            sqlite3_bind_text(stmt, bindIndex, id, -1, SQLITE_TRANSIENT); bindIndex += 1
         }
         guard sqlite3_step(stmt) == SQLITE_ROW,
               let idC = sqlite3_column_text(stmt, 0),
@@ -923,113 +1314,6 @@ final class ProcessingService: ObservableObject {
         indexLock.lock()
         indexingSegmentIDs.remove(id)
         indexLock.unlock()
-    }
-
-    private func indexFrameBatch(_ batch: FrameBatch, epoch: Int) {
-        let videoURL = Paths.baseDataDirectory.appendingPathComponent(batch.videoPath)
-        // Video gone (pruned by retention): mark every frame processed, don't retry.
-        guard FileManager.default.fileExists(atPath: videoURL.path) else {
-            if let db = openDatabase(Paths.databasePath.path) {
-                markFramesProcessed(batch.id, frameCount: batch.frameCount, range: 0..<batch.frameCount, db: db)
-                sqlite3_close(db)
-            }
-            return
-        }
-
-        let ocrOutputURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("ocr-index-\(UUID().uuidString).json")
-        let manifestURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("ocrseg-\(UUID().uuidString).json")
-        registerTempFile(ocrOutputURL)
-        registerTempFile(manifestURL)
-        defer {
-            try? FileManager.default.removeItem(at: ocrOutputURL)
-            try? FileManager.default.removeItem(at: manifestURL)
-            unregisterTempFile(ocrOutputURL)
-            unregisterTempFile(manifestURL)
-        }
-
-        // Reuse the session key loaded once in `beginTimelineIndexing`.
-        indexLock.lock()
-        let sessionKey = indexKey
-        indexLock.unlock()
-        guard let key = sessionKey else { return }
-        let manifest = OCRBackfill.Manifest(
-            videoPath: videoURL.path,
-            startTS: batch.startTS,
-            endTS: batch.endTS,
-            frameCount: batch.frameCount,
-            fps: batch.fps,
-            loFrame: batch.lo,
-            hiFrame: batch.hi,
-            ocrOutputPath: ocrOutputURL.path
-        )
-        guard let manifestData = try? JSONEncoder().encode(manifest) else { return }
-        do {
-            try manifestData.write(to: manifestURL)
-            try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: manifestURL.path)
-        } catch {
-            Log.processing.error("Indexing: failed to write manifest: \(error.localizedDescription)")
-            return
-        }
-
-        guard isIndexingActive(epoch: epoch), let executableURL = Bundle.main.executableURL else { return }
-        let keyPipe = Pipe()
-        let process = Process()
-        process.executableURL = executableURL
-        process.arguments = ["--ocr-segment", manifestURL.path]
-        process.standardInput = keyPipe
-
-        indexLock.lock()
-        guard indexingActive && indexEpoch == epoch else { indexLock.unlock(); return }
-        do {
-            try process.run()
-        } catch {
-            indexLock.unlock()
-            Log.processing.error("Indexing: failed to launch helper: \(error.localizedDescription)")
-            return
-        }
-        currentIndexProcesses.append(process)
-        indexLock.unlock()
-
-        try? keyPipe.fileHandleForWriting.write(contentsOf: Data(SearchCrypto.exportBase64(key).utf8))
-        try? keyPipe.fileHandleForWriting.close()
-        process.waitUntilExit()
-
-        indexLock.lock()
-        currentIndexProcesses.removeAll { $0 === process }
-        let stillActive = indexingActive && indexEpoch == epoch
-        indexLock.unlock()
-
-        // Timeline closed mid-batch: the helper was terminated. Leave done_from
-        // unchanged so this batch is retried cleanly on next open.
-        guard stillActive else { return }
-        // Helper failed (decode error): leave for retry rather than skipping frames.
-        guard process.terminationStatus == 0 else {
-            Log.processing.error("Indexing: helper failed for segment=\(batch.id, privacy: .public) frames [\(batch.lo, privacy: .public),\(batch.hi, privacy: .public)) (status \(process.terminationStatus, privacy: .public)) — leaving for retry")
-            return
-        }
-
-        let rows: [OCRSidecarRow]
-        if let data = FileManager.default.contents(atPath: ocrOutputURL.path),
-           let decoded = try? JSONDecoder().decode([OCRSidecarRow].self, from: data) {
-            rows = decoded
-        } else {
-            rows = []
-        }
-
-        guard let db = openDatabase(Paths.databasePath.path) else { return }
-        defer { sqlite3_close(db) }
-
-        // Frames decoded from the video carry no app id; recover it from the
-        // appsegments table so results still show the app they came from.
-        let enriched = enrichAppIds(rows, startTS: batch.startTS, endTS: batch.endTS, db: db)
-        // Insert this batch's rows and flip its frame bits in the SAME transaction,
-        // so the batch is durably indexed exactly once (a crash between the two
-        // would otherwise re-insert on retry).
-        insertOCRRows(enriched, segmentId: batch.id, frameCount: batch.frameCount,
-                      processed: batch.lo..<batch.hi, db: db)
-        Log.processing.info("Indexed segment=\(batch.id, privacy: .public) frames [\(batch.lo, privacy: .public),\(batch.hi, privacy: .public)) — rows=\(rows.count, privacy: .public)")
     }
 
     /// Persistence layer: flip the bits for `range` in a segment's frame bitmap,

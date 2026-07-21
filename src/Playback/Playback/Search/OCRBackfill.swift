@@ -30,31 +30,46 @@ enum OCRBackfill {
         let ocrOutputPath: String
     }
 
-    // MARK: - Helper entry point
+    // MARK: - Persistent worker entry point
 
-    static func runHelper(manifestPath: String) -> Int32 {
-        guard let data = FileManager.default.contents(atPath: manifestPath),
-              let manifest = try? JSONDecoder().decode(Manifest.self, from: data) else {
-            Log.processing.error("Backfill helper: unreadable manifest at \(manifestPath, privacy: .public)")
-            return 1
-        }
-        guard let keyB64 = String(data: FileHandle.standardInput.readDataToEndOfFile(), encoding: .utf8),
-              let key = SearchCrypto.key(fromBase64: keyB64) else {
-            Log.processing.error("Backfill helper: no key on stdin")
+    /// Persistent OCR worker protocol (over stdin/stdout, line-delimited):
+    ///   • line 1        — the AES key, base64.
+    ///   • lines 2…N     — one `Manifest` JSON per line (a batch to OCR); for each,
+    ///                     the worker writes the rows to `manifest.ocrOutputPath`
+    ///                     and replies with a single `OK`/`ERR` line on stdout.
+    ///   • stdin EOF     — exit.
+    ///
+    /// The Vision text model loads on the first request and is reused for every one
+    /// after — that reuse is the whole point of a persistent worker: no per-segment
+    /// model reload, so a pool of workers keeps the CPU busy continuously instead of
+    /// pulsing (cold-start stall → burst → exit → repeat) once per segment.
+    static func runWorker() -> Int32 {
+        let reader = PipeLineReader(FileHandle.standardInput)
+        let out = FileHandle.standardOutput
+        guard let keyLine = reader.readLine(), let key = SearchCrypto.key(fromBase64: keyLine) else {
+            Log.processing.error("OCR worker: missing key on stdin")
             return 1
         }
         let tokenKey = SearchCrypto.deriveTokenKey(key)
 
-        do {
-            let rows = try ocrSegment(manifest: manifest, key: key, tokenKey: tokenKey)
-            let out = try JSONEncoder().encode(rows)
-            try out.write(to: URL(fileURLWithPath: manifest.ocrOutputPath))
-            Log.processing.info("Backfill helper: wrote \(rows.count, privacy: .public) rows")
-            return 0
-        } catch {
-            Log.processing.error("Backfill helper failed: \(error.localizedDescription, privacy: .public)")
-            return 1
+        while let line = reader.readLine() {
+            if line.isEmpty { continue }
+            var ack = "ERR"
+            if let data = line.data(using: .utf8),
+               let manifest = try? JSONDecoder().decode(Manifest.self, from: data) {
+                do {
+                    let rows = try ocrSegment(manifest: manifest, key: key, tokenKey: tokenKey)
+                    let encoded = try JSONEncoder().encode(rows)
+                    try encoded.write(to: URL(fileURLWithPath: manifest.ocrOutputPath))
+                    ack = "OK"
+                } catch {
+                    Log.processing.error("OCR worker request failed: \(error.localizedDescription, privacy: .public)")
+                }
+            }
+            // Reply so the parent knows the output file is ready (or the batch failed).
+            try? out.write(contentsOf: Data("\(ack)\n".utf8))
         }
+        return 0
     }
 
     // MARK: - Decode + OCR
@@ -136,5 +151,35 @@ enum OCRBackfill {
             space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: bitmapInfo
         ) else { return nil }
         return context.makeImage()
+    }
+}
+
+/// Reads newline-delimited lines from a `FileHandle` (a pipe), buffering across
+/// reads. Backs the persistent OCR worker's request/reply protocol on both ends —
+/// the worker reads requests from stdin, the parent reads replies from the worker's
+/// stdout. `readLine()` blocks until a full line arrives and returns nil at EOF
+/// (e.g. the other end was closed or the process was killed).
+final class PipeLineReader {
+    private let handle: FileHandle
+    private var buffer = Data()
+
+    init(_ handle: FileHandle) { self.handle = handle }
+
+    func readLine() -> String? {
+        while true {
+            if let nl = buffer.firstIndex(of: 0x0A) {
+                let line = buffer.subdata(in: buffer.startIndex..<nl)
+                buffer.removeSubrange(buffer.startIndex...nl)
+                return String(data: line, encoding: .utf8) ?? ""
+            }
+            let chunk = handle.availableData
+            if chunk.isEmpty {
+                guard !buffer.isEmpty else { return nil }
+                let line = buffer
+                buffer.removeAll()
+                return String(data: line, encoding: .utf8) ?? ""
+            }
+            buffer.append(chunk)
+        }
     }
 }
