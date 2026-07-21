@@ -757,7 +757,7 @@ final class ProcessingService: ObservableObject {
                     batchPostings[token, default: []].append(fid)
                 }
             } else {
-                Log.processing.error("Failed to insert ocr_frame: \(String(cString: sqlite3_errmsg(db)))")
+                Log.processing.error("Failed to insert ocr_frame: rc=\(sqlite3_errcode(db), privacy: .public) ext=\(sqlite3_extended_errcode(db), privacy: .public) \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
             }
         }
         upsertPostings(batchPostings, db: db)
@@ -808,7 +808,7 @@ final class ProcessingService: ObservableObject {
                 sqlite3_bind_blob(up, 2, raw.baseAddress, Int32(merged.count), SQLITE_TRANSIENT)
             }
             if sqlite3_step(up) != SQLITE_DONE {
-                Log.processing.error("Failed to upsert posting: \(String(cString: sqlite3_errmsg(db)))")
+                Log.processing.error("Failed to upsert posting: rc=\(sqlite3_errcode(db), privacy: .public) ext=\(sqlite3_extended_errcode(db), privacy: .public) \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
             }
         }
     }
