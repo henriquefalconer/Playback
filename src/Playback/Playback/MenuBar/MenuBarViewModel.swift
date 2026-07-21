@@ -41,9 +41,7 @@ final class MenuBarViewModel: ObservableObject {
     @Published var isRecordingEnabled: Bool = false
     private let configManager: ConfigManager
     private let recordingService: RecordingService
-    private var statusTimer: Timer?
     private var cancellables = Set<AnyCancellable>()
-    private var lastUserToggleTime: Date?
     private let launchTime = Date()
 
     init(configManager: ConfigManager = .shared,
@@ -56,12 +54,20 @@ final class MenuBarViewModel: ObservableObject {
         setupBindings()
     }
 
-    func startMonitoring() {
-        startStatusMonitoring()
-    }
-
     private func setupBindings() {
+        // Drive the menu bar icon directly off the recording service's real state so
+        // it can never drift — previously it only updated on config changes, so the
+        // icon showed "paused" while recording actually ran.
+        recordingService.$isRecording
+            .combineLatest(recordingService.$isPausedBySystem, recordingService.$isPausedByTimeline)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _, _, _ in
+                self?.updateRecordingState()
+            }
+            .store(in: &cancellables)
+
         configManager.$config
+            .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
                 self?.updateRecordingState()
             }
@@ -97,12 +103,11 @@ final class MenuBarViewModel: ObservableObject {
             }
         }
 
-        lastUserToggleTime = Date()
-
+        // The icon follows recordingService's published state via setupBindings(), so
+        // start()/stop() flipping isRecording updates the menu bar on its own.
         if isRecordingEnabled {
             Log.menuBar.info("Recording toggled ON, excluded_apps=\(self.configManager.config.excludedApps.count, privacy: .public)")
             recordingService.start()
-            recordingState = .recording
 
             var config = configManager.config
             config.recordingEnabled = true
@@ -110,7 +115,6 @@ final class MenuBarViewModel: ObservableObject {
         } else {
             Log.menuBar.info("Recording toggled OFF, total_captures=\(self.recordingService.captureCount, privacy: .public)")
             recordingService.stop()
-            recordingState = .paused
 
             var config = configManager.config
             config.recordingEnabled = false
@@ -131,38 +135,15 @@ final class MenuBarViewModel: ObservableObject {
         NSApp.terminate(nil)
     }
 
-    private func startStatusMonitoring() {
-        statusTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in
-            self?.updateRecordingState()
-        }
-        updateRecordingState()
-    }
-
     private func updateRecordingState() {
-        if let lastToggle = lastUserToggleTime, Date().timeIntervalSince(lastToggle) < 10 {
-            Log.menuBar.debug("Skipping update - recent user toggle")
-            return
-        }
+        // The checkmark tracks user intent (config); the icon tracks reality (service).
+        isRecordingEnabled = configManager.config.recordingEnabled
 
         let oldState = recordingState
-        Log.menuBar.debug("Updating state - recordingService.isRecording=\(self.recordingService.isRecording), isPausedBySystem=\(self.recordingService.isPausedBySystem)")
-        if recordingService.isRecording {
-            recordingState = .recording
-            isRecordingEnabled = true
-        } else if recordingService.isPausedBySystem {
-            // System-initiated pause (display sleep / screen saver) — show paused but keep toggle on
-            recordingState = .paused
-            isRecordingEnabled = true
-        } else {
-            recordingState = .paused
-            isRecordingEnabled = false
-        }
+        recordingState = recordingService.isRecording ? .recording : .paused
         if oldState != recordingState {
-            Log.menuBar.info("Menu bar state changed: \(String(describing: oldState), privacy: .public) -> \(String(describing: self.recordingState), privacy: .public)")
+            Log.menuBar.info("Menu bar state: \(String(describing: oldState), privacy: .public) -> \(String(describing: self.recordingState), privacy: .public)")
         }
     }
 
-    deinit {
-        statusTimer?.invalidate()
-    }
 }

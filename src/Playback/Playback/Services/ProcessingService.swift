@@ -306,15 +306,22 @@ final class ProcessingService: ObservableObject {
             return
         }
 
-        // Group frames into segments (split on resolution changes, max 900 frames)
+        // Group frames into segments (split on resolution changes, recording gaps,
+        // max 900 frames). A segment must be *temporally contiguous*: frames are
+        // captured every ~2s, so a jump larger than `maxFrameGap` means recording was
+        // paused (timeline open, sleep, screensaver, migration). Merging across such a
+        // gap into one segment makes the timeline map gap-window timestamps onto stale
+        // frames — e.g. showing old footage attributed to the migration-modal window.
         let maxFramesPerSegment = 900
+        let maxFrameGap: TimeInterval = 10.0
         var groups: [[FrameInfo]] = []
         var currentGroup: [FrameInfo] = []
 
         for frame in frames {
             if let prev = currentGroup.last {
                 let resolutionChanged = frame.width != prev.width || frame.height != prev.height
-                if resolutionChanged || currentGroup.count >= maxFramesPerSegment {
+                let gapExceeded = frame.timestamp - prev.timestamp > maxFrameGap
+                if resolutionChanged || gapExceeded || currentGroup.count >= maxFramesPerSegment {
                     groups.append(currentGroup)
                     currentGroup = []
                 }

@@ -372,13 +372,22 @@ struct ContentView: View {
 
         // Keyboard monitor for global shortcuts
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [self] event in
-            // keyCode 53 = ESC, 49 = Space, 123 = Left Arrow, 124 = Right Arrow
+            // keyCode 53 = ESC, 49 = Space, 123 = Left Arrow, 124 = Right Arrow, 3 = F
 
-            let isCmdF = event.modifierFlags.contains(.command)
-                && event.charactersIgnoringModifiers?.lowercased() == "f"
+            // Control+Command+F is macOS's native full-screen toggle. Swallow it entirely
+            // so it neither opens search nor toggles the timeline out of full screen.
+            // (Using keyCode, not charactersIgnoringModifiers — Control can alter the char.)
+            if event.keyCode == 3
+                && event.modifierFlags.contains(.command)
+                && event.modifierFlags.contains(.control) {
+                return nil
+            }
 
-            // CMD+F always opens search (if needed) and focuses the field —
+            // Plain CMD+F (no Control) always opens search and focuses the field —
             // pressing it again while open just re-focuses.
+            let isCmdF = event.keyCode == 3
+                && event.modifierFlags.contains(.command)
+                && !event.modifierFlags.contains(.control)
             if isCmdF {
                 showSearch = true
                 focusSearchTrigger += 1

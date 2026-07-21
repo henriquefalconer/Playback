@@ -36,16 +36,21 @@ struct PlaybackApp: App {
                     playbackController.timelineStore = timelineStore
                     NSApp.activate(ignoringOtherApps: true)
 
-                    if let window = NSApp.windows.first(where: { $0.title.contains("ContentView") || $0.level == .normal }) {
-                        Log.session.info("Timeline window opened — size=\(window.frame.width, privacy: .public)x\(window.frame.height, privacy: .public)")
+                    let timelineWindow = NSApp.windows.first(where: { $0.identifier?.rawValue.contains("timeline") == true })
+                        ?? NSApp.windows.first(where: { $0.title.contains("ContentView") || $0.level == .normal })
+                    if let window = timelineWindow {
+                        Log.session.info("Timeline window opened — size=\(window.frame.width, privacy: .public)x\(window.frame.height, privacy: .public), fullscreen=\(window.styleMask.contains(.fullScreen), privacy: .public)")
                         window.makeKeyAndOrderFront(nil)
                         fullscreenManager.configureFullscreenPresentation()
-                        window.toggleFullScreen(nil)
+                        fullscreenManager.enterFullscreen(window)
                     } else {
                         Log.playback.error("Could not find timeline window")
                     }
 
                     signalManager.createSignal()
+                    // Stop recording (and the sharing indicator) while browsing history,
+                    // so the menu bar and macOS sharing notice reflect that we're paused.
+                    RecordingService.shared.pauseForTimeline()
                     timelineOpenTime = openTime
 
                     ProcessingService.shared.triggerProcessing(source: "timeline_open")
@@ -58,6 +63,9 @@ struct PlaybackApp: App {
                     }
                     fullscreenManager.restoreNormalPresentation()
                     signalManager.removeSignal()
+                    // Resume recording now that the timeline closed (unless the user
+                    // disabled it or a system pause is still in effect).
+                    RecordingService.shared.resumeFromTimeline()
                 }
         }
         .windowStyle(.hiddenTitleBar)
@@ -523,6 +531,115 @@ final class SignalFileManagerWrapper: ObservableObject {
 final class FullscreenManagerWrapper: ObservableObject {
     let objectWillChange = PassthroughSubject<Void, Never>()
     private var previousPresentationOptions: NSApplication.PresentationOptions = []
+    private var didEnterObserver: Any?
+    private var willEnterObserver: Any?
+    private var noopWatchdog: DispatchWorkItem?
+    private var abortWatchdog: DispatchWorkItem?
+    private var fullscreenAttempts = 0
+
+    /// Reliably drive the timeline window into native fullscreen.
+    ///
+    /// SwiftUI reuses the single "timeline" window across open/close, and toggling a
+    /// freshly-reopened window is flaky in two distinct ways: `toggleFullScreen` can
+    /// silently no-op (no transition at all), or a transition can start
+    /// (`willEnterFullScreen`) yet abort before completing — both leave the window
+    /// windowed (the intermittent "opens windowed" bug). Only `didEnterFullScreen`
+    /// means success, so we watch for each failure mode separately and re-toggle:
+    ///   • no `willEnter` shortly after a toggle → it no-op'd → retry (fast).
+    ///   • `willEnter` but no `didEnter` → it aborted → retry (after the animation
+    ///     window). A legit in-progress transition completes via `didEnter` first, so
+    ///     we never double-toggle mid-animation.
+    func enterFullscreen(_ window: NSWindow) {
+        // Strip ⌃⌘F off the standard "Enter/Exit Full Screen" menu item so the user
+        // can't toggle the timeline out of fullscreen. The local key monitor can't
+        // stop this — the menu key-equivalent is handled before the monitor runs.
+        disableFullscreenMenuShortcut()
+
+        if window.styleMask.contains(.fullScreen) { return }
+
+        clearObservers()
+        fullscreenAttempts = 0
+        willEnterObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.willEnterFullScreenNotification, object: window, queue: .main
+        ) { [weak self, weak window] _ in
+            guard let self, let window else { return }
+            // Transition started — it won't no-op. Guard only against it aborting.
+            self.noopWatchdog?.cancel()
+            self.noopWatchdog = nil
+            self.scheduleAbortWatchdog(window)
+        }
+        didEnterObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didEnterFullScreenNotification, object: window, queue: .main
+        ) { [weak self] _ in
+            Log.playback.info("Timeline entered fullscreen (attempts=\(self?.fullscreenAttempts ?? -1, privacy: .public))")
+            // The menu item flips to "Exit Full Screen" on entering — re-strip its shortcut.
+            self?.disableFullscreenMenuShortcut()
+            self?.clearObservers()
+        }
+
+        attemptFullscreen(window)
+    }
+
+    /// Clear the key equivalent on every standard `toggleFullScreen:` menu item so the
+    /// native ⌃⌘F shortcut can't flip the timeline out of (or into) fullscreen.
+    func disableFullscreenMenuShortcut() {
+        guard let mainMenu = NSApp.mainMenu else { return }
+        let toggleSelector = NSSelectorFromString("toggleFullScreen:")
+        func walk(_ menu: NSMenu) {
+            for item in menu.items {
+                if item.action == toggleSelector {
+                    item.keyEquivalent = ""
+                    item.keyEquivalentModifierMask = []
+                }
+                if let submenu = item.submenu { walk(submenu) }
+            }
+        }
+        walk(mainMenu)
+    }
+
+    private func attemptFullscreen(_ window: NSWindow) {
+        if window.styleMask.contains(.fullScreen) { clearObservers(); return }
+        guard fullscreenAttempts < 6 else {
+            Log.playback.error("Could not enter fullscreen after \(self.fullscreenAttempts, privacy: .public) attempts")
+            clearObservers()
+            return
+        }
+        fullscreenAttempts += 1
+
+        window.toggleFullScreen(nil)
+
+        // If willEnterFullScreen doesn't fire promptly, the toggle no-op'd — retry.
+        let work = DispatchWorkItem { [weak self, weak window] in
+            guard let self, let window else { return }
+            self.attemptFullscreen(window)
+        }
+        noopWatchdog = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: work)
+    }
+
+    private func scheduleAbortWatchdog(_ window: NSWindow) {
+        abortWatchdog?.cancel()
+        // A successful enter fires didEnterFullScreen (clearing everything) well within
+        // this window; if it hasn't, the transition aborted and we try again.
+        let work = DispatchWorkItem { [weak self, weak window] in
+            guard let self, let window else { return }
+            if window.styleMask.contains(.fullScreen) { self.clearObservers(); return }
+            self.attemptFullscreen(window)
+        }
+        abortWatchdog = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 4.0, execute: work)
+    }
+
+    private func clearObservers() {
+        noopWatchdog?.cancel()
+        noopWatchdog = nil
+        abortWatchdog?.cancel()
+        abortWatchdog = nil
+        if let obs = willEnterObserver { NotificationCenter.default.removeObserver(obs) }
+        if let obs = didEnterObserver { NotificationCenter.default.removeObserver(obs) }
+        willEnterObserver = nil
+        didEnterObserver = nil
+    }
 
     func configureFullscreenPresentation() {
         previousPresentationOptions = NSApp.presentationOptions

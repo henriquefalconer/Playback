@@ -22,6 +22,9 @@ final class RecordingService: ObservableObject {
     @Published private(set) var lastCaptureTime: Date?
     @Published private(set) var captureCount: UInt64 = 0
     @Published private(set) var isPausedBySystem = false
+    /// Paused because the timeline (rewind) view is open — we don't record the user
+    /// browsing their own history, and the macOS sharing indicator should go dark.
+    @Published private(set) var isPausedByTimeline = false
     fileprivate var isPausedByDisplayChange = false
     fileprivate var isPausedByScreensaver = false
 
@@ -83,6 +86,15 @@ final class RecordingService: ObservableObject {
         Log.recording.info("Screen Recording permission check: \(hasPermission)")
         guard hasPermission else {
             Log.recording.error("Screen Recording permission not granted")
+            return
+        }
+
+        // Don't begin capturing (or light the sharing indicator) while the timeline is
+        // open. This races with launch — the window may open just before or after
+        // start() — so we check here and pauseForTimeline() also stops us if we win.
+        if isPausedByTimeline || fileManager.fileExists(atPath: Paths.timelineOpenSignalPath.path) {
+            isPausedByTimeline = true
+            Log.recording.info("start() deferred — timeline is open")
             return
         }
 
@@ -181,6 +193,52 @@ final class RecordingService: ObservableObject {
             await startIndicatorStream()
         }
 
+        timer = Timer.scheduledTimer(withTimeInterval: captureInterval, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                await self?.captureScreenshot()
+            }
+        }
+    }
+
+    /// Pause recording because the timeline (rewind) view opened. Stops the capture
+    /// timer *and* the indicator stream so the macOS "Currently sharing" notice goes
+    /// dark and the menu bar reflects that we're not recording.
+    func pauseForTimeline() {
+        guard !isPausedByTimeline else { return }
+        isPausedByTimeline = true
+        guard isRecording else { return }
+        Log.recording.info("Pausing recording — timeline open")
+        timer?.invalidate()
+        timer = nil
+        stopIndicatorStream()
+        isRecording = false
+    }
+
+    /// Resume recording after the timeline view closed, unless the user disabled
+    /// recording or another pause (system/screensaver/display) is still in effect.
+    func resumeFromTimeline() {
+        guard isPausedByTimeline else { return }
+        isPausedByTimeline = false
+
+        guard ConfigManager.shared.config.recordingEnabled else {
+            Log.recording.info("Not resuming after timeline — recording disabled by user")
+            return
+        }
+        guard !isPausedBySystem, !isPausedByScreensaver, !isPausedByDisplayChange else {
+            Log.recording.info("Not resuming after timeline — still paused by system/screensaver/display")
+            return
+        }
+        guard !isRecording else { return }
+        guard CGPreflightScreenCaptureAccess() else {
+            Log.recording.error("Not resuming after timeline — Screen Recording permission revoked")
+            return
+        }
+
+        Log.recording.info("Resuming recording — timeline closed")
+        isRecording = true
+        Task {
+            await startIndicatorStream()
+        }
         timer = Timer.scheduledTimer(withTimeInterval: captureInterval, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 await self?.captureScreenshot()
@@ -507,10 +565,12 @@ final class RecordingService: ObservableObject {
 
             let filter = SCContentFilter(display: display, excludingApplications: [], exceptingWindows: [])
             let config = SCStreamConfiguration()
-            // Absolute minimum resource usage — this stream exists only for the indicator
+            // Minimal resource usage — this stream exists only for the indicator.
+            // Deliver a steady ~1 FPS so the macOS "Currently sharing" notice stays
+            // solid; a very slow rate (e.g. 0.1 FPS) lets it dim and visibly pulse.
             config.width = 1
             config.height = 1
-            config.minimumFrameInterval = CMTime(value: 10, timescale: 1) // 0.1 FPS
+            config.minimumFrameInterval = CMTime(value: 1, timescale: 1) // 1 FPS
             config.queueDepth = 1
             config.pixelFormat = kCVPixelFormatType_32BGRA
 
