@@ -114,6 +114,11 @@ final class ProcessingService: ObservableObject {
         // in-flight encodes, so anything left over is safe to remove.
         cleanOrphanedEncodeTempFiles()
 
+        // Remove any unplayable (empty-video) segments left by earlier encodes that
+        // reported success but wrote nothing, plus 0-byte mp4 files orphaned by a
+        // killed encode. Safe at start — no encode is in flight yet.
+        pruneEmptySegments()
+
         timer = Timer.scheduledTimer(withTimeInterval: 5 * 60, repeats: true) { [weak self] _ in
             self?.triggerProcessing()
         }
@@ -216,6 +221,60 @@ final class ProcessingService: ObservableObject {
         }
         if removed > 0 {
             Log.processing.info("Swept \(removed, privacy: .public) orphaned encoder temp file(s)")
+        }
+    }
+
+    /// Remove segments whose encoded video is empty or missing — they're unplayable
+    /// and surface as "Cannot Open" in the viewer. Also deletes their per-segment OCR
+    /// rows and sweeps 0-byte mp4 files left in `chunks` by encodes killed mid-write.
+    private func pruneEmptySegments() {
+        guard let db = openDatabase(Paths.databasePath.path) else { return }
+        defer { sqlite3_close(db) }
+
+        var toDelete: [(id: String, path: String)] = []
+        if let stmt = prepareStatement(db, sql: "SELECT id, video_path FROM segments WHERE file_size_bytes <= 0;") {
+            while sqlite3_step(stmt) == SQLITE_ROW {
+                let id = String(cString: sqlite3_column_text(stmt, 0))
+                let path = String(cString: sqlite3_column_text(stmt, 1))
+                toDelete.append((id, path))
+            }
+            sqlite3_finalize(stmt)
+        }
+
+        for seg in toDelete {
+            let fileURL = seg.path.hasPrefix("/")
+                ? URL(fileURLWithPath: seg.path)
+                : Paths.baseDataDirectory.appendingPathComponent(seg.path)
+            try? FileManager.default.removeItem(at: fileURL)
+            for sql in [
+                "DELETE FROM segments WHERE id = ?;",
+                "DELETE FROM ocr_bg_queue WHERE segment_id = ?;",
+                "DELETE FROM ocr_done WHERE segment_id = ?;",
+                "DELETE FROM ocr_frames WHERE segment_id = ?;",
+                "DELETE FROM ocr_frame_bitmap WHERE segment_id = ?;"
+            ] {
+                if let del = prepareStatement(db, sql: sql) {
+                    sqlite3_bind_text(del, 1, seg.id, -1, SQLITE_TRANSIENT)
+                    _ = sqlite3_step(del)
+                    sqlite3_finalize(del)
+                }
+            }
+        }
+        if !toDelete.isEmpty {
+            Log.processing.info("Pruned \(toDelete.count, privacy: .public) empty/unplayable segment(s)")
+        }
+
+        // Sweep 0-byte mp4 files not owned by any (surviving) segment.
+        var sweptFiles = 0
+        let fm = FileManager.default
+        if let enumerator = fm.enumerator(at: Paths.chunksDirectory, includingPropertiesForKeys: [.fileSizeKey]) {
+            for case let url as URL in enumerator where url.pathExtension == "mp4" {
+                let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? -1
+                if size == 0, (try? fm.removeItem(at: url)) != nil { sweptFiles += 1 }
+            }
+        }
+        if sweptFiles > 0 {
+            Log.processing.info("Swept \(sweptFiles, privacy: .public) orphaned 0-byte mp4 file(s)")
         }
     }
 
@@ -389,6 +448,16 @@ final class ProcessingService: ObservableObject {
 
         let encodeDuration = CFAbsoluteTimeGetCurrent() - encodeStart
         let fileSize = (try? FileManager.default.attributesOfItem(atPath: videoURL.path)[.size] as? Int) ?? 0
+
+        // A "successful" encode that yields an empty (or missing) file produces an
+        // unplayable segment — the viewer shows "Cannot Open". Never commit that to the
+        // DB: drop the empty file and keep the temp frames so the next cycle retries.
+        guard fileSize > 0 else {
+            Log.processing.error("Encoding produced a 0-byte file for \(segmentId, privacy: .public) — discarding, temp frames kept for retry")
+            try? FileManager.default.removeItem(at: videoURL)
+            return
+        }
+
         let effectiveFPS = encodeDuration > 0 ? Double(frames.count) / encodeDuration : 0
         Log.processing.info("Video encoding completed — segment=\(segmentId, privacy: .public), size=\(fileSize, privacy: .public)bytes, duration=\(String(format: "%.1f", encodeDuration), privacy: .public)s, effectiveFPS=\(String(format: "%.1f", effectiveFPS), privacy: .public)")
         logMemory("post-encode \(segmentId)")
