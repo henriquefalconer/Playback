@@ -824,9 +824,17 @@ final class ProcessingService: ObservableObject {
         // fully reclaimed when the subprocess dies here, so no OCR memory survives
         // the timeline closing. (The main app's own player/decoder buffers are
         // reclaimed by PlaybackController.releaseResources.)
+        // SIGKILL, not terminate()/SIGTERM: a helper deep in a Vision/VideoToolbox
+        // decode won't service a catchable signal for many seconds, and until it
+        // dies it keeps hogging the video decoder the interactive UI needs. SIGKILL
+        // frees it at once; a killed batch is simply re-claimed later (indexing is
+        // transactional per batch).
         let killed = processes.filter { $0.isRunning }
-        killed.forEach { $0.terminate() }
-        Log.processing.info("OCR indexing stopped (timeline closed) — killed \(killed.count, privacy: .public) in-flight helper(s)")
+        killed.forEach { kill($0.processIdentifier, SIGKILL) }
+        indexLock.lock()
+        currentIndexProcesses.removeAll()
+        indexLock.unlock()
+        Log.processing.info("OCR indexing stopped — SIGKILLed \(killed.count, privacy: .public) in-flight helper(s)")
     }
 
     /// True only while indexing is on AND this worker is still the current epoch.

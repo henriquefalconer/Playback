@@ -32,6 +32,9 @@ struct SearchResultsTable: NSViewRepresentable {
     let rowHeight: CGFloat
     /// Handed the live table so the ruler can drive scrolling by row index.
     let controller: SearchResultsTableController
+    /// Fired once the first screen of thumbnails has finished loading, so paused
+    /// background work (OCR indexing) can resume for normal operation.
+    let onThumbnailsSettled: () -> Void
 
     private static let footerHeight: CGFloat = 40
     private static let rowSpacing: CGFloat = 2
@@ -51,6 +54,10 @@ struct SearchResultsTable: NSViewRepresentable {
         table.addTableColumn(column)
         table.dataSource = context.coordinator
         table.delegate = context.coordinator
+        // Clicks are handled here (AppKit), not by a SwiftUI Button inside the cell —
+        // a nested hosted Button breaks the surrounding SwiftUI gesture routing.
+        table.target = context.coordinator
+        table.action = #selector(Coordinator.rowClicked(_:))
 
         let scroll = NSScrollView()
         scroll.documentView = table
@@ -88,6 +95,7 @@ struct SearchResultsTable: NSViewRepresentable {
             table.reloadData()
             clip.setBoundsOrigin(NSPoint(x: clip.bounds.origin.x, y: 0))
             nsView.reflectScrolledClipView(clip)
+            if !new.isEmpty { coord.beginSettleWatch() }
             return
         }
 
@@ -137,8 +145,33 @@ struct SearchResultsTable: NSViewRepresentable {
         weak var table: NSTableView?
         /// The result set the table currently reflects — the diff baseline.
         var current: [SearchResult] = []
+        /// Result ids whose thumbnail is still decoding — used to detect when the
+        /// first screen has fully loaded so paused indexing can resume.
+        private var pendingThumbs = Set<String>()
+        private var settleWatching = false
+        private var settled = false
 
         init(_ parent: SearchResultsTable) { self.parent = parent }
+
+        /// Arm the one-shot "first thumbnails loaded" signal when results first appear.
+        /// A fallback timer covers the all-cached / nothing-to-load case.
+        func beginSettleWatch() {
+            guard !settleWatching, !settled else { return }
+            settleWatching = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in self?.fireSettle() }
+        }
+
+        private func fireSettle() {
+            guard settleWatching, !settled else { return }
+            settled = true
+            parent.onThumbnailsSettled()
+        }
+
+        @objc func rowClicked(_ sender: NSTableView) {
+            let row = sender.clickedRow
+            guard row >= 0, row < parent.results.count else { return }
+            parent.onSelect(parent.results[row])
+        }
 
         // One extra row past the matches: the footer status line.
         func numberOfRows(in tableView: NSTableView) -> Int { parent.results.count + 1 }
@@ -148,25 +181,67 @@ struct SearchResultsTable: NSViewRepresentable {
         }
 
         func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
-            let root: AnyView
-            if row < parent.results.count {
-                let result = parent.results[row]
-                root = AnyView(SearchResultRow(result: result, index: parent.index) { [parent] in
-                    parent.onSelect(result)
-                })
+            // The footer's own row.
+            guard row < parent.results.count else {
+                let id = NSUserInterfaceItemIdentifier("footer")
+                if let reused = tableView.makeView(withIdentifier: id, owner: self) as? RowHostingView {
+                    reused.currentID = nil
+                    reused.rootView = AnyView(SearchListFooter())
+                    return reused
+                }
+                let hosting = RowHostingView(rootView: AnyView(SearchListFooter()))
+                hosting.identifier = id
+                return hosting
+            }
+
+            let result = parent.results[row]
+            let id = NSUserInterfaceItemIdentifier("row")
+            let hosting: RowHostingView
+            if let reused = tableView.makeView(withIdentifier: id, owner: self) as? RowHostingView {
+                hosting = reused
             } else {
-                root = AnyView(SearchListFooter())
+                hosting = RowHostingView(rootView: AnyView(EmptyView()))
+                hosting.identifier = id
             }
-            let identifier = NSUserInterfaceItemIdentifier(row < parent.results.count ? "row" : "footer")
-            if let reused = tableView.makeView(withIdentifier: identifier, owner: self) as? NSHostingView<AnyView> {
-                reused.rootView = root
-                return reused
+
+            // Thumbnails are loaded here, imperatively, rather than via SwiftUI's
+            // `.task` inside the hosted row — that lifecycle doesn't fire in an
+            // NSTableView cell, so rows would sit blank until something forced a
+            // redraw. `viewFor` *is* called the moment a row scrolls in, so this
+            // loads exactly the visible rows, right on time.
+            hosting.currentID = result.id
+            let cached = parent.index.cachedThumbnail(for: result)
+            hosting.rootView = Self.rowView(result, thumbnail: cached)
+            if cached == nil {
+                let index = parent.index
+                pendingThumbs.insert(result.id)
+                Task { @MainActor in
+                    let image = await index.thumbnail(for: result)
+                    self.pendingThumbs.remove(result.id)
+                    if self.settleWatching, self.pendingThumbs.isEmpty { self.fireSettle() }
+                    // Ignore if the cell was recycled for another row meanwhile.
+                    guard hosting.currentID == result.id, let image else { return }
+                    hosting.rootView = Self.rowView(result, thumbnail: image)
+                }
             }
-            let hosting = NSHostingView(rootView: root)
-            hosting.identifier = identifier
             return hosting
         }
+
+        private static func rowView(_ result: SearchResult, thumbnail: NSImage?) -> AnyView {
+            AnyView(SearchResultRow(result: result, thumbnail: thumbnail))
+        }
     }
+}
+
+/// An `NSHostingView` that remembers which result it's currently showing (so an
+/// async thumbnail load can tell whether the cell was recycled before it finished)
+/// and is transparent to the mouse: `hitTest` returns nil so clicks fall through to
+/// the `NSTableView`, which selects the row and fires its action. This both makes
+/// the click land reliably and keeps SwiftUI out of the mouse-event path — a hosted
+/// interactive control there wedges the surrounding SwiftUI gesture routing.
+private final class RowHostingView: NSHostingView<AnyView> {
+    var currentID: String?
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
 
 /// A thin handle the SwiftUI layer keeps so the ruler can command the native table
@@ -183,6 +258,18 @@ final class SearchResultsTableController {
         let clip = scroll.contentView
         let rect = table.rect(ofRow: row)
         clip.setBoundsOrigin(NSPoint(x: clip.bounds.origin.x, y: rect.minY - scroll.contentInsets.top))
+        scroll.reflectScrolledClipView(clip)
+    }
+
+    /// Scroll to a continuous position: `fraction` 0→1 maps the list's whole scroll
+    /// range like a scrollbar, so clicking partway down the ruler lands partway down
+    /// the results — smooth sub-row travel, not a snap to the nearest indexed row.
+    func scrollToFraction(_ fraction: CGFloat) {
+        guard let table, let scroll = table.enclosingScrollView else { return }
+        let clip = scroll.contentView
+        let maxOffset = max(0, table.bounds.height - clip.bounds.height)
+        let y = min(maxOffset, max(0, fraction * maxOffset))
+        clip.setBoundsOrigin(NSPoint(x: clip.bounds.origin.x, y: y - scroll.contentInsets.top))
         scroll.reflectScrolledClipView(clip)
     }
 }

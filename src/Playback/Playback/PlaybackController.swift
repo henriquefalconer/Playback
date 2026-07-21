@@ -38,6 +38,15 @@ final class PlaybackController: ObservableObject {
     /// Reset whenever the item is swapped.
     @Published private(set) var isCurrentItemReady: Bool = false
 
+    /// A seek requested against an item that wasn't decodable yet, held until the
+    /// item reports `.readyToPlay`. Seeking a not-yet-ready `AVPlayerItem` lands on
+    /// whatever frame it happens to load (typically a nearby keyframe), so a click on
+    /// a freshly-loaded distant segment would show the wrong frame — a couple frames
+    /// off, enough to cross a scene boundary. Deferring the seek to readiness makes it
+    /// land on the exact requested frame.
+    private var pendingSeek: CMTime?
+    private var pendingSeekThenPlay = false
+
     /// Indicates whether we're in the middle of an active scrubbing (via scroll/drag).
     /// While `true`, we ignore periodic updates from `timeObserver`
     /// to avoid overwriting the `currentTime` calculated from the gesture.
@@ -443,6 +452,51 @@ final class PlaybackController: ObservableObject {
         Log.playback.info("Pause triggered: segmentID=\(self.currentSegment?.id ?? "none", privacy: .public), time=\(self.currentTime, privacy: .public)")
     }
 
+    /// Seek to `cm` immediately if the current item is ready; otherwise hold it and
+    /// apply it the moment the item becomes ready (see `applyPendingSeek`). This is
+    /// what makes a jump to a just-loaded segment land on the exact frame.
+    private func seekOrDefer(to cm: CMTime, thenPlay: Bool) {
+        if isCurrentItemReady {
+            pendingSeek = nil
+            player.seek(to: cm, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
+                if thenPlay { self?.player.play() }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { self?.dumpCurrentFrame(cm) }
+            }
+        } else {
+            pendingSeek = cm
+            pendingSeekThenPlay = thenPlay
+        }
+    }
+
+    /// Apply a seek that was deferred until the item became ready. Called from the
+    /// `.readyToPlay` observers.
+    private func applyPendingSeek() {
+        guard let cm = pendingSeek else { return }
+        pendingSeek = nil
+        let thenPlay = pendingSeekThenPlay
+        pendingSeekThenPlay = false
+        player.seek(to: cm, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
+            if thenPlay { self?.player.play() }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { self?.dumpCurrentFrame(cm) }
+        }
+    }
+
+    /// DEBUG: save the frame the player is actually displaying, plus the offset.
+    private func dumpCurrentFrame(_ requested: CMTime) {
+        let t = player.currentTime()
+        guard let buf = frozenFrameOutput.copyPixelBuffer(forItemTime: t, itemTimeForDisplay: nil)
+                ?? frozenFrameOutput.copyPixelBuffer(forItemTime: requested, itemTimeForDisplay: nil),
+              let cg = Self.cgImage(from: buf) else {
+            Log.playback.notice("FRAMEDUMP no buffer requested=\(requested.seconds, privacy: .public) actual=\(t.seconds, privacy: .public)")
+            return
+        }
+        let rep = NSBitmapImageRep(cgImage: cg)
+        if let png = rep.representation(using: .png, properties: [:]) {
+            try? png.write(to: URL(fileURLWithPath: "/tmp/framedump.png"))
+        }
+        Log.playback.notice("FRAMEDUMP saved requested=\(requested.seconds, privacy: .public) actual=\(t.seconds, privacy: .public) seg=\(self.currentSegment?.id ?? "?", privacy: .public)")
+    }
+
     private func seek(to segment: Segment, offset: TimeInterval, isScrub: Bool) {
         // If the segment changed, we swap the player item.
         if currentSegment?.id != segment.id {
@@ -486,6 +540,7 @@ final class PlaybackController: ObservableObject {
                         Log.playback.debug("\(isScrub ? "(scrub) " : "")READY to play \(url.path)")
                         DispatchQueue.main.async {
                             self.isCurrentItemReady = true
+                            self.applyPendingSeek()
                             let hadError = self.playbackError != nil
                             self.consecutiveFailures = 0
                             self.playbackError = nil
@@ -536,13 +591,9 @@ final class PlaybackController: ObservableObject {
         }
 
         let cm = CMTime(seconds: offset, preferredTimescale: 600)
-        if isScrub {
-            // Always pause during scrubbing to avoid "elastic" feeling.
-            player.pause()
-            player.seek(to: cm, toleranceBefore: .zero, toleranceAfter: .zero)
-        } else {
-            player.seek(to: cm, toleranceBefore: .zero, toleranceAfter: .zero)
-        }
+        // Always pause during scrubbing to avoid an "elastic" feeling.
+        if isScrub { player.pause() }
+        seekOrDefer(to: cm, thenPlay: false)
     }
 
     func update(for time: TimeInterval, store: TimelineStore) {
@@ -592,6 +643,7 @@ final class PlaybackController: ObservableObject {
                         Log.playback.debug("READY to play \(url.path)")
                         DispatchQueue.main.async {
                             self.isCurrentItemReady = true
+                            self.applyPendingSeek()
                             let hadError = self.playbackError != nil
                             self.consecutiveFailures = 0
                             self.playbackError = nil
@@ -637,12 +689,10 @@ final class PlaybackController: ObservableObject {
             }
 
             let cm = CMTime(seconds: offset, preferredTimescale: 600)
-            player.seek(to: cm, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
-                self?.player.play()
-            }
+            seekOrDefer(to: cm, thenPlay: true)
         } else {
             let cm = CMTime(seconds: offset, preferredTimescale: 600)
-            player.seek(to: cm, toleranceBefore: .zero, toleranceAfter: .zero)
+            seekOrDefer(to: cm, thenPlay: false)
         }
     }
 

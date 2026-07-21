@@ -80,7 +80,17 @@ enum VideoEncoder {
             AVVideoCompressionPropertiesKey: [
                 AVVideoAverageBitRateKey: max(500_000, width * height),
                 AVVideoExpectedSourceFrameRateKey: 30,
-                AVVideoProfileLevelKey: AVVideoProfileLevelH264HighAutoLevel
+                AVVideoProfileLevelKey: AVVideoProfileLevelH264HighAutoLevel,
+                // All-intra: every frame is a keyframe (no P/B frames). These segments
+                // are a time-lapse of screenshots, so seeking must be frame-accurate —
+                // but with a sparse GOP the OCR indexer (AVAssetReader), playback
+                // (AVPlayer), and thumbnail/highlight (AVAssetImageGenerator) each
+                // resolve a *different* frame for the same timestamp near a scene
+                // change, so a clicked result renders a frame that doesn't match its
+                // text. Making every frame independently decodable makes all three
+                // agree; screen content stays small even intra-coded.
+                AVVideoMaxKeyFrameIntervalKey: 1,
+                AVVideoAllowFrameReorderingKey: false
             ]
         ]
 

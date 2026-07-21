@@ -23,8 +23,8 @@ import SwiftUI
 /// does nothing once search (and the timeline) closes.
 struct SearchTimelineRuler: View {
     let results: [SearchResult]
-    /// Scroll the list so the result at this index is at the top.
-    let onSeek: (Int) -> Void
+    /// Travel the list to this continuous position (0 = newest/top, 1 = oldest/end).
+    let onSeek: (CGFloat) -> Void
 
     @State private var hoverY: CGFloat?
 
@@ -151,12 +151,13 @@ struct SearchTimelineRuler: View {
                 }
             }
             .gesture(
+                // Live-scrub while pressing/dragging: the point under the cursor is a
+                // fixed point of the fisheye warp, so the raw Y maps straight to a
+                // fraction of the ruler — clicking or dragging anywhere travels the
+                // list to exactly that continuous position.
                 DragGesture(minimumDistance: 0)
-                    .onEnded { value in
-                        if let idx = nearestResultIndex(toY: value.location.y, height: h, layout: layout) {
-                            onSeek(idx)
-                        }
-                    }
+                    .onChanged { onSeek(fraction(forY: $0.location.y, height: h)) }
+                    .onEnded { onSeek(fraction(forY: $0.location.y, height: h)) }
             )
         }
     }
@@ -295,15 +296,13 @@ struct SearchTimelineRuler: View {
         return CGFloat(exp(-d * d))
     }
 
-    private func nearestResultIndex(toY y: CGFloat, height: CGFloat, layout: RulerLayout) -> Int? {
-        guard layout.slotCount > 0 else { return nil }
-        var bestSlot = 0
-        var bestDist = CGFloat.greatestFiniteMagnitude
-        for j in 0..<layout.slotCount {
-            let dist = abs(warp(layout.slotY[j], height: height) - y)
-            if dist < bestDist { bestDist = dist; bestSlot = j }
-        }
-        return layout.resultIndex[bestSlot]
+    /// The click/drag Y as a clamped 0…1 fraction of the ruler's resting span — the
+    /// tick band between the top and bottom insets.
+    private func fraction(forY y: CGFloat, height: CGFloat) -> CGFloat {
+        let top = edgeInset
+        let bottom = max(top, height - edgeInset)
+        guard bottom > top else { return 0 }
+        return min(1, max(0, (y - top) / (bottom - top)))
     }
 
     // MARK: - Formatting

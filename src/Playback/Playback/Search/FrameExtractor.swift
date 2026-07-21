@@ -50,24 +50,31 @@ final class FrameExtractor: @unchecked Sendable {
         let url = Paths.baseDataDirectory.appendingPathComponent(seg.videoPath)
         guard FileManager.default.fileExists(atPath: url.path) else { lock.unlock(); return nil }
         let generator = generatorLocked(for: seg.videoPath, url: url, exact: exact)
-        lock.unlock()
 
-        // The video is compressed to `frameCount/fps` seconds, NOT the wall-clock
-        // span it covers — so seek by the fractional position within the segment
-        // times the actual video duration. (Seeking by `ts - startTS` lands far past
-        // the end and returns nil.)
+        // Map the absolute timestamp to the frame index the OCR indexer recorded — it
+        // decodes frames sequentially, so its index is exact — then seek to the CENTER
+        // of that frame's presentation interval. Seeking to the frame's start edge
+        // (index/fps) lets a zero-tolerance decode round *down* into the previous frame
+        // at the boundary; at an app switch that renders a different app entirely, with
+        // none of the matched text and no highlight box. The +0.5 lands squarely inside
+        // the intended frame. (Seeking by `ts - startTS` instead would land far past the
+        // end, since the video is compressed to frameCount/fps seconds, not wall-clock.)
         let span = max(0.0001, seg.endTS - seg.startTS)
         let ratio = min(1, max(0, (ts - seg.startTS) / span))
-        let videoDuration = seg.fps > 0 ? Double(seg.frameCount) / seg.fps : span
-        let time = CMTime(seconds: ratio * videoDuration, preferredTimescale: 600)
+        let fps = seg.fps > 0 ? seg.fps : max(1, Double(seg.frameCount)) / span
+        let lastIndex = Double(max(0, seg.frameCount - 1))
+        let index = min(lastIndex, (ratio * Double(seg.frameCount)).rounded())
+        let time = CMTime(seconds: (index + 0.5) / fps, preferredTimescale: 600)
 
-        let started = Date()
+        lock.unlock()
+        return await Self.rawDecode(generator, at: time)
+    }
+
+    private static func rawDecode(_ generator: AVAssetImageGenerator, at time: CMTime) async -> CGImage? {
         do {
-            let image = try await generator.image(at: time).image
-            Log.search.debug("thumb ok ts=\(ts, privacy: .public) exact=\(exact, privacy: .public) in \(Int(Date().timeIntervalSince(started) * 1000), privacy: .public)ms")
-            return image
+            return try await generator.image(at: time).image
         } catch {
-            Log.search.debug("thumb FAIL ts=\(ts, privacy: .public) exact=\(exact, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            Log.search.debug("thumb decode failed: \(error.localizedDescription, privacy: .public)")
             return nil
         }
     }
@@ -95,13 +102,16 @@ final class FrameExtractor: @unchecked Sendable {
         if let existing = thumbGenerators.get(key) { return existing }
         let generator = AVAssetImageGenerator(asset: AVURLAsset(url: url))
         generator.appliesPreferredTrackTransform = true
-        // A bounded output size decodes far less than a full Retina frame, and an
-        // infinite tolerance lets AVFoundation return the nearest keyframe — no
-        // decode-to-exact-frame cost. Benchmarked ~2× faster than an exact seek and
-        // plenty accurate for a preview. (Highlighting uses the exact generator.)
+        // The bounded output size is where the thumbnail's speed comes from — it decodes
+        // far less than a full Retina frame. The tolerance must stay zero, though: with
+        // an infinite tolerance AVFoundation returns whatever frame is cheapest to
+        // produce (in practice a single frame for a whole region), ignoring the
+        // requested time — so the preview shows a *different* frame than the one that
+        // matched. Every frame is intra-coded, so an exact seek still decodes just one
+        // frame. (Highlighting uses the full-resolution exact generator.)
         generator.maximumSize = CGSize(width: maxThumbDimension, height: maxThumbDimension)
-        generator.requestedTimeToleranceBefore = .positiveInfinity
-        generator.requestedTimeToleranceAfter = .positiveInfinity
+        generator.requestedTimeToleranceBefore = .zero
+        generator.requestedTimeToleranceAfter = .zero
         thumbGenerators.put(key, generator, cap: generatorCap)
         return generator
     }

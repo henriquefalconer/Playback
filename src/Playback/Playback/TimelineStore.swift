@@ -36,20 +36,24 @@ struct Segment: Identifiable {
         let clampedTime = min(max(time, startTS), endTS)
         let timelineOffset = max(0, min(clampedTime - startTS, duration))
 
-        guard let videoDuration, duration > 0 else {
+        guard let videoDuration, duration > 0, let fps, fps > 0, frameCount > 0 else {
             return timelineOffset
         }
 
-        // Simple linear mapping: the entire timeline interval of this segment
-        // [startTS, endTS] spans 100% of the video duration [0, videoDuration].
-        // This prevents video "freezing" at the start or end of the segment and ensures
-        // continuous scrubbing throughout the entire segment.
         let ratio = timelineOffset / duration
         if !ratio.isFinite || ratio < 0 {
             return 0
         }
-        let mapped = videoDuration * min(1.0, ratio)
-        return max(0, min(videoDuration, mapped))
+        // Seek to the CENTER of the frame the OCR indexer recorded for this instant,
+        // not the frame's start edge. The index maps the timeline interval
+        // [startTS, endTS] onto the frames [0, frameCount); a zero-tolerance seek to
+        // the exact edge PTS (index/fps) rounds *down* into the previous frame, so a
+        // search jump lands one frame early — a different app at a boundary, with none
+        // of the matched text. Landing mid-frame keeps playback/highlight in lockstep
+        // with the index, and each frame is ~2s of a screenshot time-lapse anyway.
+        let lastIndex = Double(max(0, frameCount - 1))
+        let index = min(lastIndex, (min(1.0, ratio) * Double(frameCount)).rounded())
+        return max(0, min(videoDuration, (index + 0.5) / fps))
     }
 
     /// Approximate inverse of `videoOffset(forAbsoluteTime:)`.

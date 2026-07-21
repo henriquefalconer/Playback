@@ -40,6 +40,7 @@
 
 ## Development
 
+- **Computer use / GUI validation:** Drive and visually verify the running app with the built-in macOS CLIs — `screencapture -x` for screenshots (Read the PNG to inspect), `cliclick` for mouse clicks/moves, and `osascript`/System Events for keystrokes and global shortcuts (coordinates are in logical points = Retina pixels ÷ 2; note `cliclick` cannot simulate SwiftUI drag gestures).
 - **Git branching:** Do not checkout other branches unless the user explicitly tells you to
 - **Git authentication:** If git push fails due to authentication, use `gh auth login --with-token < "/Volumes/My Shared Files/vm-macos-sharing/claude-pat-github.txt" && gh auth setup-git` to configure credentials, then retry the push
 - **UI test timing:** Use `waitForExistence(timeout:)` for element queries rather than fixed sleep() when possible. Use sleep() only for animations/transitions

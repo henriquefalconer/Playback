@@ -75,8 +75,10 @@ struct ContentView: View {
             // content is immediately indexable — then index, newest-first.
             ProcessingService.shared.triggerProcessing(source: "timeline-open")
             // OCR search indexing runs ONLY while the timeline is open, so the
-            // background recording path never spends CPU on text recognition.
-            ProcessingService.shared.beginTimelineIndexing()
+            // background recording path never spends CPU on text recognition. It is
+            // paused whenever the search modal opens (see the showSearch handler),
+            // since its video decoding starves the results' on-demand thumbnails.
+            if !showSearch { ProcessingService.shared.beginTimelineIndexing() }
             // If segments are already loaded when view appears,
             // immediately position at the most recent instant; otherwise show
             // "Now" until the data arrives.
@@ -105,11 +107,18 @@ struct ContentView: View {
         // open; drop it again the moment it closes.
         .onChange(of: showSearch) { _, isOpen in
             if isOpen {
+                // Pause OCR indexing while searching. Its helper pool decodes video
+                // frames to OCR them, which starves the search results' own on-demand
+                // thumbnail decode — leaving the visible rows blank for many seconds.
+                // Browsing results is interactive and wins; the backlog resumes on
+                // close.
+                ProcessingService.shared.endTimelineIndexing()
                 searchIndex.activate()
             } else {
                 searchIndex.deactivate()
                 pointerInSearchPanel = false
                 matchHighlight = nil
+                ProcessingService.shared.beginTimelineIndexing()
             }
         }
         // Clear the match highlight once the user scrubs away from the moment it

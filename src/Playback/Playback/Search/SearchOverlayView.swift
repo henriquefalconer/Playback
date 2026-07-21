@@ -182,13 +182,17 @@ struct SearchOverlayView: View {
                 index: index,
                 onSelect: { onSelect($0.ts, $0.id, query) },
                 rowHeight: rowHeight,
-                controller: tableController
+                controller: tableController,
+                // Indexing is paused while searching so its video decoding doesn't
+                // starve these thumbnails; once the first screen has loaded, resume
+                // it so the app keeps indexing/processing normally in the background.
+                onThumbnailsSettled: { ProcessingService.shared.beginTimelineIndexing() }
             )
 
-            // Time Machine-style ruler replaces the scrollbar: click to fast-travel
-            // the list to the nearest match at that moment (by row index, O(1)).
-            SearchTimelineRuler(results: index.results) { row in
-                tableController.scrollToRow(row)
+            // Time Machine-style ruler replaces the scrollbar: click or drag to
+            // travel the list to that continuous position (O(1), sub-row precise).
+            SearchTimelineRuler(results: index.results) { fraction in
+                tableController.scrollToFraction(fraction)
             }
             .frame(width: 116)
             .padding(.vertical, 6)
@@ -269,55 +273,48 @@ struct SearchListFooter: View {
 }
 
 /// A single result row: squircle preview + highlighted two-line snippet.
+///
+/// Purely presentational — no tap handling of its own. The `thumbnail` is supplied by
+/// the hosting table (loaded imperatively as the row scrolls in, since SwiftUI's
+/// `.task`/`.onAppear` don't fire in an `NSTableView` cell), and clicks are handled by
+/// the table's own AppKit action. A SwiftUI `Button` nested in a hosted cell wedges
+/// the surrounding SwiftUI gesture routing after a tap (the ruler and modal drag go
+/// dead), so the row deliberately isn't one.
 struct SearchResultRow: View {
     let result: SearchResult
-    let index: SearchIndex
-    let onTap: () -> Void
+    let thumbnail: NSImage?
 
-    @State private var thumbnail: NSImage?
     @State private var isHovering = false
 
     var body: some View {
-        Button(action: onTap) {
-            HStack(alignment: .center, spacing: 12) {
-                thumbnailView
+        HStack(alignment: .center, spacing: 12) {
+            thumbnailView
 
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(result.snippet)
-                        .font(.system(size: 13))
-                        .foregroundStyle(.primary)
-                        .lineLimit(2)
-                        .truncationMode(.tail)
-                        .multilineTextAlignment(.leading)
-                        .fixedSize(horizontal: false, vertical: true)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(result.snippet)
+                    .font(.system(size: 13))
+                    .foregroundStyle(.primary)
+                    .lineLimit(2)
+                    .truncationMode(.tail)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
 
-                    Text(subtitle)
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-                Spacer(minLength: 0)
+                Text(subtitle)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
-            .background(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(isHovering ? Color.white.opacity(0.10) : Color.clear)
-            )
-            .contentShape(Rectangle())
+            Spacer(minLength: 0)
         }
-        .buttonStyle(.plain)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(isHovering ? Color.white.opacity(0.10) : Color.clear)
+        )
+        .contentShape(Rectangle())
         .onHover { isHovering = $0 }
         .accessibilityIdentifier("search.result")
-        .task(id: result.id) {
-            // Seed from the cache synchronously so a reused cell shows the right
-            // frame immediately — never the previous row's image, never a flash of
-            // empty — and only decode when it isn't cached yet.
-            thumbnail = index.cachedThumbnail(for: result)
-            if thumbnail == nil {
-                thumbnail = await index.thumbnail(for: result)
-            }
-        }
     }
 
     private var thumbnailView: some View {
