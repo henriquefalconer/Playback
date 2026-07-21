@@ -113,12 +113,13 @@ struct ContentView: View {
         // open; drop it again the moment it closes.
         .onChange(of: showSearch) { _, isOpen in
             if isOpen {
-                // Pause OCR indexing while searching. Its helper pool decodes video
-                // frames to OCR them, which starves the search results' own on-demand
-                // thumbnail decode — leaving the visible rows blank for many seconds.
-                // Browsing results is interactive and wins; the backlog resumes on
-                // close.
-                ProcessingService.shared.endTimelineIndexing()
+                // Keep OCR indexing running WHILE searching: the workers are
+                // background-QoS/niced so they yield the video decoder to the
+                // results' on-demand thumbnails, and a query still being indexed
+                // (or one with no matches, like a random string) must keep making
+                // progress and streaming in results instead of stalling until the
+                // panel closes.
+                ProcessingService.shared.beginTimelineIndexing()
                 // Make sure the footer's "Loading…"/"No more results" reflects the
                 // true pending state the moment the panel opens.
                 ProcessingService.shared.refreshIndexingProgress()

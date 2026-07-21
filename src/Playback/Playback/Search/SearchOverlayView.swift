@@ -185,9 +185,11 @@ struct SearchOverlayView: View {
                 onSelect: { onSelect($0.ts, $0.id, query) },
                 rowHeight: rowHeight,
                 controller: tableController,
-                // Indexing is paused while searching so its video decoding doesn't
-                // starve these thumbnails; once the first screen has loaded, resume
-                // it so the app keeps indexing/processing normally in the background.
+                // OCR indexing keeps running while searching (its workers are
+                // background-QoS and yield the decoder to these thumbnails), so a
+                // query still being indexed keeps streaming in results. Once the
+                // first screen has settled, nudge indexing in case it had drained
+                // and new segments have since arrived.
                 onThumbnailsSettled: { ProcessingService.shared.beginTimelineIndexing() }
             )
 
