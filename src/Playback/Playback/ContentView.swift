@@ -13,6 +13,7 @@ struct MatchHighlight: Equatable {
 struct ContentView: View {
     @EnvironmentObject var timelineStore: TimelineStore
     @EnvironmentObject var playbackController: PlaybackController
+    @EnvironmentObject var fullscreenManager: FullscreenManagerWrapper
     @ObservedObject private var processingService = ProcessingService.shared
 
     // Initial load: the video area stays black only until the latest AVAILABLE
@@ -383,6 +384,16 @@ struct ContentView: View {
                 return nil
             }
 
+            // Shift+ESC minimizes the timeline (to the Dock) instead of closing it, and
+            // — unlike plain ESC — leaves recording stopped. Handled before the search /
+            // date-picker branches so it works even while a modal is open.
+            if event.keyCode == 53 && event.modifierFlags.contains(.shift) {
+                showSearch = false
+                showDatePicker = false
+                minimizeTimelineWindow()
+                return nil
+            }
+
             // Plain CMD+F (no Control) always opens search and focuses the field —
             // pressing it again while open just re-focuses.
             let isCmdF = event.keyCode == 3
@@ -606,6 +617,53 @@ struct ContentView: View {
         window.toggleFullScreen(nil)
         // Fallback: if the exit transition never reports completion, close anyway.
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { close() }
+    }
+
+    /// Minimize the timeline to the Dock (Shift+ESC) without closing it. The window
+    /// isn't destroyed, so `onDisappear` never fires and recording stays stopped — the
+    /// opposite of a plain-ESC close, which resumes recording. A native fullscreen
+    /// window can't be miniaturized, so exit fullscreen first and restore the normal
+    /// menu bar / Dock before dropping to the Dock.
+    private func minimizeTimelineWindow() {
+        let window = NSApp.keyWindow
+            ?? NSApp.windows.first(where: { $0.identifier?.rawValue.contains("timeline") == true })
+        guard let window else { return }
+
+        // When the user restores the window from the Dock, put it back into fullscreen
+        // (recording stays paused until the timeline is actually closed with ESC).
+        var restoreToken: NSObjectProtocol?
+        restoreToken = NotificationCenter.default.addObserver(
+            forName: NSWindow.didDeminiaturizeNotification, object: window, queue: .main
+        ) { [fullscreenManager] _ in
+            if let restoreToken { NotificationCenter.default.removeObserver(restoreToken) }
+            fullscreenManager.configureFullscreenPresentation()
+            fullscreenManager.enterFullscreen(window)
+        }
+
+        let miniaturize: () -> Void = {
+            NSApp.presentationOptions = []
+            window.miniaturize(nil)
+        }
+
+        guard window.styleMask.contains(.fullScreen) else {
+            miniaturize()
+            return
+        }
+
+        var token: NSObjectProtocol?
+        var done = false
+        let run: () -> Void = {
+            guard !done else { return }
+            done = true
+            if let token { NotificationCenter.default.removeObserver(token) }
+            miniaturize()
+        }
+        token = NotificationCenter.default.addObserver(
+            forName: NSWindow.didExitFullScreenNotification, object: window, queue: .main
+        ) { _ in run() }
+        window.toggleFullScreen(nil)
+        // Fallback: if the exit transition never reports completion, minimize anyway.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { run() }
     }
 
     /// Jump the timeline to the moment behind a search result. Keeps the search

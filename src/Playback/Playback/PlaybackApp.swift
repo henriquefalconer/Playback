@@ -31,6 +31,7 @@ struct PlaybackApp: App {
             ContentView()
                 .environmentObject(timelineStore)
                 .environmentObject(playbackController)
+                .environmentObject(fullscreenManager)
                 .onAppear {
                     let openTime = Date()
                     playbackController.timelineStore = timelineStore
